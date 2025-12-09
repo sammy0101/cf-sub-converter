@@ -1,0 +1,10 @@
+name = "my-sub-converter"
+main = "src/index.ts"
+compatibility_date = "2024-04-01"
+
+[placement]
+mode = "smart"
+
+[[kv_namespaces]]
+binding = "SUB_CACHE"
+id = "請把這裡換成你的KV_ID_不要保留這段中文"

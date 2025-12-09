@@ -65,9 +65,10 @@ const HTML_PAGE = `
     .fav-section { background: #253045; padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border); }
     .fav-title { margin: 0 0 1rem 0; font-size: 1.1rem; color: var(--accent); display: flex; align-items: center; gap: 0.5rem; }
     
-    /* 修改為垂直排列以便放入 textarea */
     .fav-form { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem; }
-    .fav-row { display: flex; gap: 1rem; }
+    
+    /* 修復按鈕樣式 */
+    .fav-row { display: flex; gap: 1rem; align-items: center; } 
     
     .fav-list { display: flex; flex-wrap: wrap; gap: 0.8rem; }
     .fav-item { background: #1e293b; border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.8rem; display: flex; align-items: center; gap: 0.8rem; transition: all 0.2s; }
@@ -87,7 +88,6 @@ const HTML_PAGE = `
     textarea { width: 100%; background: var(--input-bg); border: 1px solid var(--border); color: var(--text-main); padding: 1.2rem; border-radius: 12px; font-family: monospace; font-size: 0.95rem; outline: none; transition: all 0.2s; resize: vertical; min-height: 100px; line-height: 1.6; }
     textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.1); }
     
-    /* 專門給收藏夾用的 textarea */
     #favUrl { min-height: 80px; }
 
     .controls { display: grid; grid-template-columns: 1fr 200px; gap: 1.5rem; align-items: end; }
@@ -96,7 +96,21 @@ const HTML_PAGE = `
     button { background: var(--accent); color: #0f172a; border: none; font-weight: 700; cursor: pointer; transition: all 0.2s; }
     button:hover { background: var(--accent-hover); transform: translateY(-2px); }
     
-    .btn-add { background: var(--success); color: white; height: auto; padding: 0.8rem 1.5rem; width: auto; align-self: flex-end; }
+    /* 修正後的儲存按鈕樣式 */
+    .btn-add { 
+      background: var(--success); 
+      color: white; 
+      height: auto; 
+      padding: 0.8rem 1.5rem; 
+      width: auto; 
+      white-space: nowrap; /* 強制不換行 */
+      flex-shrink: 0;      /* 防止被擠壓 */
+      font-size: 1rem;     /* 調整字體大小 */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
     .btn-add:hover { background: #16a34a; }
 
     .result-group { margin-top: 1rem; display: none; background: #0f172a; padding: 1.5rem; border-radius: 12px; border: 1px dashed var(--border); }
@@ -132,7 +146,7 @@ const HTML_PAGE = `
       <p>客製化遠端規則 • 智能合併多訂閱</p>
     </div>
 
-    <!-- 收藏夾區塊 (升級版) -->
+    <!-- 收藏夾區塊 -->
     <div class="fav-section">
       <h3 class="fav-title">⭐ 我的訂閱收藏 (本機儲存)</h3>
       <div class="fav-form">
@@ -213,7 +227,6 @@ const HTML_PAGE = `
         container.innerHTML = '<span style="color:#94a3b8; font-size:0.9rem;">暫無收藏，請在上方輸入並儲存...</span>';
         return;
       }
-      // 因為 URL 可能包含換行符，直接傳遞可能會出錯，這裡我們使用 index 來參考
       container.innerHTML = profiles.map((p, index) => \`
         <div class="fav-item">
           <span class="fav-name" onclick="insertProfile(\${index})" title="點擊加入">\${p.name}</span>
@@ -249,7 +262,6 @@ const HTML_PAGE = `
       
       const textarea = document.getElementById('url');
       const currentVal = textarea.value.trim();
-      // 如果原本有內容，先換行再加入新內容
       textarea.value = currentVal ? (currentVal + '\\n' + profile.url) : profile.url;
       showToast('📥 已加入: ' + profile.name);
     }

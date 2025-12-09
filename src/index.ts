@@ -5,7 +5,7 @@ interface Env {
   SUB_CACHE: KVNamespace;
 }
 
-// --- 外部配置連結 (請確保 GitHub 上檔案已更新) ---
+// --- 外部配置連結 ---
 const REMOTE_CONFIG = {
   singbox: 'https://github.com/sammy0101/myself/raw/refs/heads/main/Sing-Box_Rules.JSON',
   clash: 'https://github.com/sammy0101/myself/raw/refs/heads/main/Clash_Rules.YAML'
@@ -37,7 +37,7 @@ interface ProxyNode {
   clashObj?: any;
 }
 
-// --- 前端頁面 HTML ---
+// --- 前端頁面 HTML (已修改文字) ---
 const HTML_PAGE = `
 <!DOCTYPE html>
 <html lang="zh-TW">
@@ -50,7 +50,6 @@ const HTML_PAGE = `
       --bg: #0f172a; --card-bg: #1e293b; --input-bg: #020617;
       --text-main: #f8fafc; --text-sub: #94a3b8;
       --accent: #38bdf8; --accent-hover: #0ea5e9; --border: #334155; --success: #22c55e;
-      --card-hover: #2d3a52;
     }
     * { box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text-main); margin: 0; padding: 40px 20px; display: flex; justify-content: center; min-height: 100vh; }
@@ -73,12 +72,13 @@ const HTML_PAGE = `
     .result-row input { flex: 1; background: #1e293b; border: none; color: #fff; padding: 0.8rem; border-radius: 6px; font-family: monospace; }
     .copy-btn { width: auto; background: var(--success); height: auto; padding: 0 2rem; }
     
-    .rules-section { margin-top: 1rem; }
-    .rules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem; }
-    .rule-card { background: #253045; padding: 1rem 1.2rem; border-radius: 10px; border: 1px solid transparent; transition: all 0.2s; }
-    .rule-card:hover { border-color: var(--border); background: var(--card-hover); transform: translateY(-2px); }
-    .rule-name { display: block; font-weight: 600; color: #e2e8f0; margin-bottom: 0.2rem; }
-    .rule-desc { font-size: 0.8rem; color: #94a3b8; }
+    .rules-section { margin-top: 1rem; padding: 1rem; background: #253045; border-radius: 10px; border: 1px solid var(--border); }
+    .rules-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px dashed var(--border); }
+    .rules-link { color: var(--accent); text-decoration: none; font-size: 0.9rem; }
+    .rules-link:hover { text-decoration: underline; }
+    
+    .rule-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0; font-size: 0.9rem; color: #e2e8f0; }
+    .rule-dot { width: 8px; height: 8px; background: var(--success); border-radius: 50%; }
 
     .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: var(--success); color: white; padding: 12px 24px; border-radius: 50px; opacity: 0; transition: 0.3s; pointer-events: none; font-weight: 600; }
     .toast.show { opacity: 1; }
@@ -120,16 +120,20 @@ const HTML_PAGE = `
     </div>
 
     <div class="rules-section">
-      <label>🛡️ 內建分流群組 (排序由上至下)</label>
-      <div class="rules-grid">
-        <div class="rule-card"><span class="rule-name">🚀 節點選擇</span><span class="rule-desc">手動切換節點</span></div>
-        <div class="rule-card"><span class="rule-name">⚡ 自動選擇</span><span class="rule-desc">自動測速切換</span></div>
-        <div class="rule-card"><span class="rule-name">💬 AI 服務</span><span class="rule-desc">ChatGPT / Gemini</span></div>
-        <div class="rule-card"><span class="rule-name">🌐 非中國</span><span class="rule-desc">Google / TG</span></div>
-        <div class="rule-card"><span class="rule-name">🔒 國內服務</span><span class="rule-desc">CN Direct</span></div>
-        <div class="rule-card"><span class="rule-name">🏠 私有網絡</span><span class="rule-desc">Local Direct</span></div>
-        <div class="rule-card"><span class="rule-name">🛑 廣告攔截</span><span class="rule-desc">AdBlock</span></div>
-        <div class="rule-card"><span class="rule-name">🐟 漏網之魚</span><span class="rule-desc">Final Match</span></div>
+      <div class="rules-header">
+        <label style="margin:0">🛡️ 內建分流群組</label> <!-- 這裡修改了 -->
+        <a href="https://github.com/sammy0101/myself/tree/main" target="_blank" class="rules-link">查看 GitHub 原始碼 ↗</a>
+      </div>
+      <div class="rule-item">
+        <span class="rule-dot"></span>
+        <span>SingBox: <b>Sing-Box_Rules.JSON</b></span>
+      </div>
+      <div class="rule-item">
+        <span class="rule-dot"></span>
+        <span>Clash: <b>Clash_Rules.YAML</b></span>
+      </div>
+      <div style="margin-top:0.8rem; font-size:0.85rem; color:#94a3b8;">
+        ℹ️ 系統會實時讀取 GitHub 最新設定，並將您的節點插入至所有策略組中。
       </div>
     </div>
   </div>
@@ -194,14 +198,12 @@ function parseVless(urlStr: string): ProxyNode | null {
       node.wsPath = params.get('path') || '/';
       node.wsHeaders = { Host: params.get('host') || node.server };
     }
-    // SingBox Obj
     const sb: any = { tag: name, type: 'vless', server: node.server, server_port: node.port, uuid: node.uuid };
     if(node.flow) sb.flow = node.flow;
     sb.tls = { enabled: node.tls, server_name: node.sni || node.server, insecure: node.skipCertVerify, utls: { enabled: true, fingerprint: node.fingerprint }};
     if(node.reality) sb.tls.reality = { enabled: true, public_key: node.reality.publicKey, short_id: node.reality.shortId };
     if(node.network === 'ws') sb.transport = { type: 'ws', path: node.wsPath, headers: node.wsHeaders };
     node.singboxObj = sb;
-    // Clash Obj
     const cl: any = { name, type: 'vless', server: node.server, port: node.port, uuid: node.uuid, tls: node.tls, servername: node.sni || node.server, 'skip-cert-verify': node.skipCertVerify, 'client-fingerprint': node.fingerprint };
     if(node.flow) cl.flow = node.flow;
     if(node.reality) { cl.reality = true; cl['reality-opts'] = { 'public-key': node.reality.publicKey, 'short-id': node.reality.shortId }; }
@@ -221,12 +223,10 @@ function parseHysteria2(urlStr: string): ProxyNode | null {
       tls: true, sni: params.get('sni') || url.hostname, skipCertVerify: params.get('insecure') === '1',
       obfs: params.get('obfs') || undefined, obfsPassword: params.get('obfs-password') || undefined,
     };
-    // SingBox Obj
     const sb: any = { tag: name, type: 'hysteria2', server: node.server, server_port: node.port, password: node.password };
     sb.tls = { enabled: true, server_name: node.sni, insecure: node.skipCertVerify };
     if(node.obfs) sb.obfs = { type: node.obfs, password: node.obfsPassword };
     node.singboxObj = sb;
-    // Clash Obj
     const cl: any = { name, type: 'hysteria2', server: node.server, port: node.port, password: node.password, sni: node.sni, 'skip-cert-verify': node.skipCertVerify };
     if(node.obfs) { cl.obfs = node.obfs; cl['obfs-password'] = node.obfsPassword; }
     node.clashObj = cl;
@@ -245,12 +245,10 @@ function parseVmess(vmessUrl: string): ProxyNode | null {
       tls: config.tls === 'tls', sni: config.sni || config.host, network: config.net || 'tcp',
       wsPath: config.path, wsHeaders: config.host ? { Host: config.host } : undefined, skipCertVerify: true
     };
-    // SingBox
     const sb: any = { tag: name, type: 'vmess', server: node.server, server_port: node.port, uuid: node.uuid, security: 'auto' };
     sb.tls = { enabled: node.tls, server_name: node.sni || node.server, insecure: true };
     if(node.network === 'ws') sb.transport = { type: 'ws', path: node.wsPath, headers: node.wsHeaders };
     node.singboxObj = sb;
-    // Clash
     const cl: any = { name, type: 'vmess', server: node.server, port: node.port, uuid: node.uuid, cipher: 'auto', tls: node.tls, servername: node.sni, network: node.network };
     if(node.network === 'ws') cl['ws-opts'] = { path: node.wsPath, headers: node.wsHeaders };
     node.clashObj = cl;
@@ -298,13 +296,17 @@ function toBase64(nodes: ProxyNode[]) {
 }
 
 // --- 生成器: SingBox (JSON Template) ---
+// 這裡使用了時間戳 (?t=Date.now()) 來強制繞過緩存，實現實時更新
 async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
-  const resp = await fetch(REMOTE_CONFIG.singbox);
+  const resp = await fetch(`${REMOTE_CONFIG.singbox}?t=${Date.now()}`, {
+    headers: { 'Cache-Control': 'no-cache' }
+  });
   if (!resp.ok) throw new Error('無法讀取 Sing-Box_Rules.JSON');
   const text = await resp.text();
+  
   let config;
   try { config = JSON.parse(text); } catch (e) { throw new Error('Sing-Box_Rules.JSON 格式錯誤'); }
-  
+
   const outbounds = nodes.map(n => n.singboxObj);
   const nodeTags = outbounds.map(o => o.tag);
 
@@ -322,10 +324,14 @@ async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
 }
 
 // --- 生成器: Clash Meta (YAML Template) ---
+// 這裡使用了時間戳 (?t=Date.now()) 來強制繞過緩存，實現實時更新
 async function toClashWithTemplate(nodes: ProxyNode[]) {
-  const resp = await fetch(REMOTE_CONFIG.clash);
+  const resp = await fetch(`${REMOTE_CONFIG.clash}?t=${Date.now()}`, {
+    headers: { 'Cache-Control': 'no-cache' }
+  });
   if (!resp.ok) throw new Error('無法讀取 Clash_Rules.YAML');
   const text = await resp.text();
+
   let config: any;
   try { config = yaml.load(text); } catch (e) { throw new Error('Clash_Rules.YAML 格式錯誤'); }
 

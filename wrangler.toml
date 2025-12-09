@@ -7,4 +7,4 @@ mode = "smart"
 
 [[kv_namespaces]]
 binding = "SUB_CACHE"
-id = "請把這裡換成你的KV_ID_不要保留這段中文"
+id = "KV_ID_PLACEHOLDER"

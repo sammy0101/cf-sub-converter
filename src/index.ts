@@ -36,7 +36,7 @@ const HTML_PAGE = `
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>訂閱轉換器 | Full Protocols</title>
+  <title>訂閱轉換器</title>
   <style>
     :root { --bg: #0f172a; --card: #1e293b; --text: #e2e8f0; --accent: #38bdf8; --accent-hover: #0ea5e9; --border: #334155; --success: #22c55e; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -281,7 +281,6 @@ function toBase64(nodes: ProxyNode[]) {
     return null;
   }).filter(link => link !== null);
 
-  // 將所有連結用換行符連接，然後轉成 Base64
   return utf8ToBase64(links.join('\n'));
 }
 

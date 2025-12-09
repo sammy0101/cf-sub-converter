@@ -29,7 +29,7 @@ interface ProxyNode {
   skipCertVerify?: boolean;
 }
 
-// --- 前端頁面 HTML ---
+// --- 前端頁面 HTML (寬版 Dashboard 設計) ---
 const HTML_PAGE = `
 <!DOCTYPE html>
 <html lang="zh-TW">
@@ -38,70 +38,214 @@ const HTML_PAGE = `
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>訂閱轉換器</title>
   <style>
-    :root { --bg: #0f172a; --card: #1e293b; --text: #e2e8f0; --accent: #38bdf8; --accent-hover: #0ea5e9; --border: #334155; --success: #22c55e; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-    .container { background: var(--card); padding: 2rem; border-radius: 16px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); width: 100%; max-width: 520px; border: 1px solid var(--border); }
-    h1 { margin-top: 0; text-align: center; font-size: 1.6rem; margin-bottom: 0.5rem; color: #fff; letter-spacing: 0.5px; }
-    .subtitle { text-align: center; color: #94a3b8; font-size: 0.9rem; margin-bottom: 2rem; }
+    :root { 
+      --bg: #0f172a; 
+      --card-bg: #1e293b; 
+      --input-bg: #020617;
+      --text-main: #f8fafc;
+      --text-sub: #94a3b8;
+      --accent: #38bdf8; 
+      --accent-hover: #0ea5e9; 
+      --border: #334155; 
+      --success: #22c55e;
+      --card-hover: #2d3a52;
+    }
     
-    label { display: block; margin-bottom: 0.5rem; font-size: 0.9rem; color: #cbd5e1; font-weight: 500; }
-    input, select, textarea { width: 100%; background: #0f172a; border: 1px solid var(--border); color: #fff; padding: 0.85rem; border-radius: 8px; margin-bottom: 1.5rem; box-sizing: border-box; font-size: 1rem; outline: none; transition: all 0.2s; }
-    input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2); }
+    * { box-sizing: border-box; }
     
-    button { width: 100%; background: var(--accent); color: #0f172a; border: none; padding: 0.85rem; border-radius: 8px; font-size: 1rem; font-weight: 700; cursor: pointer; transition: all 0.2s; }
-    button:hover { background: var(--accent-hover); transform: translateY(-1px); }
-    
-    .result-group { margin-top: 2rem; border-top: 1px solid var(--border); padding-top: 1.5rem; display: none; animation: fadeIn 0.3s ease; }
-    .result-group.show { display: block; }
-    .copy-btn { background: var(--success); color: white; margin-top: 0.5rem; }
-    .copy-btn:hover { background: #16a34a; }
-    
-    .rules-box { background: #0f172a; border-radius: 8px; padding: 1rem; margin-top: 2rem; border: 1px solid var(--border); }
-    .rules-box h3 { margin: 0 0 0.8rem 0; font-size: 1rem; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
-    .rules-list { list-style: none; padding: 0; margin: 0; font-size: 0.85rem; }
-    .rules-list li { display: flex; justify-content: space-between; padding: 0.4rem 0; border-bottom: 1px dashed #334155; }
-    .rules-list li:last-child { border-bottom: none; }
-    .rule-name { color: #e2e8f0; font-weight: 500; }
-    .rule-source { color: #64748b; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; 
+      background: var(--bg); 
+      color: var(--text-main); 
+      margin: 0; 
+      padding: 40px 20px; 
+      display: flex; 
+      justify-content: center; 
+      min-height: 100vh; 
+    }
 
-    .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--success); color: white; padding: 10px 20px; border-radius: 50px; opacity: 0; transition: all 0.3s; pointer-events: none; box-shadow: 0 4px 6px rgba(0,0,0,0.3); font-weight: 600; }
+    .container { 
+      background: var(--card-bg); 
+      padding: 2.5rem; 
+      border-radius: 20px; 
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3); 
+      width: 100%; 
+      max-width: 1000px; /* 加寬寬度 */
+      border: 1px solid var(--border); 
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+
+    /* 標題區塊 */
+    .header { text-align: center; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+    .header h1 { margin: 0; font-size: 2rem; font-weight: 800; background: linear-gradient(90deg, #fff, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .header p { color: var(--text-sub); margin-top: 0.5rem; font-size: 1rem; }
+
+    /* 主要輸入區 */
+    .main-grid { display: grid; grid-template-columns: 1fr; gap: 2rem; }
+    
+    label { display: block; margin-bottom: 0.8rem; font-size: 0.95rem; color: var(--accent); font-weight: 600; letter-spacing: 0.5px; }
+    
+    /* 巨型輸入框 */
+    textarea { 
+      width: 100%; 
+      background: var(--input-bg); 
+      border: 1px solid var(--border); 
+      color: var(--text-main); 
+      padding: 1.2rem; 
+      border-radius: 12px; 
+      font-family: monospace;
+      font-size: 0.95rem; 
+      outline: none; 
+      transition: all 0.2s; 
+      resize: vertical;
+      min-height: 250px; /* 加高 */
+      line-height: 1.6;
+    }
+    textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.1); }
+    textarea::placeholder { color: #475569; }
+
+    /* 控制區 */
+    .controls { display: grid; grid-template-columns: 1fr 200px; gap: 1.5rem; align-items: end; }
+    
+    select { 
+      width: 100%; 
+      background: var(--input-bg); 
+      border: 1px solid var(--border); 
+      color: var(--text-main); 
+      padding: 1rem; 
+      border-radius: 10px; 
+      font-size: 1rem; 
+      outline: none; 
+      cursor: pointer;
+    }
+    
+    button { 
+      width: 100%; 
+      background: var(--accent); 
+      color: #0f172a; 
+      border: none; 
+      padding: 1rem; 
+      border-radius: 10px; 
+      font-size: 1rem; 
+      font-weight: 700; 
+      cursor: pointer; 
+      transition: all 0.2s; 
+      height: 52px;
+    }
+    button:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(56, 189, 248, 0.3); }
+
+    /* 結果區 */
+    .result-group { margin-top: 1rem; display: none; animation: slideDown 0.4s ease; background: #0f172a; padding: 1.5rem; border-radius: 12px; border: 1px dashed var(--border); }
+    .result-group.show { display: block; }
+    .result-row { display: flex; gap: 1rem; }
+    .result-row input { flex: 1; background: #1e293b; border: none; color: #fff; padding: 0.8rem; border-radius: 6px; font-family: monospace; }
+    .copy-btn { width: auto; background: var(--success); height: auto; padding: 0 2rem; }
+    .copy-btn:hover { background: #16a34a; }
+
+    /* 規則網格展示 (Grid Cards) */
+    .rules-section { margin-top: 1rem; }
+    .rules-grid { 
+      display: grid; 
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); 
+      gap: 1rem; 
+      margin-top: 1rem;
+    }
+    
+    .rule-card {
+      background: #253045;
+      padding: 1rem 1.2rem;
+      border-radius: 10px;
+      border: 1px solid transparent;
+      transition: all 0.2s;
+    }
+    .rule-card:hover { border-color: var(--border); background: var(--card-hover); transform: translateY(-2px); }
+    
+    .rule-icon { font-size: 1.5rem; margin-bottom: 0.5rem; display: block; }
+    .rule-name { display: block; font-weight: 600; color: #e2e8f0; margin-bottom: 0.2rem; }
+    .rule-desc { font-size: 0.8rem; color: #94a3b8; }
+
+    .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--success); color: white; padding: 12px 24px; border-radius: 50px; opacity: 0; transition: all 0.3s; pointer-events: none; box-shadow: 0 10px 15px rgba(0,0,0,0.3); font-weight: 600; z-index: 100; }
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
     
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+    @media (max-width: 768px) { .controls { grid-template-columns: 1fr; } .container { padding: 1.5rem; } }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>🚀 訂閱轉換器</h1>
-    <div class="subtitle">SingBox • Clash • Base64</div>
-    
-    <label>訂閱連結 (Subscription URL)</label>
-    <textarea id="url" rows="3" placeholder="請貼上機場訂閱連結 (vless/vmess/hy2...)"></textarea>
-
-    <label>轉換目標 (Target Client)</label>
-    <select id="target">
-      <option value="singbox">Sing-Box (含分流規則)</option>
-      <option value="clash">Clash Meta (含分流規則)</option>
-      <option value="base64">Base64 (v2rayNG / Shadowrocket)</option>
-    </select>
-
-    <button onclick="generate()">⚡ 立即生成配置</button>
-
-    <div class="result-group" id="resultArea">
-      <label>轉換後的連結</label>
-      <input type="text" id="finalUrl" readonly onclick="this.select()">
-      <button class="copy-btn" onclick="copyUrl()">複製連結</button>
+    <div class="header">
+      <h1>🚀 訂閱轉換中心</h1>
+      <p>支援 SingBox / Clash / Base64 • 智能合併多訂閱</p>
     </div>
 
-    <div class="rules-box">
-      <h3>📜 目前生效的分流規則 (Base64 除外)</h3>
-      <ul class="rules-list">
-        <li><span class="rule-name">💬 AI 服務</span><span class="rule-source">Sammy Custom</span></li>
-        <li><span class="rule-name">🌐 非中國</span><span class="rule-source">MetaCubeX</span></li>
-        <li><span class="rule-name">🛑 廣告攔截</span><span class="rule-source">MetaCubeX</span></li>
-        <li><span class="rule-name">🔒 國內服務</span><span class="rule-source">MetaCubeX</span></li>
-        <li><span class="rule-name">🏠 私人網路</span><span class="rule-source">MetaCubeX</span></li>
-      </ul>
+    <div class="main-grid">
+      <div>
+        <label>📥 訂閱連結或節點 (一行一個，支援混合輸入)</label>
+        <textarea id="url" placeholder="在此貼上：
+1. 機場訂閱連結 (https://...)
+2. 自建節點連結 (vless://..., hysteria2://...)
+3. Base64 內容
+
+系統會自動合併所有連結並生成統一的配置文件。"></textarea>
+      </div>
+
+      <div class="controls">
+        <div>
+          <label>🛠 轉換目標 (Target)</label>
+          <select id="target">
+            <option value="singbox">Sing-Box (含分流規則)</option>
+            <option value="clash">Clash Meta (含分流規則)</option>
+            <option value="base64">Base64 (純節點列表)</option>
+          </select>
+        </div>
+        <button onclick="generate()">⚡ 立即生成</button>
+      </div>
+    </div>
+
+    <div class="result-group" id="resultArea">
+      <label>🎉 您的專屬訂閱連結</label>
+      <div class="result-row">
+        <input type="text" id="finalUrl" readonly onclick="this.select()">
+        <button class="copy-btn" onclick="copyUrl()">複製</button>
+      </div>
+    </div>
+
+    <div class="rules-section">
+      <label>🛡️ 內建智能分流規則</label>
+      <div class="rules-grid">
+        <div class="rule-card">
+          <span class="rule-icon">💬</span>
+          <span class="rule-name">AI 服務優化</span>
+          <span class="rule-desc">ChatGPT, Gemini, Claude</span>
+        </div>
+        <div class="rule-card">
+          <span class="rule-icon">🌐</span>
+          <span class="rule-name">非中國流量</span>
+          <span class="rule-desc">Google, Telegram, Netflix</span>
+        </div>
+        <div class="rule-card">
+          <span class="rule-icon">🛑</span>
+          <span class="rule-name">廣告攔截</span>
+          <span class="rule-desc">過濾常見廣告與追蹤器</span>
+        </div>
+        <div class="rule-card">
+          <span class="rule-icon">🔒</span>
+          <span class="rule-name">國內直連</span>
+          <span class="rule-desc">中國大陸服務不走代理</span>
+        </div>
+        <div class="rule-card">
+          <span class="rule-icon">🏠</span>
+          <span class="rule-name">私人網路</span>
+          <span class="rule-desc">區域網路直連</span>
+        </div>
+        <div class="rule-card">
+          <span class="rule-icon">🐟</span>
+          <span class="rule-name">漏網之魚</span>
+          <span class="rule-desc">其他未匹配流量</span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -109,12 +253,19 @@ const HTML_PAGE = `
 
   <script>
     function generate() {
-      const url = document.getElementById('url').value.trim();
+      const rawInput = document.getElementById('url').value;
       const target = document.getElementById('target').value;
-      if (!url) { alert('請先輸入訂閱連結！'); return; }
+      
+      // 前端處理：將多行輸入轉為單行，用 | 分隔
+      const urls = rawInput.split(/\\n/)
+        .map(u => u.trim())
+        .filter(u => u.length > 0)
+        .join('|'); // 使用 | 作為分隔符傳給後端
+
+      if (!urls) { alert('請至少輸入一個連結！'); return; }
 
       const host = window.location.origin;
-      const final = \`\${host}/?url=\${encodeURIComponent(url)}&target=\${target}\`;
+      const final = \`\${host}/?url=\${encodeURIComponent(urls)}&target=\${target}\`;
 
       document.getElementById('finalUrl').value = final;
       document.getElementById('resultArea').classList.add('show');
@@ -217,14 +368,18 @@ function parseVmess(vmessUrl: string): ProxyNode | null {
   } catch (e) { return null; }
 }
 
-async function parseSubscription(content: string): Promise<ProxyNode[]> {
+// 修改後的解析邏輯：能處理單個字串中的多行內容
+async function parseContent(content: string): Promise<ProxyNode[]> {
   let plainText = content;
+  // 如果內容完全沒有 :// 且看起來像 Base64，嘗試解碼
   if (!content.includes('://')) {
-      const decoded = safeBase64Decode(content);
-      if (decoded) plainText = decoded;
+    const decoded = safeBase64Decode(content);
+    if (decoded) plainText = decoded;
   }
+
   const lines = plainText.split(/\r?\n/);
   const nodes: ProxyNode[] = [];
+
   for (const line of lines) {
     const l = line.trim();
     if (!l) continue;
@@ -235,7 +390,7 @@ async function parseSubscription(content: string): Promise<ProxyNode[]> {
   return nodes;
 }
 
-// --- 生成器: Base64 (還原為連結列表) ---
+// --- 生成器: Base64 ---
 function toBase64(nodes: ProxyNode[]) {
   const links = nodes.map(node => {
     try {
@@ -246,45 +401,28 @@ function toBase64(nodes: ProxyNode[]) {
         if (node.flow) params.set('flow', node.flow);
         if (node.sni) params.set('sni', node.sni);
         if (node.fingerprint) params.set('fp', node.fingerprint);
-        if (node.reality) {
-          params.set('pbk', node.reality.publicKey);
-          params.set('sid', node.reality.shortId);
-        }
-        if (node.network === 'ws') {
-          if (node.wsPath) params.set('path', node.wsPath);
-          if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host);
-        }
+        if (node.reality) { params.set('pbk', node.reality.publicKey); params.set('sid', node.reality.shortId); }
+        if (node.network === 'ws') { if (node.wsPath) params.set('path', node.wsPath); if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host); }
         return `vless://${node.uuid}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
-
       if (node.type === 'hysteria2') {
         const params = new URLSearchParams();
         if (node.sni) params.set('sni', node.sni);
-        if (node.obfs) {
-          params.set('obfs', node.obfs);
-          if (node.obfsPassword) params.set('obfs-password', node.obfsPassword);
-        }
+        if (node.obfs) { params.set('obfs', node.obfs); if (node.obfsPassword) params.set('obfs-password', node.obfsPassword); }
         if (node.skipCertVerify) params.set('insecure', '1');
         return `hysteria2://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
-
       if (node.type === 'vmess') {
-        const vmessObj = {
-          v: "2", ps: node.name, add: node.server, port: node.port, id: node.uuid,
-          aid: 0, scy: "auto", net: node.network, type: "none",
-          host: node.wsHeaders?.Host || "", path: node.wsPath || "",
-          tls: node.tls ? "tls" : "", sni: node.sni || ""
-        };
+        const vmessObj = { v: "2", ps: node.name, add: node.server, port: node.port, id: node.uuid, aid: 0, scy: "auto", net: node.network, type: "none", host: node.wsHeaders?.Host || "", path: node.wsPath || "", tls: node.tls ? "tls" : "", sni: node.sni || "" };
         return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
       }
     } catch (e) { return null; }
     return null;
   }).filter(link => link !== null);
-
   return utf8ToBase64(links.join('\n'));
 }
 
-// --- 生成器: SingBox (SRS) ---
+// --- 生成器: SingBox ---
 function toSingBox(nodes: ProxyNode[]) {
   const proxies = nodes.map(node => {
     const base: any = { tag: node.name, type: node.type, server: node.server, server_port: node.port };
@@ -350,7 +488,7 @@ function toSingBox(nodes: ProxyNode[]) {
   }, null, 2);
 }
 
-// --- 生成器: Clash Meta (List) ---
+// --- 生成器: Clash Meta ---
 function toClash(nodes: ProxyNode[]) {
   const proxyNames = nodes.map(n => n.name);
   const proxies = nodes.map(node => {
@@ -410,35 +548,62 @@ function toClash(nodes: ProxyNode[]) {
   });
 }
 
-// --- Worker 主要邏輯 ---
+// --- Worker 主要邏輯 (支援多連結) ---
 export default {
   async fetch(request: Request, env: Env, ctx: any): Promise<Response> {
     const url = new URL(request.url);
-    const subUrl = url.searchParams.get('url');
-    if (!subUrl) return new Response(HTML_PAGE, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    const urlParam = url.searchParams.get('url');
+    
+    // 如果沒有參數，回傳前端
+    if (!urlParam) return new Response(HTML_PAGE, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 
     const target = url.searchParams.get('target') || 'singbox';
     
     try {
-      const headers = { 'User-Agent': 'v2rayng/1.8.5' };
-      const resp = await fetch(subUrl, { headers });
-      if (!resp.ok) return new Response('無法獲取訂閱內容', { status: 500 });
-      const content = await resp.text();
-      const nodes = await parseSubscription(content);
+      // 1. 分割輸入參數 (支援用 | 分隔的多個連結)
+      const inputs = urlParam.split('|');
+      const allNodes: ProxyNode[] = [];
 
-      if (nodes.length === 0) return new Response('未解析到任何有效節點', { status: 400 });
+      // 2. 平行處理所有來源
+      // 如果是 http 開頭 -> 去 fetch 並解析
+      // 如果不是 -> 當作 raw node 解析
+      await Promise.all(inputs.map(async (input) => {
+        const trimmed = input.trim();
+        if (!trimmed) return;
 
+        if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+          try {
+            const headers = { 'User-Agent': 'v2rayng/1.8.5' };
+            const resp = await fetch(trimmed, { headers });
+            if (resp.ok) {
+              const text = await resp.text();
+              const nodes = await parseContent(text);
+              allNodes.push(...nodes);
+            }
+          } catch (e) {
+            console.error(`Fetch error for ${trimmed}`, e);
+          }
+        } else {
+          // 嘗試解析 Raw Node (vless://...)
+          const nodes = await parseContent(trimmed);
+          allNodes.push(...nodes);
+        }
+      }));
+
+      if (allNodes.length === 0) return new Response('未解析到任何有效節點', { status: 400 });
+
+      // 3. 轉換
       let result = '';
       let contentType = 'text/plain; charset=utf-8';
 
       if (target === 'clash') {
-        result = toClash(nodes);
+        result = toClash(allNodes);
         contentType = 'text/yaml; charset=utf-8';
       } else if (target === 'base64') {
-        result = toBase64(nodes);
+        result = toBase64(allNodes);
         contentType = 'text/plain; charset=utf-8';
       } else {
-        result = toSingBox(nodes);
+        result = toSingBox(allNodes);
         contentType = 'application/json; charset=utf-8';
       }
 

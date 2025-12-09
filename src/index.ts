@@ -64,7 +64,10 @@ const HTML_PAGE = `
     /* 收藏夾區塊 */
     .fav-section { background: #253045; padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border); }
     .fav-title { margin: 0 0 1rem 0; font-size: 1.1rem; color: var(--accent); display: flex; align-items: center; gap: 0.5rem; }
-    .fav-form { display: grid; grid-template-columns: 1fr 2fr auto; gap: 1rem; margin-bottom: 1rem; }
+    
+    /* 修改為垂直排列以便放入 textarea */
+    .fav-form { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem; }
+    .fav-row { display: flex; gap: 1rem; }
     
     .fav-list { display: flex; flex-wrap: wrap; gap: 0.8rem; }
     .fav-item { background: #1e293b; border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.8rem; display: flex; align-items: center; gap: 0.8rem; transition: all 0.2s; }
@@ -78,19 +81,22 @@ const HTML_PAGE = `
     .main-grid { display: grid; grid-template-columns: 1fr; gap: 2rem; }
     label { display: block; margin-bottom: 0.8rem; font-size: 0.95rem; color: var(--accent); font-weight: 600; }
     
-    input[type="text"] { background: var(--input-bg); border: 1px solid var(--border); color: var(--text-main); padding: 0.8rem; border-radius: 8px; outline: none; transition: all 0.2s; }
+    input[type="text"] { background: var(--input-bg); border: 1px solid var(--border); color: var(--text-main); padding: 0.8rem; border-radius: 8px; outline: none; transition: all 0.2s; width: 100%; }
     input[type="text"]:focus { border-color: var(--accent); }
 
-    textarea { width: 100%; background: var(--input-bg); border: 1px solid var(--border); color: var(--text-main); padding: 1.2rem; border-radius: 12px; font-family: monospace; font-size: 0.95rem; outline: none; transition: all 0.2s; resize: vertical; min-height: 200px; line-height: 1.6; }
+    textarea { width: 100%; background: var(--input-bg); border: 1px solid var(--border); color: var(--text-main); padding: 1.2rem; border-radius: 12px; font-family: monospace; font-size: 0.95rem; outline: none; transition: all 0.2s; resize: vertical; min-height: 100px; line-height: 1.6; }
     textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.1); }
     
+    /* 專門給收藏夾用的 textarea */
+    #favUrl { min-height: 80px; }
+
     .controls { display: grid; grid-template-columns: 1fr 200px; gap: 1.5rem; align-items: end; }
     select, button { width: 100%; border-radius: 10px; font-size: 1rem; height: 52px; }
     select { background: var(--input-bg); border: 1px solid var(--border); color: var(--text-main); padding: 1rem; outline: none; }
     button { background: var(--accent); color: #0f172a; border: none; font-weight: 700; cursor: pointer; transition: all 0.2s; }
     button:hover { background: var(--accent-hover); transform: translateY(-2px); }
     
-    .btn-add { background: var(--success); color: white; height: auto; padding: 0.8rem 1.5rem; }
+    .btn-add { background: var(--success); color: white; height: auto; padding: 0.8rem 1.5rem; width: auto; align-self: flex-end; }
     .btn-add:hover { background: #16a34a; }
 
     .result-group { margin-top: 1rem; display: none; background: #0f172a; padding: 1.5rem; border-radius: 12px; border: 1px dashed var(--border); }
@@ -116,7 +122,7 @@ const HTML_PAGE = `
     .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: var(--success); color: white; padding: 12px 24px; border-radius: 50px; opacity: 0; transition: 0.3s; pointer-events: none; font-weight: 600; z-index: 100; }
     .toast.show { opacity: 1; }
 
-    @media (max-width: 768px) { .controls { grid-template-columns: 1fr; } .fav-form { grid-template-columns: 1fr; } }
+    @media (max-width: 768px) { .controls { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -126,13 +132,15 @@ const HTML_PAGE = `
       <p>客製化遠端規則 • 智能合併多訂閱</p>
     </div>
 
-    <!-- 收藏夾區塊 -->
+    <!-- 收藏夾區塊 (升級版) -->
     <div class="fav-section">
       <h3 class="fav-title">⭐ 我的訂閱收藏 (本機儲存)</h3>
       <div class="fav-form">
-        <input type="text" id="favName" placeholder="自訂名稱 (如: 公司節點)">
-        <input type="text" id="favUrl" placeholder="訂閱連結或節點 (vless://... http://...)">
-        <button class="btn-add" onclick="saveProfile()">💾 儲存</button>
+        <div class="fav-row">
+          <input type="text" id="favName" placeholder="自訂名稱 (例如: 我的所有機場)">
+          <button class="btn-add" onclick="saveProfile()">💾 儲存</button>
+        </div>
+        <textarea id="favUrl" placeholder="在此輸入多個訂閱連結或節點 (一行一個，將會全部儲存為此名稱)..."></textarea>
       </div>
       <div id="favList" class="fav-list">
         <!-- JS 會渲染列表 -->
@@ -143,7 +151,7 @@ const HTML_PAGE = `
     <div class="main-grid">
       <div>
         <label>📥 轉換來源 (點擊上方收藏可直接加入)</label>
-        <textarea id="url" placeholder="在此貼上機場訂閱連結或節點...
+        <textarea id="url" style="min-height:250px;" placeholder="在此貼上機場訂閱連結或節點...
 (支援多行輸入，自動合併)"></textarea>
       </div>
 
@@ -178,7 +186,7 @@ const HTML_PAGE = `
         <div class="rule-card"><span class="rule-name">🚀 節點選擇</span><span class="rule-desc">手動切換節點</span></div>
         <div class="rule-card"><span class="rule-name">⚡ 自動選擇</span><span class="rule-desc">自動測速切換</span></div>
         <div class="rule-card"><span class="rule-name">💬 AI 服務</span><span class="rule-desc">ChatGPT / Gemini</span></div>
-        <div class="rule-card"><span class="rule-name">🌐 非中國</span><span class="rule-desc">Google / TG (含 DIRECT)</span></div>
+        <div class="rule-card"><span class="rule-name">🌐 非中國</span><span class="rule-desc">Google / TG</span></div>
         <div class="rule-card"><span class="rule-name">🔒 國內服務</span><span class="rule-desc">CN Direct</span></div>
         <div class="rule-card"><span class="rule-name">🏠 私有網絡</span><span class="rule-desc">Local Direct</span></div>
         <div class="rule-card"><span class="rule-name">🛑 廣告攔截</span><span class="rule-desc">AdBlock</span></div>
@@ -205,9 +213,10 @@ const HTML_PAGE = `
         container.innerHTML = '<span style="color:#94a3b8; font-size:0.9rem;">暫無收藏，請在上方輸入並儲存...</span>';
         return;
       }
+      // 因為 URL 可能包含換行符，直接傳遞可能會出錯，這裡我們使用 index 來參考
       container.innerHTML = profiles.map((p, index) => \`
         <div class="fav-item">
-          <span class="fav-name" onclick="insertProfile('\${p.url}')" title="點擊加入: \${p.url}">\${p.name}</span>
+          <span class="fav-name" onclick="insertProfile(\${index})" title="點擊加入">\${p.name}</span>
           <span class="fav-action fav-delete" onclick="deleteProfile(\${index})" title="刪除">✕</span>
         </div>
       \`).join('');
@@ -216,7 +225,7 @@ const HTML_PAGE = `
     function saveProfile() {
       const name = document.getElementById('favName').value.trim();
       const url = document.getElementById('favUrl').value.trim();
-      if (!name || !url) { alert('請輸入名稱和連結'); return; }
+      if (!name || !url) { alert('請輸入名稱和連結內容'); return; }
       
       profiles.push({ name, url });
       localStorage.setItem(STORAGE_KEY, JSON.stringify(profiles));
@@ -234,11 +243,15 @@ const HTML_PAGE = `
       renderProfiles();
     }
 
-    function insertProfile(url) {
+    function insertProfile(index) {
+      const profile = profiles[index];
+      if (!profile) return;
+      
       const textarea = document.getElementById('url');
       const currentVal = textarea.value.trim();
-      textarea.value = currentVal ? (currentVal + '\\n' + url) : url;
-      showToast('📥 已加入到轉換列表');
+      // 如果原本有內容，先換行再加入新內容
+      textarea.value = currentVal ? (currentVal + '\\n' + profile.url) : profile.url;
+      showToast('📥 已加入: ' + profile.name);
     }
 
     // 初始化渲染
@@ -411,7 +424,7 @@ function toBase64(nodes: ProxyNode[]) {
   return utf8ToBase64(links.join('\n'));
 }
 
-// --- 生成器: SingBox ---
+// --- 生成器: SingBox (JSON Template) ---
 async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
   const resp = await fetch(`${REMOTE_CONFIG.singbox}?t=${Date.now()}`, { headers: { 'Cache-Control': 'no-cache' } });
   if (!resp.ok) throw new Error('無法讀取 Sing-Box_Rules.JSON');

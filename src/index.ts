@@ -1,6 +1,6 @@
 import yaml from 'js-yaml';
 
-// --- 環境變數介面 ---
+// --- 環境變數介面 (保留 KV 定義以免報錯，但我們不再讀取它) ---
 interface Env {
   SUB_CACHE: KVNamespace;
 }
@@ -29,74 +29,123 @@ interface ProxyNode {
   skipCertVerify?: boolean;
 }
 
-// --- 前端頁面 HTML ---
+// --- 前端頁面 HTML (新增規則展示區塊) ---
 const HTML_PAGE = `
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>訂閱轉換器 | Advanced Rule Set</title>
+  <title>訂閱轉換器 | Rules Display</title>
   <style>
-    :root { --bg: #111827; --card: #1f2937; --text: #f3f4f6; --accent: #3b82f6; --accent-hover: #2563eb; --border: #374151; }
+    :root { --bg: #0f172a; --card: #1e293b; --text: #e2e8f0; --accent: #38bdf8; --accent-hover: #0ea5e9; --border: #334155; --success: #22c55e; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-    .container { background: var(--card); padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5); width: 100%; max-width: 480px; border: 1px solid var(--border); }
-    h1 { margin-top: 0; text-align: center; font-size: 1.5rem; margin-bottom: 1.5rem; color: #fff; }
-    label { display: block; margin-bottom: 0.5rem; font-size: 0.9rem; color: #9ca3af; }
-    input, select, textarea { width: 100%; background: #111827; border: 1px solid var(--border); color: #fff; padding: 0.75rem; border-radius: 6px; margin-bottom: 1.5rem; box-sizing: border-box; font-size: 1rem; outline: none; transition: border-color 0.2s; }
-    input:focus, select:focus, textarea:focus { border-color: var(--accent); }
-    button { width: 100%; background: var(--accent); color: white; border: none; padding: 0.75rem; border-radius: 6px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
-    button:hover { background: var(--accent-hover); }
-    .result-group { margin-top: 2rem; border-top: 1px solid var(--border); padding-top: 1.5rem; display: none; }
+    .container { background: var(--card); padding: 2rem; border-radius: 16px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); width: 100%; max-width: 520px; border: 1px solid var(--border); }
+    h1 { margin-top: 0; text-align: center; font-size: 1.6rem; margin-bottom: 0.5rem; color: #fff; letter-spacing: 0.5px; }
+    .subtitle { text-align: center; color: #94a3b8; font-size: 0.9rem; margin-bottom: 2rem; }
+    
+    label { display: block; margin-bottom: 0.5rem; font-size: 0.9rem; color: #cbd5e1; font-weight: 500; }
+    input, select, textarea { width: 100%; background: #0f172a; border: 1px solid var(--border); color: #fff; padding: 0.85rem; border-radius: 8px; margin-bottom: 1.5rem; box-sizing: border-box; font-size: 1rem; outline: none; transition: all 0.2s; }
+    input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2); }
+    
+    button { width: 100%; background: var(--accent); color: #0f172a; border: none; padding: 0.85rem; border-radius: 8px; font-size: 1rem; font-weight: 700; cursor: pointer; transition: all 0.2s; }
+    button:hover { background: var(--accent-hover); transform: translateY(-1px); }
+    
+    .result-group { margin-top: 2rem; border-top: 1px solid var(--border); padding-top: 1.5rem; display: none; animation: fadeIn 0.3s ease; }
     .result-group.show { display: block; }
-    .copy-btn { background: #059669; margin-top: 0.5rem; }
-    .copy-btn:hover { background: #047857; }
-    .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #10b981; color: white; padding: 8px 16px; border-radius: 4px; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
-    .footer { text-align: center; margin-top: 2rem; font-size: 0.8rem; color: #6b7280; }
+    .copy-btn { background: var(--success); color: white; margin-top: 0.5rem; }
+    .copy-btn:hover { background: #16a34a; }
+    
+    /* 規則展示區塊 */
+    .rules-box { background: #0f172a; border-radius: 8px; padding: 1rem; margin-top: 2rem; border: 1px solid var(--border); }
+    .rules-box h3 { margin: 0 0 0.8rem 0; font-size: 1rem; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+    .rules-list { list-style: none; padding: 0; margin: 0; font-size: 0.85rem; }
+    .rules-list li { display: flex; justify-content: space-between; padding: 0.4rem 0; border-bottom: 1px dashed #334155; }
+    .rules-list li:last-child { border-bottom: none; }
+    .rule-name { color: #e2e8f0; font-weight: 500; }
+    .rule-source { color: #64748b; }
+
+    .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--success); color: white; padding: 10px 20px; border-radius: 50px; opacity: 0; transition: all 0.3s; pointer-events: none; box-shadow: 0 4px 6px rgba(0,0,0,0.3); font-weight: 600; }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>🚀 訂閱轉換器 (分流版)</h1>
+    <h1>🚀 訂閱轉換器</h1>
+    <div class="subtitle">支援 SingBox / Clash Meta • 實時更新</div>
+    
     <label>訂閱連結 (Subscription URL)</label>
-    <textarea id="url" rows="3" placeholder="貼上你的機場訂閱連結..."></textarea>
+    <textarea id="url" rows="3" placeholder="請貼上機場訂閱連結 (vless/vmess/hy2...)"></textarea>
+
     <label>轉換目標 (Target Client)</label>
     <select id="target">
-      <option value="singbox">Sing-Box (含自定義規則)</option>
-      <option value="clash">Clash Meta (含自定義規則)</option>
+      <option value="singbox">Sing-Box (JSON)</option>
+      <option value="clash">Clash Meta (YAML)</option>
     </select>
-    <label style="display:flex; align-items:center; cursor:pointer;">
-      <input type="checkbox" id="renew" style="width:auto; margin:0 8px 0 0;"> 強制刷新緩存
-    </label>
-    <button onclick="generate()">生成訂閱連結</button>
+
+    <button onclick="generate()">⚡ 立即生成配置</button>
+
     <div class="result-group" id="resultArea">
-      <label>轉換後的訂閱連結</label>
+      <label>轉換後的連結</label>
       <input type="text" id="finalUrl" readonly onclick="this.select()">
       <button class="copy-btn" onclick="copyUrl()">複製連結</button>
     </div>
-    <div class="footer">Custom Rules by Sammy</div>
+
+    <!-- 規則展示 -->
+    <div class="rules-box">
+      <h3>📜 目前生效的分流規則</h3>
+      <ul class="rules-list">
+        <li>
+          <span class="rule-name">💬 AI 服務 (ChatGPT/Gemini)</span>
+          <span class="rule-source">Sammy Custom</span>
+        </li>
+        <li>
+          <span class="rule-name">🌐 非中國 (Telegram/Google)</span>
+          <span class="rule-source">MetaCubeX</span>
+        </li>
+        <li>
+          <span class="rule-name">🛑 廣告攔截 (Ads)</span>
+          <span class="rule-source">MetaCubeX</span>
+        </li>
+        <li>
+          <span class="rule-name">🔒 國內服務 (CN Direct)</span>
+          <span class="rule-source">MetaCubeX</span>
+        </li>
+        <li>
+          <span class="rule-name">🏠 私人網路 (Private)</span>
+          <span class="rule-source">MetaCubeX</span>
+        </li>
+      </ul>
+    </div>
   </div>
-  <div id="toast" class="toast">複製成功！</div>
+
+  <div id="toast" class="toast">✅ 複製成功！</div>
+
   <script>
     function generate() {
       const url = document.getElementById('url').value.trim();
       const target = document.getElementById('target').value;
-      const renew = document.getElementById('renew').checked;
+      
       if (!url) { alert('請先輸入訂閱連結！'); return; }
+
       const host = window.location.origin;
-      let final = \`\${host}/?url=\${encodeURIComponent(url)}&target=\${target}\`;
-      if (renew) final += '&renew=true';
+      // 這裡不再加入 &renew=true，因為後端已經預設每次都刷新
+      const final = \`\${host}/?url=\${encodeURIComponent(url)}&target=\${target}\`;
+
       document.getElementById('finalUrl').value = final;
       document.getElementById('resultArea').classList.add('show');
     }
+
     function copyUrl() {
       const copyText = document.getElementById("finalUrl");
       copyText.select();
       copyText.setSelectionRange(0, 99999);
       navigator.clipboard.writeText(copyText.value).then(() => {
         const toast = document.getElementById('toast');
-        toast.style.opacity = '1';
-        setTimeout(() => toast.style.opacity = '0', 2000);
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 2000);
       });
     }
   </script>
@@ -111,7 +160,7 @@ function safeBase64Decode(str: string): string {
   try { return atob(str); } catch { return ""; }
 }
 
-// --- 解析器 (保持不變) ---
+// --- 解析器 (Parser) ---
 function parseVless(urlStr: string): ProxyNode | null {
   try {
     const url = new URL(urlStr);
@@ -140,6 +189,7 @@ function parseVless(urlStr: string): ProxyNode | null {
     return node;
   } catch (e) { return null; }
 }
+
 function parseHysteria2(urlStr: string): ProxyNode | null {
   try {
     const url = new URL(urlStr);
@@ -158,6 +208,7 @@ function parseHysteria2(urlStr: string): ProxyNode | null {
     };
   } catch (e) { return null; }
 }
+
 function parseVmess(vmessUrl: string): ProxyNode | null {
   try {
     const b64 = vmessUrl.replace('vmess://', '');
@@ -179,6 +230,7 @@ function parseVmess(vmessUrl: string): ProxyNode | null {
     };
   } catch (e) { return null; }
 }
+
 async function parseSubscription(content: string): Promise<ProxyNode[]> {
   let plainText = content;
   if (!content.includes('://')) {
@@ -197,9 +249,8 @@ async function parseSubscription(content: string): Promise<ProxyNode[]> {
   return nodes;
 }
 
-// --- 生成器: SingBox (使用 SRS 二進制規則) ---
+// --- 生成器: SingBox (SRS) ---
 function toSingBox(nodes: ProxyNode[]) {
-  // 1. 定義節點 (保持不變)
   const proxies = nodes.map(node => {
     const base: any = { tag: node.name, type: node.type, server: node.server, server_port: node.port };
     if (node.type === 'vless' || node.type === 'vmess') {
@@ -218,7 +269,6 @@ function toSingBox(nodes: ProxyNode[]) {
     return base;
   });
 
-  // 2. 定義策略組 (Selectors)
   const proxyTags = proxies.map(o => o.tag);
   const groups = [
     { type: "selector", tag: "💬 AI 服務", outbounds: ["🚀 節點選擇", ...proxyTags] },
@@ -230,9 +280,6 @@ function toSingBox(nodes: ProxyNode[]) {
     { type: "block", tag: "REJECT" }
   ];
 
-  // 3. 定義規則集 (Rule Sets)
-  // 注意：SingBox 建議使用 srs (binary) 格式。
-  // 對於 MetaCubeX 規則，我們使用其 sing-box 分支的 srs 文件以確保兼容性。
   const ruleSets = [
     {
       type: "remote", tag: "rs-ai", format: "binary",
@@ -271,13 +318,12 @@ function toSingBox(nodes: ProxyNode[]) {
     }
   ];
 
-  // 4. 定義路由規則 (Rules)
   const rules = [
     { rule_set: "rs-ads", outbound: "REJECT" },
     { rule_set: "rs-private", outbound: "DIRECT" },
     { rule_set: "ip-private", outbound: "DIRECT" },
     { rule_set: "rs-ai", outbound: "💬 AI 服務" },
-    { rule_set: "rs-cn", outbound: "DIRECT" }, // 鎖定國內服務走直連
+    { rule_set: "rs-cn", outbound: "DIRECT" },
     { rule_set: "ip-cn", outbound: "DIRECT" },
     { rule_set: "rs-non-cn", outbound: "🌐 非中國" }
   ];
@@ -298,17 +344,16 @@ function toSingBox(nodes: ProxyNode[]) {
     outbounds: [...groups, ...proxies],
     route: {
       rule_set: ruleSets,
-      rules: [...rules, { outbound: "🐟 漏網之魚" }], // 預設規則
+      rules: [...rules, { outbound: "🐟 漏網之魚" }],
       auto_detect_interface: true
     }
   }, null, 2);
 }
 
-// --- 生成器: Clash Meta (使用 List 規則) ---
+// --- 生成器: Clash Meta (List) ---
 function toClash(nodes: ProxyNode[]) {
   const proxyNames = nodes.map(n => n.name);
   
-  // 1. 定義節點 (與之前相同)
   const proxies = nodes.map(node => {
     const base: any = { name: node.name, type: node.type, server: node.server, port: node.port };
     if (node.type === 'vless') {
@@ -328,7 +373,6 @@ function toClash(nodes: ProxyNode[]) {
     return base;
   });
 
-  // 2. 定義策略組 (Proxy Groups)
   const groups = [
     { name: "💬 AI 服務", type: "select", proxies: ["🚀 節點選擇", ...proxyNames] },
     { name: "🌐 非中國", type: "select", proxies: ["🚀 節點選擇", ...proxyNames] },
@@ -339,8 +383,6 @@ function toClash(nodes: ProxyNode[]) {
     { name: "⚡ 自動選擇", type: "url-test", proxies: proxyNames, url: 'http://www.gstatic.com/generate_204', interval: 300 }
   ];
 
-  // 3. 定義規則提供者 (Rule Providers)
-  // Clash 完美支援 .list 文字檔
   const ruleProviders = {
     "my-ai": {
       type: "http", behavior: "classical", path: "./ruleset/my-ai.yaml",
@@ -379,7 +421,6 @@ function toClash(nodes: ProxyNode[]) {
     }
   };
 
-  // 4. 組合規則 (Rules)
   const rules = [
     "RULE-SET,meta-ads,🛑 廣告攔截",
     "RULE-SET,meta-private,DIRECT",
@@ -401,36 +442,48 @@ function toClash(nodes: ProxyNode[]) {
   });
 }
 
-// --- Worker 主要邏輯 ---
+// --- Worker 主要邏輯 (移除緩存讀取) ---
 export default {
   async fetch(request: Request, env: Env, ctx: any): Promise<Response> {
     const url = new URL(request.url);
     const subUrl = url.searchParams.get('url');
-    if (!subUrl) return new Response(HTML_PAGE, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-
-    const target = url.searchParams.get('target') || 'singbox';
-    const forceRenew = url.searchParams.get('renew') === 'true';
-    const safeKey = btoa(subUrl + target + 'v2').replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);
     
-    if (!forceRenew) {
-      const cached = await env.SUB_CACHE.get(safeKey);
-      if (cached) return new Response(cached, { headers: { 'Content-Type': target === 'clash' ? 'text/yaml; charset=utf-8' : 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'X-Cache-Status': 'HIT' } });
+    // 1. 如果沒有 url，回傳前端頁面
+    if (!subUrl) {
+      return new Response(HTML_PAGE, {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      });
     }
 
+    const target = url.searchParams.get('target') || 'singbox';
+    
+    // 2. 直接開始處理，不再檢查緩存 (Fresh Every Time)
     try {
       const headers = { 'User-Agent': 'v2rayng/1.8.5' };
       const resp = await fetch(subUrl, { headers });
+      
       if (!resp.ok) return new Response('無法獲取訂閱內容', { status: 500 });
       const content = await resp.text();
+      
       const nodes = await parseSubscription(content);
-
-      if (nodes.length === 0) return new Response('未解析到節點', { status: 400 });
+      if (nodes.length === 0) return new Response('未解析到任何有效節點', { status: 400 });
 
       const result = target === 'clash' ? toClash(nodes) : toSingBox(nodes);
       const contentType = target === 'clash' ? 'text/yaml; charset=utf-8' : 'application/json; charset=utf-8';
 
-      ctx.waitUntil(env.SUB_CACHE.put(safeKey, result, { expirationTtl: 3600 }));
-      return new Response(result, { headers: { 'Content-Type': contentType, 'Access-Control-Allow-Origin': '*', 'X-Cache-Status': 'MISS' } });
-    } catch (err: any) { return new Response(`轉換錯誤: ${err.message}`, { status: 500 }); }
+      // 不再寫入緩存，因為我們永遠不讀取
+      // ctx.waitUntil(env.SUB_CACHE.put(safeKey, result)); 
+
+      return new Response(result, {
+        headers: {
+          'Content-Type': contentType,
+          'Access-Control-Allow-Origin': '*',
+          'X-Cache-Status': 'BYPASS' // 標記為繞過緩存
+        },
+      });
+
+    } catch (err: any) {
+      return new Response(`轉換錯誤: ${err.message}`, { status: 500 });
+    }
   },
 };

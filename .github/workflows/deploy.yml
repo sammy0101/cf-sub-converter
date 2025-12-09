@@ -16,12 +16,14 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      # --- 新增這一步：替換 KV ID ---
+      # 替換 KV ID (這一步保持不變)
       - name: Inject KV ID from Secrets
         run: |
           sed -i 's/KV_ID_PLACEHOLDER/${{ secrets.CF_KV_ID }}/g' wrangler.toml
 
+      # 部署步驟 (加入 accountId)
       - name: Deploy
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}  # <--- 新增這一行

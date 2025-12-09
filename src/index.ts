@@ -29,7 +29,7 @@ interface ProxyNode {
   skipCertVerify?: boolean;
 }
 
-// --- 前端頁面 HTML (寬版 Dashboard 設計) ---
+// --- 前端頁面 HTML (寬版 Dashboard) ---
 const HTML_PAGE = `
 <!DOCTYPE html>
 <html lang="zh-TW">
@@ -70,24 +70,21 @@ const HTML_PAGE = `
       border-radius: 20px; 
       box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3); 
       width: 100%; 
-      max-width: 1000px; /* 加寬寬度 */
+      max-width: 1000px; 
       border: 1px solid var(--border); 
       display: flex;
       flex-direction: column;
       gap: 2rem;
     }
 
-    /* 標題區塊 */
     .header { text-align: center; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
     .header h1 { margin: 0; font-size: 2rem; font-weight: 800; background: linear-gradient(90deg, #fff, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
     .header p { color: var(--text-sub); margin-top: 0.5rem; font-size: 1rem; }
 
-    /* 主要輸入區 */
     .main-grid { display: grid; grid-template-columns: 1fr; gap: 2rem; }
     
     label { display: block; margin-bottom: 0.8rem; font-size: 0.95rem; color: var(--accent); font-weight: 600; letter-spacing: 0.5px; }
     
-    /* 巨型輸入框 */
     textarea { 
       width: 100%; 
       background: var(--input-bg); 
@@ -100,13 +97,12 @@ const HTML_PAGE = `
       outline: none; 
       transition: all 0.2s; 
       resize: vertical;
-      min-height: 250px; /* 加高 */
+      min-height: 250px; 
       line-height: 1.6;
     }
     textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.1); }
     textarea::placeholder { color: #475569; }
 
-    /* 控制區 */
     .controls { display: grid; grid-template-columns: 1fr 200px; gap: 1.5rem; align-items: end; }
     
     select { 
@@ -136,7 +132,6 @@ const HTML_PAGE = `
     }
     button:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(56, 189, 248, 0.3); }
 
-    /* 結果區 */
     .result-group { margin-top: 1rem; display: none; animation: slideDown 0.4s ease; background: #0f172a; padding: 1.5rem; border-radius: 12px; border: 1px dashed var(--border); }
     .result-group.show { display: block; }
     .result-row { display: flex; gap: 1rem; }
@@ -144,7 +139,6 @@ const HTML_PAGE = `
     .copy-btn { width: auto; background: var(--success); height: auto; padding: 0 2rem; }
     .copy-btn:hover { background: #16a34a; }
 
-    /* 規則網格展示 (Grid Cards) */
     .rules-section { margin-top: 1rem; }
     .rules-grid { 
       display: grid; 
@@ -182,7 +176,7 @@ const HTML_PAGE = `
 
     <div class="main-grid">
       <div>
-        <label>📥 訂閱連結或節點 (一行一個，支援混合輸入)</label>
+        <label>📥 訂閱連結或節點 (一行一個)</label>
         <textarea id="url" placeholder="在此貼上：
 1. 機場訂閱連結 (https://...)
 2. 自建節點連結 (vless://..., hysteria2://...)
@@ -256,11 +250,10 @@ const HTML_PAGE = `
       const rawInput = document.getElementById('url').value;
       const target = document.getElementById('target').value;
       
-      // 前端處理：將多行輸入轉為單行，用 | 分隔
       const urls = rawInput.split(/\\n/)
         .map(u => u.trim())
         .filter(u => u.length > 0)
-        .join('|'); // 使用 | 作為分隔符傳給後端
+        .join('|'); 
 
       if (!urls) { alert('請至少輸入一個連結！'); return; }
 
@@ -368,18 +361,14 @@ function parseVmess(vmessUrl: string): ProxyNode | null {
   } catch (e) { return null; }
 }
 
-// 修改後的解析邏輯：能處理單個字串中的多行內容
 async function parseContent(content: string): Promise<ProxyNode[]> {
   let plainText = content;
-  // 如果內容完全沒有 :// 且看起來像 Base64，嘗試解碼
   if (!content.includes('://')) {
     const decoded = safeBase64Decode(content);
     if (decoded) plainText = decoded;
   }
-
   const lines = plainText.split(/\r?\n/);
   const nodes: ProxyNode[] = [];
-
   for (const line of lines) {
     const l = line.trim();
     if (!l) continue;
@@ -422,7 +411,7 @@ function toBase64(nodes: ProxyNode[]) {
   return utf8ToBase64(links.join('\n'));
 }
 
-// --- 生成器: SingBox ---
+// --- 生成器: SingBox (修正版) ---
 function toSingBox(nodes: ProxyNode[]) {
   const proxies = nodes.map(node => {
     const base: any = { tag: node.name, type: node.type, server: node.server, server_port: node.port };
@@ -482,7 +471,19 @@ function toSingBox(nodes: ProxyNode[]) {
       ],
       rules: [{ outbound: "any", server: "local" }, { rule_set: "rs-cn", server: "local" }]
     },
-    inbounds: [{ type: "tun", interface_name: "tun0", stack: "system", auto_route: true, strict_route: true }],
+    inbounds: [
+      {
+        type: "tun",
+        tag: "tun-in",
+        interface_name: "tun0",
+        inet4_address: "172.19.0.1/30", // 修正錯誤：給予 /30 網段
+        inet6_address: "fd00::1/126",   // 修正錯誤：加入 IPv6
+        stack: "system",
+        auto_route: true,
+        strict_route: true,
+        sniff: true
+      }
+    ],
     outbounds: [...groups, ...proxies],
     route: { rule_set: ruleSets, rules: [...rules, { outbound: "🐟 漏網之魚" }], auto_detect_interface: true }
   }, null, 2);
@@ -548,29 +549,22 @@ function toClash(nodes: ProxyNode[]) {
   });
 }
 
-// --- Worker 主要邏輯 (支援多連結) ---
+// --- Worker 主要邏輯 ---
 export default {
   async fetch(request: Request, env: Env, ctx: any): Promise<Response> {
     const url = new URL(request.url);
     const urlParam = url.searchParams.get('url');
-    
-    // 如果沒有參數，回傳前端
     if (!urlParam) return new Response(HTML_PAGE, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 
     const target = url.searchParams.get('target') || 'singbox';
     
     try {
-      // 1. 分割輸入參數 (支援用 | 分隔的多個連結)
       const inputs = urlParam.split('|');
       const allNodes: ProxyNode[] = [];
 
-      // 2. 平行處理所有來源
-      // 如果是 http 開頭 -> 去 fetch 並解析
-      // 如果不是 -> 當作 raw node 解析
       await Promise.all(inputs.map(async (input) => {
         const trimmed = input.trim();
         if (!trimmed) return;
-
         if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
           try {
             const headers = { 'User-Agent': 'v2rayng/1.8.5' };
@@ -580,11 +574,8 @@ export default {
               const nodes = await parseContent(text);
               allNodes.push(...nodes);
             }
-          } catch (e) {
-            console.error(`Fetch error for ${trimmed}`, e);
-          }
+          } catch (e) { console.error(`Fetch error for ${trimmed}`, e); }
         } else {
-          // 嘗試解析 Raw Node (vless://...)
           const nodes = await parseContent(trimmed);
           allNodes.push(...nodes);
         }
@@ -592,7 +583,6 @@ export default {
 
       if (allNodes.length === 0) return new Response('未解析到任何有效節點', { status: 400 });
 
-      // 3. 轉換
       let result = '';
       let contentType = 'text/plain; charset=utf-8';
 

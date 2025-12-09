@@ -1,6 +1,6 @@
 import yaml from 'js-yaml';
 
-// --- 環境變數介面 (保留 KV 定義以免報錯，但我們不再讀取它) ---
+// --- 環境變數介面 ---
 interface Env {
   SUB_CACHE: KVNamespace;
 }
@@ -29,14 +29,14 @@ interface ProxyNode {
   skipCertVerify?: boolean;
 }
 
-// --- 前端頁面 HTML (新增規則展示區塊) ---
+// --- 前端頁面 HTML ---
 const HTML_PAGE = `
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>訂閱轉換器 | Rules Display</title>
+  <title>訂閱轉換器 | Full Protocols</title>
   <style>
     :root { --bg: #0f172a; --card: #1e293b; --text: #e2e8f0; --accent: #38bdf8; --accent-hover: #0ea5e9; --border: #334155; --success: #22c55e; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -56,7 +56,6 @@ const HTML_PAGE = `
     .copy-btn { background: var(--success); color: white; margin-top: 0.5rem; }
     .copy-btn:hover { background: #16a34a; }
     
-    /* 規則展示區塊 */
     .rules-box { background: #0f172a; border-radius: 8px; padding: 1rem; margin-top: 2rem; border: 1px solid var(--border); }
     .rules-box h3 { margin: 0 0 0.8rem 0; font-size: 1rem; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
     .rules-list { list-style: none; padding: 0; margin: 0; font-size: 0.85rem; }
@@ -74,15 +73,16 @@ const HTML_PAGE = `
 <body>
   <div class="container">
     <h1>🚀 訂閱轉換器</h1>
-    <div class="subtitle">支援 SingBox / Clash Meta • 實時更新</div>
+    <div class="subtitle">SingBox • Clash • Base64</div>
     
     <label>訂閱連結 (Subscription URL)</label>
     <textarea id="url" rows="3" placeholder="請貼上機場訂閱連結 (vless/vmess/hy2...)"></textarea>
 
     <label>轉換目標 (Target Client)</label>
     <select id="target">
-      <option value="singbox">Sing-Box (JSON)</option>
-      <option value="clash">Clash Meta (YAML)</option>
+      <option value="singbox">Sing-Box (含分流規則)</option>
+      <option value="clash">Clash Meta (含分流規則)</option>
+      <option value="base64">Base64 (v2rayNG / Shadowrocket)</option>
     </select>
 
     <button onclick="generate()">⚡ 立即生成配置</button>
@@ -93,30 +93,14 @@ const HTML_PAGE = `
       <button class="copy-btn" onclick="copyUrl()">複製連結</button>
     </div>
 
-    <!-- 規則展示 -->
     <div class="rules-box">
-      <h3>📜 目前生效的分流規則</h3>
+      <h3>📜 目前生效的分流規則 (Base64 除外)</h3>
       <ul class="rules-list">
-        <li>
-          <span class="rule-name">💬 AI 服務 (ChatGPT/Gemini)</span>
-          <span class="rule-source">Sammy Custom</span>
-        </li>
-        <li>
-          <span class="rule-name">🌐 非中國 (Telegram/Google)</span>
-          <span class="rule-source">MetaCubeX</span>
-        </li>
-        <li>
-          <span class="rule-name">🛑 廣告攔截 (Ads)</span>
-          <span class="rule-source">MetaCubeX</span>
-        </li>
-        <li>
-          <span class="rule-name">🔒 國內服務 (CN Direct)</span>
-          <span class="rule-source">MetaCubeX</span>
-        </li>
-        <li>
-          <span class="rule-name">🏠 私人網路 (Private)</span>
-          <span class="rule-source">MetaCubeX</span>
-        </li>
+        <li><span class="rule-name">💬 AI 服務</span><span class="rule-source">Sammy Custom</span></li>
+        <li><span class="rule-name">🌐 非中國</span><span class="rule-source">MetaCubeX</span></li>
+        <li><span class="rule-name">🛑 廣告攔截</span><span class="rule-source">MetaCubeX</span></li>
+        <li><span class="rule-name">🔒 國內服務</span><span class="rule-source">MetaCubeX</span></li>
+        <li><span class="rule-name">🏠 私人網路</span><span class="rule-source">MetaCubeX</span></li>
       </ul>
     </div>
   </div>
@@ -127,11 +111,9 @@ const HTML_PAGE = `
     function generate() {
       const url = document.getElementById('url').value.trim();
       const target = document.getElementById('target').value;
-      
       if (!url) { alert('請先輸入訂閱連結！'); return; }
 
       const host = window.location.origin;
-      // 這裡不再加入 &renew=true，因為後端已經預設每次都刷新
       const final = \`\${host}/?url=\${encodeURIComponent(url)}&target=\${target}\`;
 
       document.getElementById('finalUrl').value = final;
@@ -158,6 +140,10 @@ function safeBase64Decode(str: string): string {
   str = str.replace(/-/g, '+').replace(/_/g, '/');
   while (str.length % 4) str += '=';
   try { return atob(str); } catch { return ""; }
+}
+
+function utf8ToBase64(str: string): string {
+  return btoa(unescape(encodeURIComponent(str)));
 }
 
 // --- 解析器 (Parser) ---
@@ -249,6 +235,56 @@ async function parseSubscription(content: string): Promise<ProxyNode[]> {
   return nodes;
 }
 
+// --- 生成器: Base64 (還原為連結列表) ---
+function toBase64(nodes: ProxyNode[]) {
+  const links = nodes.map(node => {
+    try {
+      if (node.type === 'vless') {
+        const params = new URLSearchParams();
+        params.set('security', node.reality ? 'reality' : (node.tls ? 'tls' : 'none'));
+        params.set('type', node.network || 'tcp');
+        if (node.flow) params.set('flow', node.flow);
+        if (node.sni) params.set('sni', node.sni);
+        if (node.fingerprint) params.set('fp', node.fingerprint);
+        if (node.reality) {
+          params.set('pbk', node.reality.publicKey);
+          params.set('sid', node.reality.shortId);
+        }
+        if (node.network === 'ws') {
+          if (node.wsPath) params.set('path', node.wsPath);
+          if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host);
+        }
+        return `vless://${node.uuid}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+      }
+
+      if (node.type === 'hysteria2') {
+        const params = new URLSearchParams();
+        if (node.sni) params.set('sni', node.sni);
+        if (node.obfs) {
+          params.set('obfs', node.obfs);
+          if (node.obfsPassword) params.set('obfs-password', node.obfsPassword);
+        }
+        if (node.skipCertVerify) params.set('insecure', '1');
+        return `hysteria2://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+      }
+
+      if (node.type === 'vmess') {
+        const vmessObj = {
+          v: "2", ps: node.name, add: node.server, port: node.port, id: node.uuid,
+          aid: 0, scy: "auto", net: node.network, type: "none",
+          host: node.wsHeaders?.Host || "", path: node.wsPath || "",
+          tls: node.tls ? "tls" : "", sni: node.sni || ""
+        };
+        return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
+      }
+    } catch (e) { return null; }
+    return null;
+  }).filter(link => link !== null);
+
+  // 將所有連結用換行符連接，然後轉成 Base64
+  return utf8ToBase64(links.join('\n'));
+}
+
 // --- 生成器: SingBox (SRS) ---
 function toSingBox(nodes: ProxyNode[]) {
   const proxies = nodes.map(node => {
@@ -281,41 +317,13 @@ function toSingBox(nodes: ProxyNode[]) {
   ];
 
   const ruleSets = [
-    {
-      type: "remote", tag: "rs-ai", format: "binary",
-      url: "https://github.com/sammy0101/myself/raw/refs/heads/main/geosite_ai_hk_proxy.srs",
-      download_detour: "🚀 節點選擇"
-    },
-    {
-      type: "remote", tag: "rs-non-cn", format: "binary",
-      url: "https://github.com/MetaCubeX/meta-rules-dat/raw/sing/geo/geosite/geolocation-!cn.srs",
-      download_detour: "🚀 節點選擇"
-    },
-    {
-      type: "remote", tag: "rs-cn", format: "binary",
-      url: "https://github.com/MetaCubeX/meta-rules-dat/raw/sing/geo/geosite/geolocation-cn.srs",
-      download_detour: "🚀 節點選擇"
-    },
-    {
-      type: "remote", tag: "rs-ads", format: "binary",
-      url: "https://github.com/MetaCubeX/meta-rules-dat/raw/sing/geo/geosite/category-ads-all.srs",
-      download_detour: "🚀 節點選擇"
-    },
-    {
-      type: "remote", tag: "rs-private", format: "binary",
-      url: "https://github.com/MetaCubeX/meta-rules-dat/raw/sing/geo/geosite/private.srs",
-      download_detour: "🚀 節點選擇"
-    },
-    {
-      type: "remote", tag: "ip-cn", format: "binary",
-      url: "https://github.com/MetaCubeX/meta-rules-dat/raw/sing/geo/geoip/cn.srs",
-      download_detour: "🚀 節點選擇"
-    },
-    {
-      type: "remote", tag: "ip-private", format: "binary",
-      url: "https://github.com/MetaCubeX/meta-rules-dat/raw/sing/geo/geoip/private.srs",
-      download_detour: "🚀 節點選擇"
-    }
+    { type: "remote", tag: "rs-ai", format: "binary", url: "https://github.com/sammy0101/myself/raw/refs/heads/main/geosite_ai_hk_proxy.srs", download_detour: "🚀 節點選擇" },
+    { type: "remote", tag: "rs-non-cn", format: "binary", url: "https://github.com/MetaCubeX/meta-rules-dat/raw/sing/geo/geosite/geolocation-!cn.srs", download_detour: "🚀 節點選擇" },
+    { type: "remote", tag: "rs-cn", format: "binary", url: "https://github.com/MetaCubeX/meta-rules-dat/raw/sing/geo/geosite/geolocation-cn.srs", download_detour: "🚀 節點選擇" },
+    { type: "remote", tag: "rs-ads", format: "binary", url: "https://github.com/MetaCubeX/meta-rules-dat/raw/sing/geo/geosite/category-ads-all.srs", download_detour: "🚀 節點選擇" },
+    { type: "remote", tag: "rs-private", format: "binary", url: "https://github.com/MetaCubeX/meta-rules-dat/raw/sing/geo/geosite/private.srs", download_detour: "🚀 節點選擇" },
+    { type: "remote", tag: "ip-cn", format: "binary", url: "https://github.com/MetaCubeX/meta-rules-dat/raw/sing/geo/geoip/cn.srs", download_detour: "🚀 節點選擇" },
+    { type: "remote", tag: "ip-private", format: "binary", url: "https://github.com/MetaCubeX/meta-rules-dat/raw/sing/geo/geoip/private.srs", download_detour: "🚀 節點選擇" }
   ];
 
   const rules = [
@@ -335,25 +343,17 @@ function toSingBox(nodes: ProxyNode[]) {
         { tag: "google", address: "8.8.8.8", detour: "🚀 節點選擇" },
         { tag: "local", address: "223.5.5.5", detour: "DIRECT" }
       ],
-      rules: [
-        { outbound: "any", server: "local" },
-        { rule_set: "rs-cn", server: "local" }
-      ]
+      rules: [{ outbound: "any", server: "local" }, { rule_set: "rs-cn", server: "local" }]
     },
     inbounds: [{ type: "tun", interface_name: "tun0", stack: "system", auto_route: true, strict_route: true }],
     outbounds: [...groups, ...proxies],
-    route: {
-      rule_set: ruleSets,
-      rules: [...rules, { outbound: "🐟 漏網之魚" }],
-      auto_detect_interface: true
-    }
+    route: { rule_set: ruleSets, rules: [...rules, { outbound: "🐟 漏網之魚" }], auto_detect_interface: true }
   }, null, 2);
 }
 
 // --- 生成器: Clash Meta (List) ---
 function toClash(nodes: ProxyNode[]) {
   const proxyNames = nodes.map(n => n.name);
-  
   const proxies = nodes.map(node => {
     const base: any = { name: node.name, type: node.type, server: node.server, port: node.port };
     if (node.type === 'vless') {
@@ -384,41 +384,13 @@ function toClash(nodes: ProxyNode[]) {
   ];
 
   const ruleProviders = {
-    "my-ai": {
-      type: "http", behavior: "classical", path: "./ruleset/my-ai.yaml",
-      url: "https://github.com/sammy0101/myself/raw/refs/heads/main/geosite_ai_hk_proxy.list",
-      interval: 86400
-    },
-    "meta-non-cn": {
-      type: "http", behavior: "domain", path: "./ruleset/non-cn.yaml",
-      url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/geolocation-!cn.list",
-      interval: 86400
-    },
-    "meta-cn": {
-      type: "http", behavior: "domain", path: "./ruleset/cn.yaml",
-      url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/geolocation-cn.list",
-      interval: 86400
-    },
-    "meta-ip-cn": {
-      type: "http", behavior: "ipcidr", path: "./ruleset/ip-cn.yaml",
-      url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geoip/cn.list",
-      interval: 86400
-    },
-    "meta-ads": {
-      type: "http", behavior: "domain", path: "./ruleset/ads.yaml",
-      url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/category-ads-all.list",
-      interval: 86400
-    },
-    "meta-private": {
-      type: "http", behavior: "domain", path: "./ruleset/private.yaml",
-      url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/private.list",
-      interval: 86400
-    },
-     "meta-ip-private": {
-      type: "http", behavior: "ipcidr", path: "./ruleset/ip-private.yaml",
-      url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geoip/private.list",
-      interval: 86400
-    }
+    "my-ai": { type: "http", behavior: "classical", path: "./ruleset/my-ai.yaml", url: "https://github.com/sammy0101/myself/raw/refs/heads/main/geosite_ai_hk_proxy.list", interval: 86400 },
+    "meta-non-cn": { type: "http", behavior: "domain", path: "./ruleset/non-cn.yaml", url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/geolocation-!cn.list", interval: 86400 },
+    "meta-cn": { type: "http", behavior: "domain", path: "./ruleset/cn.yaml", url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/geolocation-cn.list", interval: 86400 },
+    "meta-ip-cn": { type: "http", behavior: "ipcidr", path: "./ruleset/ip-cn.yaml", url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geoip/cn.list", interval: 86400 },
+    "meta-ads": { type: "http", behavior: "domain", path: "./ruleset/ads.yaml", url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/category-ads-all.list", interval: 86400 },
+    "meta-private": { type: "http", behavior: "domain", path: "./ruleset/private.yaml", url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/private.list", interval: 86400 },
+    "meta-ip-private": { type: "http", behavior: "ipcidr", path: "./ruleset/ip-private.yaml", url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geoip/private.list", interval: 86400 }
   };
 
   const rules = [
@@ -435,51 +407,44 @@ function toClash(nodes: ProxyNode[]) {
 
   return yaml.dump({
     'port': 7890, 'socks-port': 7891, 'allow-lan': true, 'mode': 'rule', 'log-level': 'info', 'external-controller': '127.0.0.1:9090',
-    'proxies': proxies,
-    'proxy-groups': groups,
-    'rule-providers': ruleProviders,
-    'rules': rules
+    'proxies': proxies, 'proxy-groups': groups, 'rule-providers': ruleProviders, 'rules': rules
   });
 }
 
-// --- Worker 主要邏輯 (移除緩存讀取) ---
+// --- Worker 主要邏輯 ---
 export default {
   async fetch(request: Request, env: Env, ctx: any): Promise<Response> {
     const url = new URL(request.url);
     const subUrl = url.searchParams.get('url');
-    
-    // 1. 如果沒有 url，回傳前端頁面
-    if (!subUrl) {
-      return new Response(HTML_PAGE, {
-        headers: { 'Content-Type': 'text/html; charset=utf-8' },
-      });
-    }
+    if (!subUrl) return new Response(HTML_PAGE, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 
     const target = url.searchParams.get('target') || 'singbox';
     
-    // 2. 直接開始處理，不再檢查緩存 (Fresh Every Time)
     try {
       const headers = { 'User-Agent': 'v2rayng/1.8.5' };
       const resp = await fetch(subUrl, { headers });
-      
       if (!resp.ok) return new Response('無法獲取訂閱內容', { status: 500 });
       const content = await resp.text();
-      
       const nodes = await parseSubscription(content);
+
       if (nodes.length === 0) return new Response('未解析到任何有效節點', { status: 400 });
 
-      const result = target === 'clash' ? toClash(nodes) : toSingBox(nodes);
-      const contentType = target === 'clash' ? 'text/yaml; charset=utf-8' : 'application/json; charset=utf-8';
+      let result = '';
+      let contentType = 'text/plain; charset=utf-8';
 
-      // 不再寫入緩存，因為我們永遠不讀取
-      // ctx.waitUntil(env.SUB_CACHE.put(safeKey, result)); 
+      if (target === 'clash') {
+        result = toClash(nodes);
+        contentType = 'text/yaml; charset=utf-8';
+      } else if (target === 'base64') {
+        result = toBase64(nodes);
+        contentType = 'text/plain; charset=utf-8';
+      } else {
+        result = toSingBox(nodes);
+        contentType = 'application/json; charset=utf-8';
+      }
 
       return new Response(result, {
-        headers: {
-          'Content-Type': contentType,
-          'Access-Control-Allow-Origin': '*',
-          'X-Cache-Status': 'BYPASS' // 標記為繞過緩存
-        },
+        headers: { 'Content-Type': contentType, 'Access-Control-Allow-Origin': '*', 'X-Cache-Status': 'BYPASS' },
       });
 
     } catch (err: any) {

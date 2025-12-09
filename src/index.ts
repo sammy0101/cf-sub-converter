@@ -37,7 +37,7 @@ interface ProxyNode {
   clashObj?: any;
 }
 
-// --- 前端頁面 HTML (已修改文字) ---
+// --- 前端頁面 HTML ---
 const HTML_PAGE = `
 <!DOCTYPE html>
 <html lang="zh-TW">
@@ -50,6 +50,7 @@ const HTML_PAGE = `
       --bg: #0f172a; --card-bg: #1e293b; --input-bg: #020617;
       --text-main: #f8fafc; --text-sub: #94a3b8;
       --accent: #38bdf8; --accent-hover: #0ea5e9; --border: #334155; --success: #22c55e;
+      --card-hover: #2d3a52;
     }
     * { box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text-main); margin: 0; padding: 40px 20px; display: flex; justify-content: center; min-height: 100vh; }
@@ -77,8 +78,15 @@ const HTML_PAGE = `
     .rules-link { color: var(--accent); text-decoration: none; font-size: 0.9rem; }
     .rules-link:hover { text-decoration: underline; }
     
-    .rule-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0; font-size: 0.9rem; color: #e2e8f0; }
-    .rule-dot { width: 8px; height: 8px; background: var(--success); border-radius: 50%; }
+    .rules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem; }
+    .rule-card { background: #1e293b; padding: 0.8rem 1rem; border-radius: 8px; border: 1px solid transparent; transition: all 0.2s; display: flex; flex-direction: column; gap: 0.3rem; }
+    .rule-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .rule-name { font-weight: 700; color: #f1f5f9; font-size: 0.95rem; }
+    .rule-desc { font-size: 0.8rem; color: #94a3b8; }
+    
+    .file-info { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px dashed var(--border); font-size: 0.9rem; color: #94a3b8; display: flex; flex-direction: column; gap: 0.5rem; }
+    .file-row { display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 6px; height: 6px; background: var(--success); border-radius: 50%; }
 
     .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: var(--success); color: white; padding: 12px 24px; border-radius: 50px; opacity: 0; transition: 0.3s; pointer-events: none; font-weight: 600; }
     .toast.show { opacity: 1; }
@@ -121,19 +129,26 @@ const HTML_PAGE = `
 
     <div class="rules-section">
       <div class="rules-header">
-        <label style="margin:0">🛡️ 內建分流群組</label> <!-- 這裡修改了 -->
+        <label style="margin:0">🛡️ 內建分流群組</label>
         <a href="https://github.com/sammy0101/myself/tree/main" target="_blank" class="rules-link">查看 GitHub 原始碼 ↗</a>
       </div>
-      <div class="rule-item">
-        <span class="rule-dot"></span>
-        <span>SingBox: <b>Sing-Box_Rules.JSON</b></span>
+
+      <!-- 規則展示區塊 (靜態顯示遠端模板的結構) -->
+      <div class="rules-grid">
+        <div class="rule-card"><span class="rule-name">🚀 節點選擇</span><span class="rule-desc">手動切換節點</span></div>
+        <div class="rule-card"><span class="rule-name">⚡ 自動選擇</span><span class="rule-desc">自動測速切換</span></div>
+        <div class="rule-card"><span class="rule-name">💬 AI 服務</span><span class="rule-desc">ChatGPT / Gemini</span></div>
+        <div class="rule-card"><span class="rule-name">🌐 非中國</span><span class="rule-desc">Google / TG (含 DIRECT)</span></div>
+        <div class="rule-card"><span class="rule-name">🔒 國內服務</span><span class="rule-desc">CN Direct</span></div>
+        <div class="rule-card"><span class="rule-name">🏠 私有網絡</span><span class="rule-desc">Local Direct</span></div>
+        <div class="rule-card"><span class="rule-name">🛑 廣告攔截</span><span class="rule-desc">AdBlock</span></div>
+        <div class="rule-card"><span class="rule-name">🐟 漏網之魚</span><span class="rule-desc">Final Match</span></div>
       </div>
-      <div class="rule-item">
-        <span class="rule-dot"></span>
-        <span>Clash: <b>Clash_Rules.YAML</b></span>
-      </div>
-      <div style="margin-top:0.8rem; font-size:0.85rem; color:#94a3b8;">
-        ℹ️ 系統會實時讀取 GitHub 最新設定，並將您的節點插入至所有策略組中。
+
+      <div class="file-info">
+        <div class="file-row"><span class="dot"></span> SingBox: <b>Sing-Box_Rules.JSON</b></div>
+        <div class="file-row"><span class="dot"></span> Clash: <b>Clash_Rules.YAML</b></div>
+        <div style="font-size:0.8rem; margin-top:0.5rem;">ℹ️ 系統會實時讀取 GitHub 最新設定，並將您的節點插入至所有策略組中。</div>
       </div>
     </div>
   </div>

@@ -45,6 +45,8 @@ const HTML_PAGE = `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>訂閱轉換器</title>
+  <!-- 引入 QR Code 生成庫 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <style>
     :root { 
       --bg: #0f172a; --card-bg: #1e293b; --input-bg: #020617;
@@ -67,12 +69,17 @@ const HTML_PAGE = `
     select { background: var(--input-bg); border: 1px solid var(--border); color: var(--text-main); padding: 1rem; outline: none; }
     button { background: var(--accent); color: #0f172a; border: none; font-weight: 700; cursor: pointer; transition: all 0.2s; }
     button:hover { background: var(--accent-hover); transform: translateY(-2px); }
+    
     .result-group { margin-top: 1rem; display: none; background: #0f172a; padding: 1.5rem; border-radius: 12px; border: 1px dashed var(--border); }
     .result-group.show { display: block; }
     .result-row { display: flex; gap: 1rem; }
     .result-row input { flex: 1; background: #1e293b; border: none; color: #fff; padding: 0.8rem; border-radius: 6px; font-family: monospace; }
     .copy-btn { width: auto; background: var(--success); height: auto; padding: 0 2rem; }
     
+    /* QR Code 樣式 */
+    #qrcode { display: flex; justify-content: center; margin-top: 1.5rem; }
+    #qrcode img { padding: 10px; background: #fff; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+
     .rules-section { margin-top: 1rem; padding: 1rem; background: #253045; border-radius: 10px; border: 1px solid var(--border); }
     .rules-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px dashed var(--border); }
     .rules-link { color: var(--accent); text-decoration: none; font-size: 0.9rem; }
@@ -125,6 +132,8 @@ const HTML_PAGE = `
         <input type="text" id="finalUrl" readonly onclick="this.select()">
         <button class="copy-btn" onclick="copyUrl()">複製</button>
       </div>
+      <!-- QR Code 顯示區 -->
+      <div id="qrcode"></div>
     </div>
 
     <div class="rules-section">
@@ -133,12 +142,11 @@ const HTML_PAGE = `
         <a href="https://github.com/sammy0101/myself/tree/main" target="_blank" class="rules-link">查看 GitHub 原始碼 ↗</a>
       </div>
 
-      <!-- 規則展示區塊 (靜態顯示遠端模板的結構) -->
       <div class="rules-grid">
         <div class="rule-card"><span class="rule-name">🚀 節點選擇</span><span class="rule-desc">手動切換節點</span></div>
         <div class="rule-card"><span class="rule-name">⚡ 自動選擇</span><span class="rule-desc">自動測速切換</span></div>
         <div class="rule-card"><span class="rule-name">💬 AI 服務</span><span class="rule-desc">ChatGPT / Gemini</span></div>
-        <div class="rule-card"><span class="rule-name">🌐 非中國</span><span class="rule-desc">Google / TG (含 DIRECT)</span></div>
+        <div class="rule-card"><span class="rule-name">🌐 非中國</span><span class="rule-desc">Google / TG</span></div>
         <div class="rule-card"><span class="rule-name">🔒 國內服務</span><span class="rule-desc">CN Direct</span></div>
         <div class="rule-card"><span class="rule-name">🏠 私有網絡</span><span class="rule-desc">Local Direct</span></div>
         <div class="rule-card"><span class="rule-name">🛑 廣告攔截</span><span class="rule-desc">AdBlock</span></div>
@@ -160,12 +168,29 @@ const HTML_PAGE = `
       const rawInput = document.getElementById('url').value;
       const target = document.getElementById('target').value;
       const urls = rawInput.split(/\\n/).map(u => u.trim()).filter(u => u.length > 0).join('|'); 
+      
       if (!urls) { alert('請至少輸入一個連結！'); return; }
+      
       const host = window.location.origin;
       const final = \`\${host}/?url=\${encodeURIComponent(urls)}&target=\${target}\`;
+      
+      // 更新輸入框
       document.getElementById('finalUrl').value = final;
       document.getElementById('resultArea').classList.add('show');
+
+      // 生成 QR Code
+      const qrContainer = document.getElementById('qrcode');
+      qrContainer.innerHTML = ''; // 清除舊的
+      new QRCode(qrContainer, {
+        text: final,
+        width: 180,
+        height: 180,
+        colorDark : "#000000",
+        colorLight : "#ffffff",
+        correctLevel : QRCode.CorrectLevel.M
+      });
     }
+
     function copyUrl() {
       const copyText = document.getElementById("finalUrl");
       copyText.select();
@@ -311,17 +336,15 @@ function toBase64(nodes: ProxyNode[]) {
 }
 
 // --- 生成器: SingBox (JSON Template) ---
-// 這裡使用了時間戳 (?t=Date.now()) 來強制繞過緩存，實現實時更新
 async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
   const resp = await fetch(`${REMOTE_CONFIG.singbox}?t=${Date.now()}`, {
     headers: { 'Cache-Control': 'no-cache' }
   });
   if (!resp.ok) throw new Error('無法讀取 Sing-Box_Rules.JSON');
   const text = await resp.text();
-  
   let config;
   try { config = JSON.parse(text); } catch (e) { throw new Error('Sing-Box_Rules.JSON 格式錯誤'); }
-
+  
   const outbounds = nodes.map(n => n.singboxObj);
   const nodeTags = outbounds.map(o => o.tag);
 
@@ -339,7 +362,6 @@ async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
 }
 
 // --- 生成器: Clash Meta (YAML Template) ---
-// 這裡使用了時間戳 (?t=Date.now()) 來強制繞過緩存，實現實時更新
 async function toClashWithTemplate(nodes: ProxyNode[]) {
   const resp = await fetch(`${REMOTE_CONFIG.clash}?t=${Date.now()}`, {
     headers: { 'Cache-Control': 'no-cache' }

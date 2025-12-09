@@ -1,9 +1,11 @@
 import yaml from 'js-yaml';
 
+// --- 環境變數介面 ---
 interface Env {
   SUB_CACHE: KVNamespace;
 }
 
+// --- 類型定義 ---
 interface ProxyNode {
   type: string;
   name: string;
@@ -27,12 +29,100 @@ interface ProxyNode {
   skipCertVerify?: boolean;
 }
 
+// --- 前端頁面 HTML (包含 CSS 和 JS) ---
+const HTML_PAGE = `
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>訂閱轉換器 | Sub Converter</title>
+  <style>
+    :root { --bg: #111827; --card: #1f2937; --text: #f3f4f6; --accent: #3b82f6; --accent-hover: #2563eb; --border: #374151; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .container { background: var(--card); padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5); width: 100%; max-width: 480px; border: 1px solid var(--border); }
+    h1 { margin-top: 0; text-align: center; font-size: 1.5rem; margin-bottom: 1.5rem; color: #fff; }
+    label { display: block; margin-bottom: 0.5rem; font-size: 0.9rem; color: #9ca3af; }
+    input, select, textarea { width: 100%; background: #111827; border: 1px solid var(--border); color: #fff; padding: 0.75rem; border-radius: 6px; margin-bottom: 1.5rem; box-sizing: border-box; font-size: 1rem; outline: none; transition: border-color 0.2s; }
+    input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+    button { width: 100%; background: var(--accent); color: white; border: none; padding: 0.75rem; border-radius: 6px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+    button:hover { background: var(--accent-hover); }
+    .result-group { margin-top: 2rem; border-top: 1px solid var(--border); padding-top: 1.5rem; display: none; }
+    .result-group.show { display: block; }
+    .copy-btn { background: #059669; margin-top: 0.5rem; }
+    .copy-btn:hover { background: #047857; }
+    .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #10b981; color: white; padding: 8px 16px; border-radius: 4px; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+    .footer { text-align: center; margin-top: 2rem; font-size: 0.8rem; color: #6b7280; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🚀 訂閱轉換器</h1>
+    
+    <label>訂閱連結 (Subscription URL)</label>
+    <textarea id="url" rows="3" placeholder="貼上你的機場訂閱連結 (vless/vmess/hy2...)"></textarea>
+
+    <label>轉換目標 (Target Client)</label>
+    <select id="target">
+      <option value="singbox">Sing-Box (JSON)</option>
+      <option value="clash">Clash Meta / Mihomo (YAML)</option>
+    </select>
+
+    <label style="display:flex; align-items:center; cursor:pointer;">
+      <input type="checkbox" id="renew" style="width:auto; margin:0 8px 0 0;"> 強制刷新緩存 (Renew Cache)
+    </label>
+
+    <button onclick="generate()">生成訂閱連結</button>
+
+    <div class="result-group" id="resultArea">
+      <label>轉換後的訂閱連結</label>
+      <input type="text" id="finalUrl" readonly onclick="this.select()">
+      <button class="copy-btn" onclick="copyUrl()">複製連結</button>
+    </div>
+    
+    <div class="footer">Powered by Cloudflare Workers</div>
+  </div>
+  <div id="toast" class="toast">複製成功！</div>
+
+  <script>
+    function generate() {
+      const url = document.getElementById('url').value.trim();
+      const target = document.getElementById('target').value;
+      const renew = document.getElementById('renew').checked;
+      
+      if (!url) { alert('請先輸入訂閱連結！'); return; }
+
+      const host = window.location.origin;
+      let final = \`\${host}/?url=\${encodeURIComponent(url)}&target=\${target}\`;
+      if (renew) final += '&renew=true';
+
+      document.getElementById('finalUrl').value = final;
+      document.getElementById('resultArea').classList.add('show');
+    }
+
+    function copyUrl() {
+      const copyText = document.getElementById("finalUrl");
+      copyText.select();
+      copyText.setSelectionRange(0, 99999);
+      navigator.clipboard.writeText(copyText.value).then(() => {
+        const toast = document.getElementById('toast');
+        toast.style.opacity = '1';
+        setTimeout(() => toast.style.opacity = '0', 2000);
+      });
+    }
+  </script>
+</body>
+</html>
+`;
+
+// --- 輔助函數 ---
 function safeBase64Decode(str: string): string {
   str = str.replace(/-/g, '+').replace(/_/g, '/');
   while (str.length % 4) str += '=';
   try { return atob(str); } catch { return ""; }
 }
 
+// --- 解析器 (Parser) ---
 function parseVless(urlStr: string): ProxyNode | null {
   try {
     const url = new URL(urlStr);
@@ -128,6 +218,7 @@ async function parseSubscription(content: string): Promise<ProxyNode[]> {
   return nodes;
 }
 
+// --- 生成器 (Generator) ---
 function toSingBox(nodes: ProxyNode[]) {
   const outbounds = nodes.map(node => {
     const base: any = { tag: node.name, type: node.type, server: node.server, server_port: node.port };
@@ -187,17 +278,29 @@ function toClash(nodes: ProxyNode[]) {
   });
 }
 
+// --- Worker 主要邏輯 ---
 export default {
   async fetch(request: Request, env: Env, ctx: any): Promise<Response> {
     const url = new URL(request.url);
     const subUrl = url.searchParams.get('url');
+    
+    // 如果沒有提供 url 參數，則回傳前端頁面 (HTML)
+    if (!subUrl) {
+      return new Response(HTML_PAGE, {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+        },
+      });
+    }
+
+    // 以下為 API 邏輯 (保持不變)
     const target = url.searchParams.get('target') || 'singbox';
     const forceRenew = url.searchParams.get('renew') === 'true';
 
-    if (!subUrl) return new Response('請提供 url 參數', { status: 400 });
-
+    // 生成 Cache Key
     const safeKey = btoa(subUrl + target).replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);
     
+    // 檢查 Cache
     if (!forceRenew) {
       const cached = await env.SUB_CACHE.get(safeKey);
       if (cached) {
@@ -217,6 +320,7 @@ export default {
       const result = target === 'clash' ? toClash(nodes) : toSingBox(nodes);
       const contentType = target === 'clash' ? 'text/yaml; charset=utf-8' : 'application/json; charset=utf-8';
 
+      // 寫入 Cache
       ctx.waitUntil(env.SUB_CACHE.put(safeKey, result, { expirationTtl: 3600 }));
 
       return new Response(result, { headers: { 'Content-Type': contentType, 'Access-Control-Allow-Origin': '*', 'X-Cache-Status': 'MISS' } });

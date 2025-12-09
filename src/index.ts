@@ -1,0 +1,225 @@
+import yaml from 'js-yaml';
+
+interface Env {
+  SUB_CACHE: KVNamespace;
+}
+
+interface ProxyNode {
+  type: string;
+  name: string;
+  server: string;
+  port: number;
+  uuid?: string;
+  password?: string;
+  cipher?: string;
+  udp?: boolean;
+  tls?: boolean;
+  sni?: string;
+  alpn?: string[];
+  fingerprint?: string;
+  flow?: string;
+  network?: string;
+  wsPath?: string;
+  wsHeaders?: Record<string, string>;
+  reality?: { publicKey: string; shortId: string };
+  obfs?: string;
+  obfsPassword?: string;
+  skipCertVerify?: boolean;
+}
+
+function safeBase64Decode(str: string): string {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  try { return atob(str); } catch { return ""; }
+}
+
+function parseVless(urlStr: string): ProxyNode | null {
+  try {
+    const url = new URL(urlStr);
+    const params = url.searchParams;
+    const node: ProxyNode = {
+      type: 'vless',
+      name: decodeURIComponent(url.hash.slice(1)) || 'VLESS',
+      server: url.hostname,
+      port: parseInt(url.port),
+      uuid: url.username,
+      tls: params.get('security') === 'tls' || params.get('security') === 'reality',
+      flow: params.get('flow') || undefined,
+      network: params.get('type') || 'tcp',
+      sni: params.get('sni') || params.get('host') || undefined,
+      fingerprint: params.get('fp') || 'chrome',
+      skipCertVerify: params.get('allowInsecure') === '1',
+    };
+    if (params.get('security') === 'reality') {
+      node.reality = {
+        publicKey: params.get('pbk') || '',
+        shortId: params.get('sid') || '',
+      };
+      if (!node.sni) node.sni = node.server;
+    }
+    if (node.network === 'ws') {
+      node.wsPath = params.get('path') || '/';
+      node.wsHeaders = { Host: params.get('host') || node.server };
+    }
+    return node;
+  } catch (e) { return null; }
+}
+
+function parseHysteria2(urlStr: string): ProxyNode | null {
+  try {
+    const url = new URL(urlStr);
+    const params = url.searchParams;
+    return {
+      type: 'hysteria2',
+      name: decodeURIComponent(url.hash.slice(1)) || 'Hy2',
+      server: url.hostname,
+      port: parseInt(url.port),
+      password: url.username,
+      tls: true,
+      sni: params.get('sni') || url.hostname,
+      skipCertVerify: params.get('insecure') === '1',
+      obfs: params.get('obfs') || undefined,
+      obfsPassword: params.get('obfs-password') || undefined,
+    };
+  } catch (e) { return null; }
+}
+
+function parseVmess(vmessUrl: string): ProxyNode | null {
+  try {
+    const b64 = vmessUrl.replace('vmess://', '');
+    const jsonStr = safeBase64Decode(b64);
+    const config = JSON.parse(jsonStr);
+    return {
+      type: 'vmess',
+      name: config.ps || 'VMess',
+      server: config.add,
+      port: parseInt(config.port),
+      uuid: config.id,
+      cipher: 'auto',
+      tls: config.tls === 'tls',
+      sni: config.sni || config.host,
+      network: config.net || 'tcp',
+      wsPath: config.path,
+      wsHeaders: config.host ? { Host: config.host } : undefined,
+      skipCertVerify: true
+    };
+  } catch (e) { return null; }
+}
+
+async function parseSubscription(content: string): Promise<ProxyNode[]> {
+  let plainText = content;
+  if (!content.includes('://')) {
+      const decoded = safeBase64Decode(content);
+      if (decoded) plainText = decoded;
+  }
+  const lines = plainText.split(/\r?\n/);
+  const nodes: ProxyNode[] = [];
+  for (const line of lines) {
+    const l = line.trim();
+    if (!l) continue;
+    if (l.startsWith('vless://')) {
+      const n = parseVless(l); if (n) nodes.push(n);
+    } else if (l.startsWith('hysteria2://') || l.startsWith('hy2://')) {
+      const n = parseHysteria2(l); if (n) nodes.push(n);
+    } else if (l.startsWith('vmess://')) {
+      const n = parseVmess(l); if (n) nodes.push(n);
+    }
+  }
+  return nodes;
+}
+
+function toSingBox(nodes: ProxyNode[]) {
+  const outbounds = nodes.map(node => {
+    const base: any = { tag: node.name, type: node.type, server: node.server, server_port: node.port };
+    if (node.type === 'vless' || node.type === 'vmess') {
+      base.uuid = node.uuid;
+      if (node.type === 'vmess') base.security = 'auto';
+      if (node.flow) base.flow = node.flow;
+      base.tls = {
+        enabled: node.tls,
+        server_name: node.sni || node.server,
+        insecure: node.skipCertVerify,
+        utls: { enabled: true, fingerprint: node.fingerprint || 'chrome' }
+      };
+      if (node.reality) base.tls.reality = { enabled: true, public_key: node.reality.publicKey, short_id: node.reality.shortId };
+      if (node.network === 'ws') base.transport = { type: 'ws', path: node.wsPath, headers: node.wsHeaders };
+    }
+    if (node.type === 'hysteria2') {
+      base.password = node.password;
+      base.tls = { enabled: true, server_name: node.sni, insecure: node.skipCertVerify };
+      if (node.obfs) base.obfs = { type: node.obfs, password: node.obfsPassword };
+    }
+    return base;
+  });
+  return JSON.stringify({
+    log: { level: "info" },
+    dns: { servers: [{ tag: "google", address: "8.8.8.8", detour: "PROXY" }, { tag: "local", address: "223.5.5.5", detour: "DIRECT" }], rules: [{ outbound: "any", server: "local" }] },
+    inbounds: [{ type: "tun", interface_name: "tun0", stack: "system", auto_route: true, strict_route: true }],
+    outbounds: [{ type: "selector", tag: "PROXY", outbounds: ["AUTO", ...outbounds.map(o => o.tag)] }, { type: "urltest", tag: "AUTO", outbounds: outbounds.map(o => o.tag) }, ...outbounds, { type: "direct", tag: "DIRECT" }],
+    route: { rules: [{ protocol: "dns", outbound: "dns-out" }, { geosite: "cn", outbound: "DIRECT" }, { geoip: "cn", outbound: "DIRECT" }] }
+  }, null, 2);
+}
+
+function toClash(nodes: ProxyNode[]) {
+  const proxies = nodes.map(node => {
+    const base: any = { name: node.name, type: node.type, server: node.server, port: node.port };
+    if (node.type === 'vless') {
+      base.uuid = node.uuid; base.tls = node.tls; base.servername = node.sni || node.server; base['client-fingerprint'] = node.fingerprint || 'chrome'; base['skip-cert-verify'] = node.skipCertVerify;
+      if (node.flow) base.flow = node.flow;
+      if (node.reality) { base.reality = true; base['reality-opts'] = { 'public-key': node.reality.publicKey, 'short-id': node.reality.shortId }; }
+      if (node.network === 'ws') { base.network = 'ws'; base['ws-opts'] = { path: node.wsPath, headers: node.wsHeaders }; }
+    }
+    if (node.type === 'vmess') {
+      base.uuid = node.uuid; base.cipher = 'auto'; base.tls = node.tls; base.servername = node.sni; base.network = node.network;
+      if(node.network === 'ws') base['ws-opts'] = { path: node.wsPath, headers: node.wsHeaders };
+    }
+    if (node.type === 'hysteria2') {
+      base.password = node.password; base.sni = node.sni; base['skip-cert-verify'] = node.skipCertVerify;
+      if(node.obfs) { base.obfs = node.obfs; base['obfs-password'] = node.obfsPassword; }
+    }
+    return base;
+  });
+  return yaml.dump({
+    'port': 7890, 'socks-port': 7891, 'allow-lan': true, 'mode': 'rule', 'log-level': 'info', 'external-controller': '127.0.0.1:9090',
+    'proxies': proxies,
+    'proxy-groups': [{ name: 'PROXY', type: 'select', proxies: ['AUTO', ...proxies.map(p => p.name)] }, { name: 'AUTO', type: 'url-test', proxies: proxies.map(p => p.name), url: 'http://www.gstatic.com/generate_204', interval: 300 }],
+    'rules': ['GEOIP,CN,DIRECT', 'MATCH,PROXY']
+  });
+}
+
+export default {
+  async fetch(request: Request, env: Env, ctx: any): Promise<Response> {
+    const url = new URL(request.url);
+    const subUrl = url.searchParams.get('url');
+    const target = url.searchParams.get('target') || 'singbox';
+    const forceRenew = url.searchParams.get('renew') === 'true';
+
+    if (!subUrl) return new Response('請提供 url 參數', { status: 400 });
+
+    const safeKey = btoa(subUrl + target).replace(/[^a-zA-Z0-9]/g, '').slice(0, 64);
+    
+    if (!forceRenew) {
+      const cached = await env.SUB_CACHE.get(safeKey);
+      if (cached) {
+        return new Response(cached, { headers: { 'Content-Type': target === 'clash' ? 'text/yaml; charset=utf-8' : 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'X-Cache-Status': 'HIT' } });
+      }
+    }
+
+    try {
+      const headers = { 'User-Agent': 'v2rayng/1.8.5' };
+      const resp = await fetch(subUrl, { headers });
+      if (!resp.ok) return new Response('無法獲取訂閱內容', { status: 500 });
+      const content = await resp.text();
+      const nodes = await parseSubscription(content);
+
+      if (nodes.length === 0) return new Response('未解析到節點', { status: 400 });
+
+      const result = target === 'clash' ? toClash(nodes) : toSingBox(nodes);
+      const contentType = target === 'clash' ? 'text/yaml; charset=utf-8' : 'application/json; charset=utf-8';
+
+      ctx.waitUntil(env.SUB_CACHE.put(safeKey, result, { expirationTtl: 3600 }));
+
+      return new Response(result, { headers: { 'Content-Type': contentType, 'Access-Control-Allow-Origin': '*', 'X-Cache-Status': 'MISS' } });
+    } catch (err: any) { return new Response(`轉換錯誤: ${err.message}`, { status: 500 }); }
+  },
+};

@@ -22,7 +22,7 @@ const HTML_PAGE = `
   <title>訂閱轉換器</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <style>
-    :root { --bg: #0f172a; --card-bg: #1e293b; --input-bg: #020617; --text-main: #f8fafc; --text-sub: #94a3b8; --accent: #38bdf8; --accent-hover: #0ea5e9; --border: #334155; --success: #22c55e; --danger: #ef4444; }
+    :root { --bg: #0f172a; --card-bg: #1e293b; --input-bg: #020617; --text-main: #f8fafc; --text-sub: #94a3b8; --accent: #38bdf8; --accent-hover: #0ea5e9; --border: #334155; --success: #22c55e; --danger: #ef4444; --card-hover: #2d3a52; }
     * { box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text-main); margin: 0; padding: 40px 20px; display: flex; justify-content: center; min-height: 100vh; }
     .container { background: var(--card-bg); padding: 2.5rem; border-radius: 20px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3); width: 100%; max-width: 1000px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 2rem; }
@@ -75,32 +75,49 @@ const HTML_PAGE = `
     .dot { width: 6px; height: 6px; background: var(--success); border-radius: 50%; }
     .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: var(--success); color: white; padding: 12px 24px; border-radius: 50px; opacity: 0; transition: 0.3s; pointer-events: none; font-weight: 600; z-index: 100; }
     .toast.show { opacity: 1; }
-    @media (max-width: 768px) { .controls { grid-template-columns: 1fr; } }
+    @media (max-width: 768px) { .controls { grid-template-columns: 1fr; } .fav-row { flex-direction: column; align-items: stretch; } }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header"><h1>🚀 訂閱轉換中心</h1><p>客製化遠端規則 • 智能合併多訂閱</p></div>
+    
     <div class="fav-section">
       <h3 class="fav-title">⭐ 我的訂閱收藏 (本機儲存)</h3>
       <div class="fav-form">
-        <div class="fav-row"><input type="text" id="favName" placeholder="自訂名稱 (例如: 我的所有機場)"><button class="btn-add" onclick="saveProfile()">💾 儲存</button></div>
-        <textarea id="favUrl" placeholder="在此輸入多個訂閱連結或節點 (一行一個，將會全部儲存為此名稱)..."></textarea>
+        <div class="fav-row">
+          <input type="text" id="favName" placeholder="自訂名稱 (例如: my-office，這也將是您的短鏈路徑)">
+          <button class="btn-add" onclick="saveProfile()">💾 儲存</button>
+        </div>
+        <textarea id="favUrl" placeholder="在此輸入多個訂閱連結或節點 (一行一個)..."></textarea>
       </div>
-      <div id="favList" class="fav-list"><span style="color:#94a3b8; font-size:0.9rem;">暫無收藏，請在上方輸入並儲存...</span></div>
+      <div id="favList" class="fav-list"><span style="color:#94a3b8; font-size:0.9rem;">暫無收藏...</span></div>
     </div>
+
     <div class="main-grid">
-      <div><label>📥 轉換來源 (點擊上方收藏可直接加入)</label><textarea id="url" style="min-height:250px;" placeholder="在此貼上機場訂閱連結或節點...\n(支援多行輸入，自動合併)"></textarea></div>
+      <div>
+        <label>📥 轉換來源 (點擊上方收藏可直接加入)</label>
+        <textarea id="url" style="min-height:200px;" placeholder="在此貼上機場訂閱連結或節點..."></textarea>
+        
+        <div style="margin-top: 1rem;">
+          <label>🔗 自訂短連結 (自動帶入收藏名稱)</label>
+          <input type="text" id="shortCode" placeholder="輸入短鏈名稱，留空則生成長連結" style="width: 100%;">
+          <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 5px;">若輸入名稱，連結將變為 https://.../名稱，且資料會儲存於雲端。</div>
+        </div>
+      </div>
+
       <div class="controls">
         <div><label>🛠 轉換目標</label><select id="target"><option value="singbox">Sing-Box (JSON 模板)</option><option value="clash">Clash Meta (YAML 模板)</option><option value="base64">Base64 (純節點)</option></select></div>
         <button onclick="generate()">⚡ 立即生成</button>
       </div>
     </div>
+
     <div class="result-group" id="resultArea">
       <label>🎉 您的專屬訂閱連結</label>
       <div class="result-row"><input type="text" id="finalUrl" readonly onclick="this.select()"><button class="copy-btn" onclick="copyUrl()">複製</button></div>
       <div id="qrcode"></div>
     </div>
+
     <div class="rules-section">
       <div class="rules-header"><label style="margin:0">🛡️ 內建分流群組</label><a href="https://github.com/sammy0101/myself/tree/main" target="_blank" class="rules-link">查看 GitHub 原始碼 ↗</a></div>
       <div class="rules-grid">
@@ -113,39 +130,68 @@ const HTML_PAGE = `
         <div class="rule-card"><span class="rule-name">🛑 廣告攔截</span><span class="rule-desc">AdBlock</span></div>
         <div class="rule-card"><span class="rule-name">🐟 漏網之魚</span><span class="rule-desc">Final Match</span></div>
       </div>
-      <div class="file-info"><div class="file-row"><span class="dot"></span> SingBox: <b>Sing-Box_Rules.JSON</b></div><div class="file-row"><span class="dot"></span> Clash: <b>Clash_Rules.YAML</b></div><div style="font-size:0.8rem; margin-top:0.5rem;">ℹ️ 系統會實時讀取 GitHub 最新設定，並將您的節點插入至所有策略組中。</div></div>
+      <div class="file-info"><div class="file-row"><span class="dot"></span> SingBox: <b>Sing-Box_Rules.JSON</b></div><div class="file-row"><span class="dot"></span> Clash: <b>Clash_Rules.YAML</b></div></div>
     </div>
   </div>
   <div id="toast" class="toast">✅ 複製成功！</div>
+  
   <script>
     const STORAGE_KEY = 'sub_converter_profiles';
     let profiles = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
     function renderProfiles() {
       const container = document.getElementById('favList');
-      if (profiles.length === 0) { container.innerHTML = '<span style="color:#94a3b8; font-size:0.9rem;">暫無收藏，請在上方輸入並儲存...</span>'; return; }
-      container.innerHTML = profiles.map((p, index) => \`<div class="fav-item"><span class="fav-name" onclick="insertProfile(\${index})" title="點擊加入">\${p.name}</span><span class="fav-action fav-delete" onclick="deleteProfile(\${index})" title="刪除">✕</span></div>\`).join('');
+      if (profiles.length === 0) { container.innerHTML = '<span style="color:#94a3b8; font-size:0.9rem;">暫無收藏...</span>'; return; }
+      container.innerHTML = profiles.map((p, index) => \`<div class="fav-item"><span class="fav-name" onclick="insertProfile(\${index})" title="點擊加入: \${p.name}">\${p.name}</span><span class="fav-action fav-delete" onclick="deleteProfile(\${index})" title="刪除">✕</span></div>\`).join('');
     }
+    
+    // 修改：儲存時只需要名字和 URL，名字就是短鏈
     function saveProfile() {
-      const name = document.getElementById('favName').value.trim();
+      const name = document.getElementById('favName').value.trim(); 
       const url = document.getElementById('favUrl').value.trim();
       if (!name || !url) { alert('請輸入名稱和連結內容'); return; }
       profiles.push({ name, url }); localStorage.setItem(STORAGE_KEY, JSON.stringify(profiles));
       document.getElementById('favName').value = ''; document.getElementById('favUrl').value = ''; renderProfiles(); showToast('💾 已儲存至收藏夾');
     }
+    
     function deleteProfile(index) { if(!confirm('確定要刪除這個收藏嗎？')) return; profiles.splice(index, 1); localStorage.setItem(STORAGE_KEY, JSON.stringify(profiles)); renderProfiles(); }
+    
+    // 修改：點擊收藏時，自動填入 URL 和 短鏈名稱
     function insertProfile(index) {
       const profile = profiles[index]; if (!profile) return;
       const textarea = document.getElementById('url'); const currentVal = textarea.value.trim();
-      textarea.value = currentVal ? (currentVal + '\\n' + profile.url) : profile.url; showToast('📥 已加入: ' + profile.name);
+      textarea.value = currentVal ? (currentVal + '\\n' + profile.url) : profile.url; 
+      
+      // 自動將收藏名稱填入短鏈輸入框
+      document.getElementById('shortCode').value = profile.name;
+      
+      showToast('📥 已加入: ' + profile.name);
     }
     renderProfiles();
-    function generate() {
+
+    async function generate() {
       const rawInput = document.getElementById('url').value; const target = document.getElementById('target').value;
+      const shortCode = document.getElementById('shortCode').value.trim();
       const urls = rawInput.split(/\\n/).map(u => u.trim()).filter(u => u.length > 0).join('|'); 
       if (!urls) { alert('請至少輸入一個連結！'); return; }
+      
       const host = window.location.origin;
-      // 關鍵修改：加入 random 參數防止 App 緩存
-      const final = \`\${host}/?url=\${encodeURIComponent(urls)}&target=\${target}&_t=\${Date.now()}\`;
+      let final = '';
+
+      if (shortCode) {
+        try {
+          const btn = document.querySelector('button[onclick="generate()"]');
+          btn.textContent = '⏳ 處理中...'; btn.disabled = true;
+          // 呼叫 KV 儲存 API
+          const resp = await fetch('/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: shortCode, content: urls }) });
+          if (!resp.ok) throw new Error('儲存失敗');
+          
+          final = \`\${host}/\${shortCode}?target=\${target}\`; 
+          btn.textContent = '⚡ 立即生成'; btn.disabled = false;
+        } catch (e) { alert('儲存短連結失敗: ' + e.message); return; }
+      } else {
+        final = \`\${host}/?url=\${encodeURIComponent(urls)}&target=\${target}\`;
+      }
+
       document.getElementById('finalUrl').value = final; document.getElementById('resultArea').classList.add('show');
       const qrContainer = document.getElementById('qrcode'); qrContainer.innerHTML = ''; 
       new QRCode(qrContainer, { text: final, width: 180, height: 180, colorDark : "#000000", colorLight : "#ffffff", correctLevel : QRCode.CorrectLevel.M });
@@ -216,7 +262,6 @@ function toBase64(nodes: ProxyNode[]) {
     } catch { return null; } }).filter(l => l !== null); return utf8ToBase64(links.join('\n'));
 }
 
-// 核心修改：強制加上時間戳防止 Worker 緩存 GitHub 文件
 async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
   const resp = await fetch(`${REMOTE_CONFIG.singbox}?t=${Math.random()}`, { headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } });
   if (!resp.ok) throw new Error('無法讀取 Sing-Box_Rules.JSON');
@@ -232,7 +277,7 @@ async function toClashWithTemplate(nodes: ProxyNode[]) {
   const resp = await fetch(`${REMOTE_CONFIG.clash}?t=${Math.random()}`, { headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } });
   if (!resp.ok) throw new Error('無法讀取 Clash_Rules.YAML');
   const text = await resp.text();
-  let config: any; try { config = yaml.load(text); } catch (e) { throw new Error('Clash_Rules.YAML 格式錯誤'); }
+  let config; try { config = yaml.load(text); } catch (e) { throw new Error('Clash_Rules.YAML 格式錯誤'); }
   const proxies = nodes.map(n => n.clashObj); const proxyNames = proxies.map(p => p.name);
   if (!Array.isArray(config.proxies)) config.proxies = []; config.proxies.push(...proxies);
   if (Array.isArray(config['proxy-groups'])) { config['proxy-groups'].forEach((group: any) => { if (!Array.isArray(group.proxies)) group.proxies = []; group.proxies.push(...proxyNames); }); }
@@ -241,8 +286,26 @@ async function toClashWithTemplate(nodes: ProxyNode[]) {
 
 export default {
   async fetch(request: Request, env: Env, ctx: any): Promise<Response> {
-    const url = new URL(request.url); const urlParam = url.searchParams.get('url');
+    const url = new URL(request.url); 
+    
+    if (request.method === 'POST' && url.pathname === '/save') {
+      try {
+        const body: any = await request.json();
+        if (!body.path || !body.content) return new Response('Missing path or content', { status: 400 });
+        await env.SUB_CACHE.put(body.path, body.content);
+        return new Response('OK', { status: 200 });
+      } catch (e) { return new Response('Error saving profile', { status: 500 }); }
+    }
+
+    let urlParam = url.searchParams.get('url');
+    const path = url.pathname.slice(1);
+    if (path && path !== 'favicon.ico' && !urlParam) {
+      const storedContent = await env.SUB_CACHE.get(path);
+      if (storedContent) { urlParam = storedContent; }
+    }
+
     if (!urlParam) return new Response(HTML_PAGE, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    
     const target = url.searchParams.get('target') || 'singbox';
     try {
       const inputs = urlParam.split('|'); const allNodes: ProxyNode[] = [];

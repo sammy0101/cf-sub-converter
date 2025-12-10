@@ -10,6 +10,7 @@ export const HTML_PAGE = `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>訂閱轉換器</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔄</text></svg>">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <style>
     :root { --bg: #0f172a; --card-bg: #1e293b; --input-bg: #020617; --text-main: #f8fafc; --text-sub: #94a3b8; --accent: #38bdf8; --accent-hover: #0ea5e9; --border: #334155; --success: #22c55e; --danger: #ef4444; --card-hover: #2d3a52; }

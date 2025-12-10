@@ -35,17 +35,6 @@
 
 回到你 Fork 後的倉庫頁面，點擊上方的 **Deploy to Cloudflare Workers** 按鈕。
 
-### 第三步：配置環境變量 (Secrets)
-
-在 Cloudflare 的部署引導頁面中，系統會自動詢問以下 Secrets，請填入你的相關信息：
-
-| 變量名 (Secret) | 說明 | 獲取方式 |
-| :--- | :--- | :--- |
-| `CF_ACCOUNT_ID` | Cloudflare 帳戶 ID | CF 控制台首頁右側可見 |
-| `CF_API_TOKEN` | Cloudflare API 令牌 | 用於 Workers 操作權限 |
-| `CF_KV_ID` | KV Namespace ID | 用於緩存或存儲配置 |
-
-> ⚠️ **注意**：如果不填寫這些變量，轉換器可能無法正常使用高級功能或緩存功能。
 
 ## 📖 使用方法
 

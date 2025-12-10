@@ -28,8 +28,15 @@ const HTML_PAGE = `
     .container { background: var(--card-bg); padding: 2.5rem; border-radius: 20px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3); width: 100%; max-width: 1000px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 2rem; }
     .header { text-align: center; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
     
-    /* 這裡修改了標題字體大小和圖標間距，看起來更協調 */
-    .header h1 { margin: 0; font-size: 2.2rem; font-weight: 800; background: linear-gradient(90deg, #fff, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; display: flex; align-items: center; justify-content: center; gap: 10px; }
+    /* 修正標題樣式：移除 H1 本身的漸層，避免 Emoji 變成方塊 */
+    .header h1 { margin: 0; font-size: 2.2rem; font-weight: 800; color: #fff; display: flex; align-items: center; justify-content: center; gap: 10px; }
+    
+    /* 新增：只對文字套用漸層 */
+    .gradient-text {
+      background: linear-gradient(90deg, #fff, #94a3b8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
     
     .header p { color: var(--text-sub); margin-top: 0.5rem; font-size: 1rem; }
     .fav-section { background: #253045; padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border); }
@@ -68,6 +75,7 @@ const HTML_PAGE = `
     .rules-section { margin-top: 1rem; padding: 1rem; background: #253045; border-radius: 10px; border: 1px solid var(--border); }
     .rules-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px dashed var(--border); }
     .rules-link { color: var(--accent); text-decoration: none; font-size: 0.9rem; }
+    .rules-link:hover { text-decoration: underline; }
     .rules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem; }
     .rule-card { background: #1e293b; padding: 0.8rem 1rem; border-radius: 8px; border: 1px solid transparent; transition: all 0.2s; display: flex; flex-direction: column; gap: 0.3rem; }
     .rule-card:hover { border-color: var(--accent); transform: translateY(-2px); }
@@ -83,8 +91,11 @@ const HTML_PAGE = `
 </head>
 <body>
   <div class="container">
-    <!-- 修改了這裡的圖標 -->
-    <div class="header"><h1>🔄 訂閱轉換中心</h1><p>客製化遠端規則 • 智能合併多訂閱</p></div>
+    <div class="header">
+      <!-- 修正：將圖標移出漸層 span，確保顏色正確顯示 -->
+      <h1>🔄 <span class="gradient-text">訂閱轉換中心</span></h1>
+      <p>客製化遠端規則 • 智能合併多訂閱</p>
+    </div>
     
     <div class="fav-section">
       <h3 class="fav-title">⭐ 我的訂閱收藏 (本機儲存)</h3>

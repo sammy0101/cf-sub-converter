@@ -27,7 +27,10 @@ const HTML_PAGE = `
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text-main); margin: 0; padding: 40px 20px; display: flex; justify-content: center; min-height: 100vh; }
     .container { background: var(--card-bg); padding: 2.5rem; border-radius: 20px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3); width: 100%; max-width: 1000px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 2rem; }
     .header { text-align: center; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
-    .header h1 { margin: 0; font-size: 2rem; font-weight: 800; background: linear-gradient(90deg, #fff, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    
+    /* 這裡修改了標題字體大小和圖標間距，看起來更協調 */
+    .header h1 { margin: 0; font-size: 2.2rem; font-weight: 800; background: linear-gradient(90deg, #fff, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; display: flex; align-items: center; justify-content: center; gap: 10px; }
+    
     .header p { color: var(--text-sub); margin-top: 0.5rem; font-size: 1rem; }
     .fav-section { background: #253045; padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border); }
     .fav-title { margin: 0 0 1rem 0; font-size: 1.1rem; color: var(--accent); display: flex; align-items: center; gap: 0.5rem; }
@@ -80,7 +83,9 @@ const HTML_PAGE = `
 </head>
 <body>
   <div class="container">
-    <div class="header"><h1>🚀 訂閱轉換中心</h1><p>客製化遠端規則 • 智能合併多訂閱</p></div>
+    <!-- 修改了這裡的圖標 -->
+    <div class="header"><h1>🔄 訂閱轉換中心</h1><p>客製化遠端規則 • 智能合併多訂閱</p></div>
+    
     <div class="fav-section">
       <h3 class="fav-title">⭐ 我的訂閱收藏 (本機儲存)</h3>
       <div class="fav-form">
@@ -92,26 +97,31 @@ const HTML_PAGE = `
       </div>
       <div id="favList" class="fav-list"><span style="color:#94a3b8; font-size:0.9rem;">暫無收藏...</span></div>
     </div>
+
     <div class="main-grid">
       <div>
         <label>📥 轉換來源 (點擊上方收藏可直接加入)</label>
         <textarea id="url" style="min-height:200px;" placeholder="在此貼上機場訂閱連結或節點..."></textarea>
+        
         <div style="margin-top: 1rem;">
           <label>🔗 自訂短連結 (自動帶入收藏名稱)</label>
           <input type="text" id="shortCode" placeholder="輸入短鏈名稱，留空則生成長連結" style="width: 100%;">
           <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 5px;">若輸入名稱，連結將變為 https://.../名稱，且資料會儲存於雲端。</div>
         </div>
       </div>
+
       <div class="controls">
         <div><label>🛠 轉換目標</label><select id="target"><option value="singbox">Sing-Box (JSON 模板)</option><option value="clash">Clash Meta (YAML 模板)</option><option value="base64">Base64 (純節點)</option></select></div>
         <button onclick="generate()">⚡ 立即生成</button>
       </div>
     </div>
+
     <div class="result-group" id="resultArea">
       <label>🎉 您的專屬訂閱連結</label>
       <div class="result-row"><input type="text" id="finalUrl" readonly onclick="this.select()"><button class="copy-btn" onclick="copyUrl()">複製</button></div>
       <div id="qrcode"></div>
     </div>
+
     <div class="rules-section">
       <div class="rules-header"><label style="margin:0">🛡️ 內建分流群組</label><a href="https://github.com/sammy0101/myself/tree/main" target="_blank" class="rules-link">查看 GitHub 原始碼 ↗</a></div>
       <div class="rules-grid">
@@ -121,13 +131,14 @@ const HTML_PAGE = `
         <div class="rule-card"><span class="rule-name">🌐 非中國</span><span class="rule-desc">Google / TG</span></div>
         <div class="rule-card"><span class="rule-name">🔒 國內服務</span><span class="rule-desc">CN Direct</span></div>
         <div class="rule-card"><span class="rule-name">🏠 私有網絡</span><span class="rule-desc">Local Direct</span></div>
-        <div class="rule-card"><span class="rule-name">🐟 漏網之魚</span><span class="rule-desc">Final Match</span></div>
         <div class="rule-card"><span class="rule-name">🛑 廣告攔截</span><span class="rule-desc">AdBlock</span></div>
+        <div class="rule-card"><span class="rule-name">🐟 漏網之魚</span><span class="rule-desc">Final Match</span></div>
       </div>
       <div class="file-info"><div class="file-row"><span class="dot"></span> SingBox: <b>Sing-Box_Rules.JSON</b></div><div class="file-row"><span class="dot"></span> Clash: <b>Clash_Rules.YAML</b></div></div>
     </div>
   </div>
   <div id="toast" class="toast">✅ 複製成功！</div>
+  
   <script>
     const STORAGE_KEY = 'sub_converter_profiles';
     let profiles = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
@@ -137,7 +148,8 @@ const HTML_PAGE = `
       container.innerHTML = profiles.map((p, index) => \`<div class="fav-item"><span class="fav-name" onclick="insertProfile(\${index})" title="點擊加入: \${p.name}">\${p.name}</span><span class="fav-action fav-delete" onclick="deleteProfile(\${index})" title="刪除">✕</span></div>\`).join('');
     }
     function saveProfile() {
-      const name = document.getElementById('favName').value.trim(); const url = document.getElementById('favUrl').value.trim();
+      const name = document.getElementById('favName').value.trim(); 
+      const url = document.getElementById('favUrl').value.trim();
       if (!name || !url) { alert('請輸入名稱和連結內容'); return; }
       profiles.push({ name, url }); localStorage.setItem(STORAGE_KEY, JSON.stringify(profiles));
       document.getElementById('favName').value = ''; document.getElementById('favUrl').value = ''; renderProfiles(); showToast('💾 已儲存至收藏夾');
@@ -151,13 +163,16 @@ const HTML_PAGE = `
       showToast('📥 已加入: ' + profile.name);
     }
     renderProfiles();
+
     async function generate() {
       const rawInput = document.getElementById('url').value; const target = document.getElementById('target').value;
       const shortCode = document.getElementById('shortCode').value.trim();
       const urls = rawInput.split(/\\n/).map(u => u.trim()).filter(u => u.length > 0).join('|'); 
       if (!urls) { alert('請至少輸入一個連結！'); return; }
+      
       const host = window.location.origin;
       let final = '';
+
       if (shortCode) {
         try {
           const btn = document.querySelector('button[onclick="generate()"]');
@@ -167,7 +182,10 @@ const HTML_PAGE = `
           final = \`\${host}/\${shortCode}?target=\${target}\`; 
           btn.textContent = '⚡ 立即生成'; btn.disabled = false;
         } catch (e) { alert('儲存短連結失敗: ' + e.message); return; }
-      } else { final = \`\${host}/?url=\${encodeURIComponent(urls)}&target=\${target}\`; }
+      } else {
+        final = \`\${host}/?url=\${encodeURIComponent(urls)}&target=\${target}\`;
+      }
+
       document.getElementById('finalUrl').value = final; document.getElementById('resultArea').classList.add('show');
       const qrContainer = document.getElementById('qrcode'); qrContainer.innerHTML = ''; 
       new QRCode(qrContainer, { text: final, width: 180, height: 180, colorDark : "#000000", colorLight : "#ffffff", correctLevel : QRCode.CorrectLevel.M });
@@ -290,7 +308,6 @@ export default {
       }));
       if (allNodes.length === 0) return new Response('未解析到任何有效節點', { status: 400 });
       
-      // --- 新增：節點名稱去重邏輯 ---
       const nameCounts = new Map<string, number>();
       const uniqueNodes = allNodes.map(node => {
         let finalName = node.name;
@@ -301,15 +318,11 @@ export default {
         } else {
           nameCounts.set(node.name, 1);
         }
-        
-        // 更新內部物件的名稱
         const newNode = { ...node, name: finalName };
         if (newNode.singboxObj) newNode.singboxObj.tag = finalName;
         if (newNode.clashObj) newNode.clashObj.name = finalName;
-        
         return newNode;
       });
-      // --------------------------
 
       let result = ''; let contentType = 'text/plain; charset=utf-8';
       if (target === 'clash') { result = await toClashWithTemplate(uniqueNodes); contentType = 'text/yaml; charset=utf-8'; } 

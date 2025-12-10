@@ -88,21 +88,3 @@ npm run dev
 *   作者不對使用本項目產生的任何後果負責。
 
 ---
-
-### 💡 給開發者（Sammy）的提示
-
-為了讓「按鈕」點擊後能**自動彈出**輸入框詢問 `CF_ACCOUNT_ID` 等變量，請務必確保你倉庫根目錄的 `wrangler.toml` 文件中包含以下內容：
-
-```toml
-name = "cf-sub-converter"
-main = "src/index.ts" # 或者是你的入口文件路徑
-compatibility_date = "2023-10-01"
-
-# 必須在 vars 中定義這些變量，部署按鈕才會自動詢問用戶
-[vars]
-CF_ACCOUNT_ID = ""
-CF_API_TOKEN = ""
-CF_KV_ID = ""
-```
-
-如果 `wrangler.toml` 中沒有 `[vars]` 區塊，Cloudflare 的部署嚮導就不會提示用戶輸入這些 Secrets。

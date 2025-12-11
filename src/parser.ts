@@ -4,13 +4,31 @@ import { safeBase64Decode } from "./utils";
 // --- 輔助：完美修復 SS-2022 Key ---
 function fixSS2022Key(key: string): string {
   if (!key) return "";
+  
   try { key = decodeURIComponent(key); } catch(e) {}
-  if (key.includes(':')) { key = key.split(':')[0]; } // 只取 Server Key
+
+  // SS-2022 格式通常是 ServerKey:ClientKey，我們只取 ServerKey
+  if (key.includes(':')) {
+    key = key.split(':')[0];
+  }
+
+  // 替換 URL-Safe
   let clean = key.replace(/-/g, '+').replace(/_/g, '/');
+  
+  // 白名單過濾
   clean = clean.replace(/[^A-Za-z0-9\+\/]/g, "");
-  if (clean.length > 44) { clean = clean.substring(0, 44); }
+  
+  // 強制截斷為 32 bytes (44 chars)
+  if (clean.length > 44) {
+    clean = clean.substring(0, 44);
+  }
+
+  // 補齊 Padding
   const pad = clean.length % 4;
-  if (pad) { clean += '='.repeat(4 - pad); }
+  if (pad) {
+    clean += '='.repeat(4 - pad);
+  }
+  
   return clean;
 }
 
@@ -24,7 +42,7 @@ function parsePluginParams(str: string): Record<string, string> {
   return params;
 }
 
-// --- 解析 Shadowsocks (含 TLS/ECH 支援) ---
+// --- 解析 Shadowsocks ---
 function parseShadowsocks(urlStr: string): ProxyNode | null {
   try {
     const url = new URL(urlStr);
@@ -34,6 +52,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     let raw = urlStr.replace('ss://', '');
     const hashIndex = raw.indexOf('#');
     let name = 'Shadowsocks';
+    
     if (hashIndex !== -1) {
       name = decodeURIComponent(raw.substring(hashIndex + 1));
       raw = raw.substring(0, hashIndex);
@@ -92,7 +111,8 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     if (isNaN(port)) return null;
 
     // --- 密碼修復 ---
-    if (method.toLowerCase().includes('2022')) {
+    const isSS2022 = method.toLowerCase().includes('2022');
+    if (isSS2022) {
         password = fixSS2022Key(password);
     }
 
@@ -126,6 +146,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       type: 'shadowsocks', name, server, port, cipher: method, password, udp: true
     };
 
+    // SingBox Config
     node.singboxObj = {
       tag: name,
       type: 'shadowsocks',
@@ -135,36 +156,43 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       password: node.password,
     };
 
+    // [關鍵修正] SS-2022 必須啟用 UoT (UDP over TCP)
+    if (isSS2022) {
+        node.singboxObj.udp_over_tcp = true;
+    }
+
     if (sbTransport) node.singboxObj.transport = sbTransport;
     if (sbObfs) node.singboxObj.obfs = sbObfs;
 
-    // --- 關鍵修正：處理 SS over TLS / ECH (你的問題點) ---
+    // --- SS over TLS / ECH / Multiplex ---
     if (params.get('security') === 'tls') {
         const sni = params.get('sni') || params.get('host') || node.server;
         const alpn = params.get('alpn') ? decodeURIComponent(params.get('alpn')!).split(',') : undefined;
         const fingerprint = params.get('fp') || 'chrome';
         const echStr = params.get('ech');
 
-        // 為 SingBox 添加 TLS 設定
         node.singboxObj.tls = {
             enabled: true,
             server_name: sni,
             alpn: alpn,
-            utls: {
-                enabled: true,
-                fingerprint: fingerprint
-            }
+            utls: { enabled: true, fingerprint: fingerprint }
         };
 
-        // 處理 ECH (Encrypted Client Hello)
         if (echStr) {
-            node.singboxObj.tls.ech = {
+            node.singboxObj.tls.ech = { enabled: true, config: decodeURIComponent(echStr) };
+        }
+
+        // [關鍵修正] 如果 ALPN 包含 h2，必須啟用 Multiplex
+        if (alpn && alpn.includes('h2')) {
+            node.singboxObj.multiplex = {
                 enabled: true,
-                config: decodeURIComponent(echStr) // SingBox 接受 Base64 字符串
+                protocol: "h2", // 強制使用 h2 多路復用
+                max_connections: 1,
+                min_streams: 2,
+                padding: true
             };
         }
     }
-    // --------------------------------------------------
 
     // Clash Config
     node.clashObj = {
@@ -179,21 +207,19 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       'plugin-opts': pluginStr ? parsePluginParams(pluginStr.split(';').slice(1).join(';')) : undefined
     };
     
-    // Clash Meta 也支援 SS over TLS，但欄位不同，這裡做簡單兼容
+    // Clash Meta 的 SS over TLS 支援
     if (params.get('security') === 'tls') {
-        // 舊版 Clash 可能不支援 SS+TLS，但 Meta 支援
-        node.clashObj.smux = { enabled: true }; // 通常這種節點也開了 Multiplex
-        // Clash 對於 SS 原生 TLS 支援有限，通常是透過 plugin。
-        // 但如果客戶端是 Clash Meta，它可能不需額外設定就能跑，或是需要特殊處理。
-        // 這裡主要保證 SingBox 能跑。
+        // Clash Meta 通常不需要特別設定 tls 欄位給 SS，除非是 plugin
+        // 但如果需要，可以在這裡擴充。目前保持基本，因為 Clash 主要依賴 plugin 處理複雜 SS
+        node.clashObj.smux = { enabled: true };
     }
 
     return node;
   } catch (e) { return null; }
 }
 
-// ... (以下 Vless, Hysteria2, Vmess 函數內容保持不變，直接複製原有的即可) ...
-// 為了完整性，這裡再次提供精簡後的其他解析函數
+// ... (以下 Vless, Hysteria2, Vmess 函數內容保持不變，請保留原檔案下半部分) ...
+// (為節省篇幅，請確保你沒有刪除下面這幾個函數：parseVless, parseHysteria2, parseVmess, parseContent)
 
 function parseVless(urlStr: string): ProxyNode | null {
   try {
@@ -213,7 +239,6 @@ function parseVless(urlStr: string): ProxyNode | null {
     return node;
   } catch (e) { return null; }
 }
-
 function parseHysteria2(urlStr: string): ProxyNode | null {
   try {
     const url = new URL(urlStr); const params = url.searchParams; const name = decodeURIComponent(url.hash.slice(1)) || 'Hy2';
@@ -225,7 +250,6 @@ function parseHysteria2(urlStr: string): ProxyNode | null {
     return node;
   } catch (e) { return null; }
 }
-
 function parseVmess(vmessUrl: string): ProxyNode | null {
   try {
     const b64 = vmessUrl.replace('vmess://', ''); const jsonStr = safeBase64Decode(b64); const config = JSON.parse(jsonStr); const name = config.ps || 'VMess';
@@ -237,15 +261,9 @@ function parseVmess(vmessUrl: string): ProxyNode | null {
     return node;
   } catch (e) { return null; }
 }
-
-export async function parseContent(content: string): Promise<ProxyNode[]> {
-  let plainText = content;
-  if (!content.includes('://') || !content.match(/^[a-z0-9]+:\/\//i)) {
-    const decoded = safeBase64Decode(content);
-    if (decoded) plainText = decoded;
-  }
-  const lines = plainText.split(/\r?\n/);
-  const nodes: ProxyNode[] = [];
+async function parseContent(content: string): Promise<ProxyNode[]> {
+  let plainText = content; if (!content.includes('://') || !content.match(/^[a-z0-9]+:\/\//i)) { const decoded = safeBase64Decode(content); if (decoded) plainText = decoded; }
+  const lines = plainText.split(/\r?\n/); const nodes: ProxyNode[] = [];
   for (const line of lines) { const l = line.trim(); if (!l) continue;
     if (l.startsWith('ss://')) { const n = parseShadowsocks(l); if (n) nodes.push(n); } 
     else if (l.startsWith('vless://')) { const n = parseVless(l); if (n) nodes.push(n); } 

@@ -1,38 +1,18 @@
 import { ProxyNode } from "./types";
 import { safeBase64Decode } from "./utils";
 
-// --- 輔助：完美修復 SS-2022 Key ---
 function fixSS2022Key(key: string): string {
   if (!key) return "";
-  
   try { key = decodeURIComponent(key); } catch(e) {}
-
-  // SS-2022 格式通常是 ServerKey:ClientKey，我們只取 ServerKey
-  if (key.includes(':')) {
-    key = key.split(':')[0];
-  }
-
-  // 替換 URL-Safe
+  if (key.includes(':')) { key = key.split(':')[0]; }
   let clean = key.replace(/-/g, '+').replace(/_/g, '/');
-  
-  // 白名單過濾
   clean = clean.replace(/[^A-Za-z0-9\+\/]/g, "");
-  
-  // 強制截斷為 32 bytes (44 chars)
-  if (clean.length > 44) {
-    clean = clean.substring(0, 44);
-  }
-
-  // 補齊 Padding
+  if (clean.length > 44) { clean = clean.substring(0, 44); }
   const pad = clean.length % 4;
-  if (pad) {
-    clean += '='.repeat(4 - pad);
-  }
-  
+  if (pad) { clean += '='.repeat(4 - pad); }
   return clean;
 }
 
-// 輔助：解析 Plugin 參數
 function parsePluginParams(str: string): Record<string, string> {
   const params: Record<string, string> = {};
   str.split(';').forEach(p => {
@@ -42,28 +22,18 @@ function parsePluginParams(str: string): Record<string, string> {
   return params;
 }
 
-// --- 解析 Shadowsocks ---
 function parseShadowsocks(urlStr: string): ProxyNode | null {
   try {
     const url = new URL(urlStr);
     const params = url.searchParams;
-    
-    // 1. 提取名稱
     let raw = urlStr.replace('ss://', '');
     const hashIndex = raw.indexOf('#');
     let name = 'Shadowsocks';
-    
     if (hashIndex !== -1) {
       name = decodeURIComponent(raw.substring(hashIndex + 1));
       raw = raw.substring(0, hashIndex);
     }
-
-    // 2. 解析 userinfo
-    let method = '';
-    let password = '';
-    let server = '';
-    let portStr = '';
-
+    let method = ''; let password = ''; let server = ''; let portStr = '';
     if (raw.includes('@')) {
       const parts = raw.split('@');
       const serverPart = parts[parts.length - 1];
@@ -73,20 +43,13 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       server = serverPart.substring(0, lastColonIndex);
       portStr = serverPart.substring(lastColonIndex + 1);
       if (server.startsWith('[') && server.endsWith(']')) server = server.slice(1, -1);
-
       try {
         const decoded = safeBase64Decode(userPart);
         if (decoded && decoded.includes(':') && !decoded.includes('@')) {
-          const up = decoded.split(':');
-          method = up[0];
-          password = up.slice(1).join(':');
-        } else {
-          throw new Error('Not Base64');
-        }
+          const up = decoded.split(':'); method = up[0]; password = up.slice(1).join(':');
+        } else { throw new Error('Not Base64'); }
       } catch (e) {
-        const up = userPart.split(':');
-        method = up[0];
-        password = up.slice(1).join(':');
+        const up = userPart.split(':'); method = up[0]; password = up.slice(1).join(':');
       }
     } else {
       const decoded = safeBase64Decode(raw);
@@ -105,121 +68,43 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       method = userPart.substring(0, firstColonIndex);
       password = userPart.substring(firstColonIndex + 1);
     }
-
     if (!server || !portStr || !method || !password) return null;
     const port = parseInt(portStr);
     if (isNaN(port)) return null;
-
-    // --- 密碼修復 ---
-    const isSS2022 = method.toLowerCase().includes('2022');
-    if (isSS2022) {
-        password = fixSS2022Key(password);
-    }
-
-    // --- Plugin 處理 ---
+    if (method.toLowerCase().includes('2022')) { password = fixSS2022Key(password); }
     let pluginStr = params.get('plugin') || '';
     let sbTransport: any = undefined;
     let sbObfs: any = undefined;
-
     if (pluginStr) {
         try { pluginStr = decodeURIComponent(pluginStr); } catch(e){}
         const pSplit = pluginStr.split(';');
         const pluginName = pSplit[0];
         const pluginArgs = parsePluginParams(pSplit.slice(1).join(';'));
-
         if (pluginName === 'v2ray-plugin') {
-            sbTransport = {
-                type: 'ws',
-                path: pluginArgs['path'] || '/',
-                headers: pluginArgs['host'] ? { Host: pluginArgs['host'] } : undefined
-            };
+            sbTransport = { type: 'ws', path: pluginArgs['path'] || '/', headers: pluginArgs['host'] ? { Host: pluginArgs['host'] } : undefined };
         } else if (pluginName === 'obfs-local' || pluginName === 'simple-obfs') {
-            sbObfs = {
-                type: pluginArgs['obfs'] || 'http',
-                host: pluginArgs['obfs-host'] || 'www.bing.com'
-            };
+            sbObfs = { type: pluginArgs['obfs'] || 'http', host: pluginArgs['obfs-host'] || 'www.bing.com' };
         }
     }
-
-    // --- 構建基礎節點 ---
-    const node: ProxyNode = {
-      type: 'shadowsocks', name, server, port, cipher: method, password, udp: true
-    };
-
-    // SingBox Config
-    node.singboxObj = {
-      tag: name,
-      type: 'shadowsocks',
-      server: node.server,
-      server_port: node.port,
-      method: node.cipher,
-      password: node.password,
-    };
-
-    // [關鍵修正] SS-2022 必須啟用 UoT (UDP over TCP)
-    if (isSS2022) {
-        node.singboxObj.udp_over_tcp = true;
-    }
-
+    const node: ProxyNode = { type: 'shadowsocks', name, server, port, cipher: method, password, udp: true };
+    node.singboxObj = { tag: name, type: 'shadowsocks', server: node.server, server_port: node.port, method: node.cipher, password: node.password };
+    if (method.toLowerCase().includes('2022')) { node.singboxObj.udp_over_tcp = true; }
     if (sbTransport) node.singboxObj.transport = sbTransport;
     if (sbObfs) node.singboxObj.obfs = sbObfs;
-
-    // --- SS over TLS / ECH / Multiplex ---
     if (params.get('security') === 'tls') {
         const sni = params.get('sni') || params.get('host') || node.server;
         const alpn = params.get('alpn') ? decodeURIComponent(params.get('alpn')!).split(',') : undefined;
         const fingerprint = params.get('fp') || 'chrome';
         const echStr = params.get('ech');
-
-        node.singboxObj.tls = {
-            enabled: true,
-            server_name: sni,
-            alpn: alpn,
-            utls: { enabled: true, fingerprint: fingerprint }
-        };
-
-        if (echStr) {
-            node.singboxObj.tls.ech = { enabled: true, config: decodeURIComponent(echStr) };
-        }
-
-        // [關鍵修正] 如果 ALPN 包含 h2，必須啟用 Multiplex
-        if (alpn && alpn.includes('h2')) {
-            node.singboxObj.multiplex = {
-                enabled: true,
-                protocol: "h2", // 強制使用 h2 多路復用
-                max_connections: 1,
-                min_streams: 2,
-                padding: true
-            };
-        }
+        node.singboxObj.tls = { enabled: true, server_name: sni, alpn: alpn, utls: { enabled: true, fingerprint: fingerprint } };
+        if (echStr) { node.singboxObj.tls.ech = { enabled: true, config: decodeURIComponent(echStr) }; }
+        if (alpn && alpn.includes('h2')) { node.singboxObj.multiplex = { enabled: true, protocol: "h2", max_connections: 1, min_streams: 2, padding: true }; }
     }
-
-    // Clash Config
-    node.clashObj = {
-      name: name,
-      type: 'ss',
-      server: node.server,
-      port: node.port,
-      cipher: node.cipher,
-      password: node.password,
-      udp: true,
-      plugin: pluginStr ? pluginStr.split(';')[0] : undefined,
-      'plugin-opts': pluginStr ? parsePluginParams(pluginStr.split(';').slice(1).join(';')) : undefined
-    };
-    
-    // Clash Meta 的 SS over TLS 支援
-    if (params.get('security') === 'tls') {
-        // Clash Meta 通常不需要特別設定 tls 欄位給 SS，除非是 plugin
-        // 但如果需要，可以在這裡擴充。目前保持基本，因為 Clash 主要依賴 plugin 處理複雜 SS
-        node.clashObj.smux = { enabled: true };
-    }
-
+    node.clashObj = { name: name, type: 'ss', server: node.server, port: node.port, cipher: node.cipher, password: node.password, udp: true, plugin: pluginStr ? pluginStr.split(';')[0] : undefined, 'plugin-opts': pluginStr ? parsePluginParams(pluginStr.split(';').slice(1).join(';')) : undefined };
+    if (params.get('security') === 'tls') { node.clashObj.smux = { enabled: true }; }
     return node;
   } catch (e) { return null; }
 }
-
-// ... (以下 Vless, Hysteria2, Vmess 函數內容保持不變，請保留原檔案下半部分) ...
-// (為節省篇幅，請確保你沒有刪除下面這幾個函數：parseVless, parseHysteria2, parseVmess, parseContent)
 
 function parseVless(urlStr: string): ProxyNode | null {
   try {
@@ -261,13 +146,25 @@ function parseVmess(vmessUrl: string): ProxyNode | null {
     return node;
   } catch (e) { return null; }
 }
-async function parseContent(content: string): Promise<ProxyNode[]> {
-  let plainText = content; if (!content.includes('://') || !content.match(/^[a-z0-9]+:\/\//i)) { const decoded = safeBase64Decode(content); if (decoded) plainText = decoded; }
-  const lines = plainText.split(/\r?\n/); const nodes: ProxyNode[] = [];
+
+// 修改：更積極的 Base64 清洗
+export async function parseContent(content: string): Promise<ProxyNode[]> {
+  let plainText = content;
+  
+  // 如果內容看起來像 Base64 (不含空格，沒有 ://)，就解碼
+  // 很多機場會回傳一個單純的 Base64 字串，解碼後才是一行一行的節點
+  if (!content.includes('://') && !content.includes(' ')) {
+    const decoded = safeBase64Decode(content.trim());
+    if (decoded) plainText = decoded;
+  }
+
+  const lines = plainText.split(/\r?\n/);
+  const nodes: ProxyNode[] = [];
   for (const line of lines) { const l = line.trim(); if (!l) continue;
     if (l.startsWith('ss://')) { const n = parseShadowsocks(l); if (n) nodes.push(n); } 
     else if (l.startsWith('vless://')) { const n = parseVless(l); if (n) nodes.push(n); } 
     else if (l.startsWith('hysteria2://') || l.startsWith('hy2://')) { const n = parseHysteria2(l); if (n) nodes.push(n); } 
     else if (l.startsWith('vmess://')) { const n = parseVmess(l); if (n) nodes.push(n); }
-  } return nodes;
+  } 
+  return nodes;
 }

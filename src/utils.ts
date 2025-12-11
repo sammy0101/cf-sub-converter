@@ -27,7 +27,7 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
       nameCounts.set(node.name, 1);
     }
     
-    // 更新節點內部的名稱
+    // Update internal names
     const newNode = { ...node, name: finalName };
     if (newNode.singboxObj) newNode.singboxObj.tag = finalName;
     if (newNode.clashObj) newNode.clashObj.name = finalName;

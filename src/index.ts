@@ -4,8 +4,8 @@ import { parseContent } from './parser';
 import { toSingBoxWithTemplate, toClashWithTemplate, toBase64 } from './generator';
 import { deduplicateNodeNames } from './utils';
 
-// 定義一個通用的瀏覽器 UA，防止被機場攔截
-const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+// 改回 v2rayNG，這是機場最喜歡的 UA，通常會直接給 Base64 訂閱
+const CLIENT_UA = 'v2rayNG/1.8.5';
 
 export default {
   async fetch(request: Request, env: Env, ctx: any): Promise<Response> {
@@ -34,6 +34,9 @@ export default {
     
     const target = url.searchParams.get('target') || 'singbox';
     
+    // 用來記錄最後一次抓取的錯誤內容，方便除錯
+    let debugInfo = "";
+
     try {
       // 4. 解析訂閱來源
       const inputs = urlParam.split('|'); 
@@ -45,12 +48,12 @@ export default {
         
         if (trimmed.startsWith('http')) { 
           try { 
-            // 關鍵修改：使用 Chrome UA，並加入隨機參數防止機場/CF緩存
             const separator = trimmed.includes('?') ? '&' : '?';
+            // 使用 v2rayNG UA
             const resp = await fetch(`${trimmed}${separator}t=${Date.now()}`, { 
               headers: { 
-                'User-Agent': BROWSER_UA,
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
+                'User-Agent': CLIENT_UA,
+                'Accept': '*/*'
               } 
             }); 
             
@@ -61,21 +64,25 @@ export default {
               if (nodes.length > 0) {
                 allNodes.push(...nodes);
               } else {
-                console.log(`No nodes found for ${trimmed}. Response length: ${text.length}`);
+                // 雖然成功下載，但解析不出節點，記錄下來
+                debugInfo += `\n[解析失敗] ${trimmed}:\n內容預覽: ${text.substring(0, 150)}...\n`;
               }
             } else {
-              console.log(`Fetch failed for ${trimmed}: ${resp.status}`);
+              debugInfo += `\n[下載失敗] ${trimmed} (Status: ${resp.status})\n`;
             }
-          } catch (e) { console.error(e); } 
+          } catch (e: any) { 
+            debugInfo += `\n[連線錯誤] ${trimmed}: ${e.message}\n`;
+          } 
         } else { 
           // 處理直接貼上的節點
-          allNodes.push(...await parseContent(trimmed)); 
+          const nodes = await parseContent(trimmed);
+          if (nodes.length > 0) allNodes.push(...nodes);
         }
       }));
 
-      // 如果還是沒抓到節點，回傳詳細錯誤，不要只回 400
+      // 如果全部失敗，回傳詳細錯誤訊息給客戶端
       if (allNodes.length === 0) {
-        return new Response('錯誤：未解析到任何有效節點。可能是機場訂閱連結被封鎖，或格式無法識別。', { 
+        return new Response(`錯誤：未解析到任何有效節點 (400 Bad Request)。\n\n詳細除錯資訊:${debugInfo}`, { 
           status: 400,
           headers: { 'Content-Type': 'text/plain; charset=utf-8' }
         });

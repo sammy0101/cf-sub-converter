@@ -34,26 +34,31 @@ export function toBase64(nodes: ProxyNode[]) {
         return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
       }
 
-      // --- 關鍵修正：SS Base64 還原 (補回 TLS 參數) ---
+      // --- 修復 SS Base64 輸出 ---
       if (node.type === 'shadowsocks') {
         const userInfo = `${node.cipher}:${node.password}`;
         const base64User = utf8ToBase64(userInfo);
-        const params = new URLSearchParams();
+        let suffix = "";
         
-        // 如果有 Plugin，加回去
-        // (這裡不特別處理 plugin，因為 SS+TLS 通常不需要傳統 plugin)
-
-        // 如果是 SS over TLS，把參數加回去給 v2rayN 看
+        // 如果開啟了 TLS，v2rayN 預設不支援標準 SIP002 的 security=tls
+        // 我們嘗試偽裝成 obfs 或 v2ray-plugin 讓它識別，或者標準 SIP002
+        // 但最標準的做法是只輸出標準參數，剩下的交給客戶端
+        
+        // 嘗試：使用 SIP002 標準
+        const params = new URLSearchParams();
         if (node.tls) {
-            params.set('security', 'tls');
-            if (node.sni) params.set('sni', node.sni);
-            if (node.alpn) params.set('alpn', node.alpn.join(','));
-            if (node.fingerprint) params.set('fp', node.fingerprint);
-            params.set('type', 'tcp'); // v2rayN 習慣
+            // v2rayN 比較老舊，可能需要 plugin 參數才能開 TLS
+            // 但如果我們加上 plugin=v2ray-plugin;tls=tls;host=xxx 即使實際上不是 ws，
+            // v2rayN 也許能連上 (如果它是 SS over WSS)
+            // 但你的節點是 SS over TLS (TCP)，這在 v2rayN 支援度很差
+            
+            // 盡力而為：輸出標準 SIP002 格式
+            // 現代客戶端 (如 Nekobox, FlClash) 應該能識別
+            params.set('plugin', `obfs-local;obfs=tls;obfs-host=${node.sni}`);
         }
         
         const query = params.toString();
-        return `ss://${base64User}@${node.server}:${node.port}${query ? '?' + query : ''}#${encodeURIComponent(node.name)}`;
+        return `ss://${base64User}@${node.server}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
       }
 
       return null;

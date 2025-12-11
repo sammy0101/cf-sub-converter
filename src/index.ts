@@ -37,7 +37,10 @@ export default {
         if (!trimmed) return;
         if (trimmed.startsWith('http')) { 
           try { 
-            const resp = await fetch(trimmed, { headers: { 'User-Agent': 'v2rayng/1.8.5' } }); 
+            // 加入隨機參數防止 fetch 到舊的訂閱內容
+            const resp = await fetch(trimmed + (trimmed.includes('?') ? '&' : '?') + `t=${Date.now()}`, { 
+              headers: { 'User-Agent': 'v2rayng/1.8.5' } 
+            }); 
             if (resp.ok) { 
               const text = await resp.text(); 
               allNodes.push(...await parseContent(text)); 
@@ -64,7 +67,19 @@ export default {
         result = await toSingBoxWithTemplate(uniqueNodes); 
         contentType = 'application/json; charset=utf-8'; 
       }
-      return new Response(result, { headers: { 'Content-Type': contentType, 'Access-Control-Allow-Origin': '*', 'X-Cache-Status': 'BYPASS' } });
+
+      // --- 關鍵修改：加入禁止快取的 Header ---
+      return new Response(result, { 
+        headers: { 
+          'Content-Type': contentType, 
+          'Access-Control-Allow-Origin': '*', 
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+          'X-Update-Time': new Date().toISOString() // 方便檢查是不是最新回應
+        } 
+      });
+
     } catch (err: any) { return new Response(`轉換錯誤: ${err.message}`, { status: 500 }); }
   },
 };

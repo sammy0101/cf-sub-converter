@@ -1,7 +1,6 @@
 import { ProxyNode } from "./types";
 import { safeBase64Decode } from "./utils";
 
-// --- 輔助：完美修復 SS-2022 Key ---
 function fixSS2022Key(key: string): string {
   if (!key) return "";
   try { key = decodeURIComponent(key); } catch(e) {}
@@ -23,7 +22,6 @@ function parsePluginParams(str: string): Record<string, string> {
   return params;
 }
 
-// --- 解析 Shadowsocks ---
 function parseShadowsocks(urlStr: string): ProxyNode | null {
   try {
     const url = new URL(urlStr);
@@ -92,12 +90,12 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
         }
     }
 
-    // --- 構建節點 ---
-    // 關鍵修正：將 TLS 資訊寫入主物件，供 generator 使用
+    // --- 關鍵修正：確實獲取 SNI ---
+    // 優先順序：sni > host > server
     const isTls = params.get('security') === 'tls';
-    const sni = params.get('sni') || params.get('host') || nodeServerIfEmpty(server);
+    const sni = params.get('sni') || params.get('host') || server;
     const alpn = params.get('alpn') ? decodeURIComponent(params.get('alpn')!).split(',') : undefined;
-    const fp = params.get('fp');
+    const fp = params.get('fp') || 'chrome';
 
     const node: ProxyNode = {
       type: 'shadowsocks', name, server, port, cipher: method, password, udp: true,
@@ -108,16 +106,14 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       tag: name, type: 'shadowsocks', server: node.server, server_port: node.port, method: node.cipher, password: node.password
     };
     
-    // SS-2022 設定
     if (method.toLowerCase().includes('2022')) { node.singboxObj.udp_over_tcp = true; }
     if (sbTransport) node.singboxObj.transport = sbTransport;
     if (sbObfs) node.singboxObj.obfs = sbObfs;
 
     // SingBox TLS
     if (isTls) {
-        const echStr = params.get('ech');
-        node.singboxObj.tls = { enabled: true, server_name: sni, alpn: alpn, utls: { enabled: true, fingerprint: fp || 'chrome' } };
-        if (echStr) { node.singboxObj.tls.ech = { enabled: true, config: decodeURIComponent(echStr) }; }
+        node.singboxObj.tls = { enabled: true, server_name: sni, alpn: alpn, utls: { enabled: true, fingerprint: fp } };
+        // 移除 ECH 以提高穩定性
         if (alpn && alpn.includes('h2')) { 
             node.singboxObj.multiplex = { enabled: true, protocol: "h2", max_connections: 1, min_streams: 2, padding: true }; 
         }
@@ -128,16 +124,13 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       plugin: pluginStr ? pluginStr.split(';')[0] : undefined,
       'plugin-opts': pluginStr ? parsePluginParams(pluginStr.split(';').slice(1).join(';')) : undefined
     };
-    // Clash Meta SS TLS
     if (isTls) { node.clashObj.smux = { enabled: true }; }
 
     return node;
   } catch (e) { return null; }
 }
 
-function nodeServerIfEmpty(s:string){return s;} // 佔位
-
-// ... (Vless, Hy2, Vmess 函數內容不變，請保留) ...
+// ... (以下 Vless, Hysteria2, Vmess 保持不變，為節省篇幅省略，請保留原有的) ...
 
 function parseVless(urlStr: string): ProxyNode | null {
   try {

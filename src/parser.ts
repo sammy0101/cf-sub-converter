@@ -2,29 +2,28 @@ import { ProxyNode } from "./types";
 import { safeBase64Decode } from "./utils";
 
 // --- 輔助：完美修復 SS-2022 Key ---
-function fixSS2022Key(key: string): string {
+function fixSS2022Key(key: string, method: string): string {
   if (!key) return "";
   
-  // 1. 先解碼 URL 編碼
   try { key = decodeURIComponent(key); } catch(e) {}
 
-  // 2. 切割冒號 (取第一部分 Server Key)
   if (key.includes(':')) {
     key = key.split(':')[0];
   }
 
-  // 3. 替換 URL-Safe
   let clean = key.replace(/-/g, '+').replace(/_/g, '/');
-  
-  // 4. 白名單過濾
-  clean = clean.replace(/[^A-Za-z0-9\+\/]/g, "");
-  
-  // 5. 強制長度截斷
-  if (clean.length > 44) {
-    clean = clean.substring(0, 44);
+  clean = clean.replace(/[^A-Za-z0-9\+\/]/g, ""); // 白名單
+
+  // 根據加密算法決定長度
+  // aes-128-gcm -> 16 bytes -> 24 base64 chars
+  // aes-256-gcm / chacha20 -> 32 bytes -> 44 base64 chars
+  let expectedLen = 44;
+  if (method.includes('128-gcm')) expectedLen = 24;
+
+  if (clean.length > expectedLen) {
+    clean = clean.substring(0, expectedLen);
   }
 
-  // 6. 補齊 Padding
   const pad = clean.length % 4;
   if (pad) {
     clean += '='.repeat(4 - pad);
@@ -33,13 +32,23 @@ function fixSS2022Key(key: string): string {
   return clean;
 }
 
+// 輔助：解析 Plugin 參數字串 (obfs=http;obfs-host=...)
+function parsePluginParams(str: string): Record<string, string> {
+  const params: Record<string, string> = {};
+  str.split(';').forEach(p => {
+    const [k, v] = p.split('=');
+    if (k && v) params[k] = v;
+  });
+  return params;
+}
+
 // --- 解析 Shadowsocks ---
 function parseShadowsocks(urlStr: string): ProxyNode | null {
   try {
     const url = new URL(urlStr);
     const params = url.searchParams;
     
-    // 1. 提取名稱 (Hash)
+    // 1. 提取名稱
     let raw = urlStr.replace('ss://', '');
     const hashIndex = raw.indexOf('#');
     let name = 'Shadowsocks';
@@ -65,7 +74,6 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       server = serverPart.substring(0, lastColonIndex);
       portStr = serverPart.substring(lastColonIndex + 1);
 
-      // 處理 IPv6
       if (server.startsWith('[') && server.endsWith(']')) server = server.slice(1, -1);
 
       try {
@@ -83,7 +91,6 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
         password = up.slice(1).join(':');
       }
     } else {
-      // Legacy Base64 格式
       const decoded = safeBase64Decode(raw);
       if (!decoded) return null;
       
@@ -110,20 +117,56 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     const port = parseInt(portStr);
     if (isNaN(port)) return null;
 
-    // --- 修復 Key ---
+    // --- 密碼修復 (針對 SS-2022) ---
     if (method.toLowerCase().includes('2022')) {
-        password = fixSS2022Key(password);
+        password = fixSS2022Key(password, method.toLowerCase());
     }
 
-    // --- 處理 Plugin / Obfs ---
-    let plugin = params.get('plugin') || '';
-    let pluginOpts = '';
+    // --- Plugin 轉換 (關鍵修改) ---
+    // 獲取原始 plugin 參數
+    let pluginStr = params.get('plugin') || '';
+    // 如果 URL 裡沒有，可能在 userinfo 解碼後有 (較少見但防呆)
     
-    // 處理 SIP002 plugin 參數 (e.g. obfs-local;obfs=http)
-    if (plugin.includes(';')) {
-        const pParts = plugin.split(';');
-        plugin = pParts[0];
-        pluginOpts = pParts.slice(1).join(';');
+    // 準備 SingBox 的額外物件
+    let sbTransport: any = undefined;
+    let sbObfs: any = undefined;
+
+    if (pluginStr) {
+        // 解碼 plugin 參數 (例如: v2ray-plugin;mode=websocket;host=...)
+        try { pluginStr = decodeURIComponent(pluginStr); } catch(e){}
+        const pSplit = pluginStr.split(';');
+        const pluginName = pSplit[0];
+        const pluginArgs = parsePluginParams(pSplit.slice(1).join(';'));
+
+        // 轉換 v2ray-plugin -> transport (ws/http/quic)
+        if (pluginName === 'v2ray-plugin') {
+            const mode = pluginArgs['mode'] || 'websocket';
+            if (mode === 'websocket') {
+                sbTransport = {
+                    type: 'ws',
+                    path: pluginArgs['path'] || '/',
+                    headers: pluginArgs['host'] ? { Host: pluginArgs['host'] } : undefined
+                };
+                // 如果有 tls
+                if (pluginArgs['tls'] === 'true') {
+                    // SS 原生不支援 TLS 包裹，通常由 transport 處理，但 SingBox 結構不同
+                    // 這裡通常假設 SS over WS (無 TLS) 或 SS over WSS
+                    // SingBox 的 SS outbound 沒有直接的 tls 字段，除非用 transport 嵌套
+                    // 簡化處理：通常 SS+V2RayPlugin 不會太複雜
+                }
+            } else if (mode === 'quic') {
+                sbTransport = { type: 'quic' };
+            }
+        }
+        
+        // 轉換 obfs-local -> obfs
+        else if (pluginName === 'obfs-local' || pluginName === 'simple-obfs') {
+            const obfsMode = pluginArgs['obfs'] || 'http';
+            sbObfs = {
+                type: obfsMode,
+                host: pluginArgs['obfs-host'] || 'www.bing.com'
+            };
+        }
     }
 
     // --- 構建節點 ---
@@ -134,7 +177,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       port,
       cipher: method,
       password,
-      udp: true // 預設開啟 UDP
+      udp: true
     };
 
     // SingBox Config
@@ -145,11 +188,13 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       server_port: node.port,
       method: node.cipher,
       password: node.password,
-      plugin: plugin, 
-      plugin_opts: pluginOpts
     };
 
-    // Clash Config
+    // 注入轉換後的 Transport / Obfs
+    if (sbTransport) node.singboxObj.transport = sbTransport;
+    if (sbObfs) node.singboxObj.obfs = sbObfs;
+
+    // Clash Config (直接傳遞 plugin 參數，因為 Clash Meta 支援比較好)
     node.clashObj = {
       name: name,
       type: 'ss',
@@ -158,22 +203,12 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       cipher: node.cipher,
       password: node.password,
       udp: true,
-      plugin: plugin || undefined,
-      'plugin-opts': pluginOpts ? parsePluginOpts(pluginOpts) : undefined
+      plugin: pluginStr ? pluginStr.split(';')[0] : undefined,
+      'plugin-opts': pluginStr ? parsePluginParams(pluginStr.split(';').slice(1).join(';')) : undefined
     };
 
     return node;
   } catch (e) { return null; }
-}
-
-// 輔助：解析 plugin-opts 字串為物件 (給 Clash 用)
-function parsePluginOpts(optsStr: string): any {
-    const opts: any = {};
-    optsStr.split(';').forEach(pair => {
-        const [k, v] = pair.split('=');
-        if (k && v) opts[k] = v;
-    });
-    return Object.keys(opts).length > 0 ? opts : undefined;
 }
 
 // --- 解析 VLESS ---

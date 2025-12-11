@@ -17,7 +17,6 @@ export function toBase64(nodes: ProxyNode[]) {
         if (node.network === 'ws') { if (node.wsPath) params.set('path', node.wsPath); if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host); }
         return `vless://${node.uuid}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
-      
       if (node.type === 'hysteria2') {
         const params = new URLSearchParams();
         if (node.sni) params.set('sni', node.sni);
@@ -25,7 +24,6 @@ export function toBase64(nodes: ProxyNode[]) {
         if (node.skipCertVerify) params.set('insecure', '1');
         return `hysteria2://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
-
       if (node.type === 'vmess') {
         const vmessObj = {
           v: "2", ps: node.name, add: node.server, port: node.port, id: node.uuid,
@@ -35,27 +33,33 @@ export function toBase64(nodes: ProxyNode[]) {
         };
         return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
       }
-
-      // 新增：Shadowsocks Base64 還原 (SIP002 標準)
       if (node.type === 'shadowsocks') {
         const userInfo = `${node.cipher}:${node.password}`;
         const base64User = utf8ToBase64(userInfo);
         return `ss://${base64User}@${node.server}:${node.port}#${encodeURIComponent(node.name)}`;
       }
-
       return null;
     } catch { return null; }
   }).filter(l => l !== null);
-  
   return utf8ToBase64(links.join('\n'));
 }
 
-export async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
-  const resp = await fetch(`${REMOTE_CONFIG.singbox}?t=${Math.random()}`, { 
-    headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } 
+// 修正：加入 User-Agent 標頭
+async function fetchWithUA(url: string) {
+  const resp = await fetch(url + `?t=${Math.random()}`, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache'
+    }
   });
-  if (!resp.ok) throw new Error('無法讀取 Sing-Box_Rules.JSON');
-  const text = await resp.text();
+  if (!resp.ok) throw new Error(`GitHub fetch failed: ${resp.status}`);
+  return await resp.text();
+}
+
+export async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
+  // 使用帶 UA 的 fetch
+  const text = await fetchWithUA(REMOTE_CONFIG.singbox);
   
   let config;
   try { config = JSON.parse(text); } catch (e) { throw new Error('Sing-Box_Rules.JSON 格式錯誤'); }
@@ -77,11 +81,8 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
 }
 
 export async function toClashWithTemplate(nodes: ProxyNode[]) {
-  const resp = await fetch(`${REMOTE_CONFIG.clash}?t=${Math.random()}`, { 
-    headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } 
-  });
-  if (!resp.ok) throw new Error('無法讀取 Clash_Rules.YAML');
-  const text = await resp.text();
+  // 使用帶 UA 的 fetch
+  const text = await fetchWithUA(REMOTE_CONFIG.clash);
 
   let config: any;
   try { config = yaml.load(text); } catch (e) { throw new Error('Clash_Rules.YAML 格式錯誤'); }

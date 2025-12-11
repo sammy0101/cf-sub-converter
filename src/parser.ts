@@ -5,15 +5,21 @@ import { safeBase64Decode } from "./utils";
 function fixSS2022Key(key: string): string {
   if (!key) return "";
   
-  // 1. 替換 URL-Safe 字元
+  // 1. 如果包含冒號，只取第一部分 (這是解決 "got 72" 錯誤的關鍵)
+  if (key.includes(':')) {
+    key = key.split(':')[0];
+  }
+
+  // 2. 移除 URL 編碼殘留
+  try { key = decodeURIComponent(key); } catch(e) {}
+
+  // 3. 替換 URL-Safe 字元
   let clean = key.replace(/-/g, '+').replace(/_/g, '/');
   
-  // 2. [關鍵修正] 白名單過濾：只保留標準 Base64 字元 (A-Z, a-z, 0-9, +, /, =)
-  // 這會刪除所有空格、換行、% 符號或其他奇怪的雜質
+  // 4. 白名單過濾：只保留標準 Base64 字元
   clean = clean.replace(/[^A-Za-z0-9\+\/\=]/g, "");
   
-  // 3. 補齊 Padding (=)
-  // Base64 長度必須是 4 的倍數
+  // 5. 補齊 Padding (=)
   const pad = clean.length % 4;
   if (pad) {
     clean += '='.repeat(4 - pad);
@@ -54,7 +60,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       server = serverPart.substring(0, lastColonIndex);
       portStr = serverPart.substring(lastColonIndex + 1);
 
-      // 處理 IPv6 Server
+      // 處理 IPv6
       if (server.startsWith('[') && server.endsWith(']')) server = server.slice(1, -1);
 
       // 解析 UserInfo
@@ -63,6 +69,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
         if (decoded && decoded.includes(':') && !decoded.includes('@')) {
           const up = decoded.split(':');
           method = up[0];
+          // 注意：這裡先保留所有冒號後的內容，交給 fixSS2022Key 處理
           password = up.slice(1).join(':');
         } else {
           throw new Error('Not Base64');
@@ -88,7 +95,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       server = serverPart.substring(0, lastColonIndex);
       portStr = serverPart.substring(lastColonIndex + 1);
 
-      // 處理 IPv6 Server
+      // 處理 IPv6
       if (server.startsWith('[') && server.endsWith(']')) server = server.slice(1, -1);
 
       const firstColonIndex = userPart.indexOf(':');
@@ -102,7 +109,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     if (isNaN(port)) return null;
 
     // --- 應用修復 ---
-    // 針對 2022 協議進行強力清洗
+    // 針對 2022 協議進行切割與清洗
     if (method.toLowerCase().includes('2022')) {
         password = fixSS2022Key(password);
     }

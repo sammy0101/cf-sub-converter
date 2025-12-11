@@ -1,15 +1,14 @@
 import { ProxyNode } from "./types";
 import { safeBase64Decode } from "./utils";
 
-// --- 解析 Shadowsocks (增強版) ---
+// --- 解析 Shadowsocks (修復 2022 Key 格式問題) ---
 function parseShadowsocks(urlStr: string): ProxyNode | null {
   try {
-    // 1. 基本清理
     let raw = urlStr.trim();
     if (!raw.startsWith('ss://')) return null;
-    raw = raw.substring(5); // 去掉 ss://
+    raw = raw.substring(5);
 
-    // 2. 提取名稱 (Hash)
+    // 提取名稱
     let name = 'Shadowsocks';
     const hashIndex = raw.indexOf('#');
     if (hashIndex !== -1) {
@@ -22,24 +21,19 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     let server = '';
     let portStr = '';
 
-    // 3. 判斷格式
-    // 格式 A: 包含 @ (SIP002 或 明文) -> userinfo@server:port
+    // 格式判斷與解析
     if (raw.includes('@')) {
+      // 格式: userinfo@server:port
       const parts = raw.split('@');
-      const serverPart = parts[parts.length - 1]; // 最後一部分是 server:port
-      const userPart = parts.slice(0, parts.length - 1).join('@'); // 前面是 userinfo
+      const serverPart = parts[parts.length - 1];
+      const userPart = parts.slice(0, parts.length - 1).join('@');
 
-      // 解析 Server:Port
-      // 處理 IPv6 (例如 [::1]:80) 或 IPv4
       const lastColonIndex = serverPart.lastIndexOf(':');
       if (lastColonIndex === -1) return null;
       server = serverPart.substring(0, lastColonIndex);
       portStr = serverPart.substring(lastColonIndex + 1);
 
-      // 解析 UserInfo (method:password)
-      // 可能是 Base64 編碼，也可能是明文
       try {
-        // 先嘗試 Base64 解碼
         const decoded = safeBase64Decode(userPart);
         if (decoded && decoded.includes(':')) {
           const up = decoded.split(':');
@@ -49,31 +43,24 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
           throw new Error('Not Base64');
         }
       } catch (e) {
-        // 如果解碼失敗或不含冒號，當作明文處理
         const up = userPart.split(':');
         method = up[0];
         password = up.slice(1).join(':');
       }
-    } 
-    // 格式 B: 不含 @ (Legacy) -> 全 Base64 (method:password@server:port)
-    else {
+    } else {
+      // 格式: base64(method:password@server:port)
       const decoded = safeBase64Decode(raw);
       if (!decoded) return null;
-
-      // 解碼後應為 method:password@server:port
       const atIndex = decoded.lastIndexOf('@');
       if (atIndex === -1) return null;
-
       const userPart = decoded.substring(0, atIndex);
       const serverPart = decoded.substring(atIndex + 1);
-
-      // 解析 Server:Port
+      
       const lastColonIndex = serverPart.lastIndexOf(':');
       if (lastColonIndex === -1) return null;
       server = serverPart.substring(0, lastColonIndex);
       portStr = serverPart.substring(lastColonIndex + 1);
 
-      // 解析 Method:Password
       const firstColonIndex = userPart.indexOf(':');
       if (firstColonIndex === -1) return null;
       method = userPart.substring(0, firstColonIndex);
@@ -83,6 +70,15 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     if (!server || !portStr || !method || !password) return null;
     const port = parseInt(portStr);
     if (isNaN(port)) return null;
+
+    // --- 關鍵修復：針對 Shadowsocks-2022 的 Key 進行標準化 ---
+    // SingBox 要求 Key 必須是標準 Base64 (+/), 不接受 URL-Safe (-_)
+    if (method.includes('2022-blake3') || method.includes('2022-aes')) {
+      password = password.replace(/-/g, '+').replace(/_/g, '/');
+      // 補齊 Padding (=)
+      while (password.length % 4) password += '=';
+    }
+    // -------------------------------------------------------
 
     const node: ProxyNode = {
       type: 'shadowsocks',
@@ -94,7 +90,6 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       udp: true
     };
 
-    // SingBox 物件
     node.singboxObj = {
       tag: name,
       type: 'shadowsocks',
@@ -106,7 +101,6 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       plugin_opts: ""
     };
 
-    // Clash 物件
     node.clashObj = {
       name: name,
       type: 'ss',
@@ -118,10 +112,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     };
 
     return node;
-  } catch (e) { 
-    // console.error('SS Parse Error:', e); 
-    return null; 
-  }
+  } catch (e) { return null; }
 }
 
 // --- 解析 VLESS ---
@@ -222,8 +213,6 @@ function parseVmess(vmessUrl: string): ProxyNode | null {
 // --- 主解析函數 ---
 export async function parseContent(content: string): Promise<ProxyNode[]> {
   let plainText = content;
-  // 智能判斷是否需要 Base64 解碼
-  // 如果內容不包含 :// (例如不是 vless:// 開頭)，或者看起來像純亂碼，就嘗試解碼
   if (!content.includes('://') || !content.match(/^[a-z0-9]+:\/\//i)) {
     const decoded = safeBase64Decode(content);
     if (decoded) plainText = decoded;
@@ -236,7 +225,6 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
     const l = line.trim();
     if (!l) continue;
     
-    // 依序嘗試解析
     if (l.startsWith('ss://')) { 
       const n = parseShadowsocks(l); 
       if (n) nodes.push(n); 

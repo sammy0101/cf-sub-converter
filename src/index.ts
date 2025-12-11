@@ -8,7 +8,7 @@ export default {
   async fetch(request: Request, env: Env, ctx: any): Promise<Response> {
     const url = new URL(request.url); 
     
-    // --- 1. 處理 POST 短鏈儲存 ---
+    // POST /save (KV Shortlink)
     if (request.method === 'POST' && url.pathname === '/save') {
       try {
         const body: any = await request.json();
@@ -18,7 +18,7 @@ export default {
       } catch (e) { return new Response('Error saving profile', { status: 500 }); }
     }
 
-    // --- 2. 處理 GET 短鏈讀取 ---
+    // GET /path (Shortlink Redirect)
     let urlParam = url.searchParams.get('url');
     const path = url.pathname.slice(1);
     if (path && path !== 'favicon.ico' && !urlParam) {
@@ -26,12 +26,10 @@ export default {
       if (storedContent) { urlParam = storedContent; }
     }
 
-    // --- 3. 顯示前端頁面 ---
     if (!urlParam) return new Response(HTML_PAGE, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     
     const target = url.searchParams.get('target') || 'singbox';
     try {
-      // --- 4. 解析節點 ---
       const inputs = urlParam.split('|'); 
       const allNodes: ProxyNode[] = [];
       await Promise.all(inputs.map(async (input) => { 
@@ -52,10 +50,8 @@ export default {
 
       if (allNodes.length === 0) return new Response('未解析到任何有效節點', { status: 400 });
       
-      // --- 5. 節點名稱去重 ---
       const uniqueNodes = deduplicateNodeNames(allNodes);
 
-      // --- 6. 生成配置 ---
       let result = ''; 
       let contentType = 'text/plain; charset=utf-8';
       if (target === 'clash') { 

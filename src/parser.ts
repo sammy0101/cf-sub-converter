@@ -1,34 +1,44 @@
 import { ProxyNode } from "./types";
 import { safeBase64Decode } from "./utils";
 
-// --- 輔助：完美修復 SS-2022 Key (V3 修正版) ---
-function fixSS2022Key(key: string): string {
+// --- 輔助：SS-2022 Key 強制修復 ---
+function fixSS2022Key(key: string, method: string): string {
   if (!key) return "";
   
-  // 1. [關鍵修正] 先進行 URL 解碼！
-  // 否則 %3A 會被當作普通字元，導致無法識別冒號
+  // 1. 先解碼 URL 編碼 (處理 %3A 等符號)
   try { key = decodeURIComponent(key); } catch(e) {}
 
-  // 2. 現在可以安全地檢查冒號了
-  // 如果包含冒號，只取第一部分 (通常是 Server Key)
-  if (key.includes(':')) {
-    key = key.split(':')[0];
-  }
-
-  // 3. 替換 URL-Safe 字元 (- 轉 +, _ 轉 /)
+  // 2. 移除所有空白和非 Base64 常見符號 (保留 : 用於分割)
+  // 先把 URL-Safe 轉回標準
   let clean = key.replace(/-/g, '+').replace(/_/g, '/');
-  
-  // 4. 白名單過濾：只保留標準 Base64 字元
-  // 這會刪除所有空格、換行及其他雜質
-  clean = clean.replace(/[^A-Za-z0-9\+\/]/g, "");
-  
-  // 5. 強制截斷：SS-2022 的 Key (32 bytes) Base64 後長度應為 43 或 44
-  // 如果依然過長，強制截取前 44 個字元
-  if (clean.length > 44) {
-    clean = clean.substring(0, 44);
+
+  // 3. 嘗試分割：如果包含冒號，只取第一段
+  if (clean.includes(':')) {
+    clean = clean.split(':')[0];
   }
 
-  // 6. 重新計算並補齊 Padding (=)
+  // 4. 強力清洗：只保留標準 Base64 字元
+  clean = clean.replace(/[^A-Za-z0-9\+\/]/g, "");
+
+  // 5. [核心修正] 根據加密算法強制截斷長度
+  // 2022-blake3-aes-256-gcm 需要 32 bytes key
+  // 32 bytes = 44 chars in Base64 (包含 padding)
+  if (method.includes('2022-blake3-aes-256-gcm') || method.includes('2022-blake3-chacha20-poly1305')) {
+    if (clean.length > 44) {
+      // 如果超過 44 字元，直接砍掉後面的，只留前 44 個
+      // 這是解決 "got 72" 的終極手段
+      clean = clean.substring(0, 44);
+    }
+  } 
+  // 2022-blake3-aes-128-gcm 需要 16 bytes key
+  // 16 bytes = 24 chars in Base64
+  else if (method.includes('2022-blake3-aes-128-gcm')) {
+    if (clean.length > 24) {
+      clean = clean.substring(0, 24);
+    }
+  }
+
+  // 6. 補齊 Padding (=)
   const pad = clean.length % 4;
   if (pad) {
     clean += '='.repeat(4 - pad);
@@ -80,6 +90,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
           method = up[0];
           password = up.slice(1).join(':');
         } else {
+          // 不是 Base64，嘗試直接解析
           throw new Error('Not Base64');
         }
       } catch (e) {
@@ -117,9 +128,9 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     if (isNaN(port)) return null;
 
     // --- 應用修復 ---
-    // 針對 2022 協議進行修復
+    // 針對 2022 協議進行強制截斷修復
     if (method.toLowerCase().includes('2022')) {
-        password = fixSS2022Key(password);
+        password = fixSS2022Key(password, method.toLowerCase());
     }
     // ------------------
 

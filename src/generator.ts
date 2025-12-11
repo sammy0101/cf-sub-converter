@@ -17,10 +17,36 @@ export function toBase64(nodes: ProxyNode[]) {
         if (node.network === 'ws') { if (node.wsPath) params.set('path', node.wsPath); if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host); }
         return `vless://${node.uuid}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
-      // 這裡僅示範 Vless 還原，其他協議邏輯相同，為節省篇幅省略
+      
+      if (node.type === 'hysteria2') {
+        const params = new URLSearchParams();
+        if (node.sni) params.set('sni', node.sni);
+        if (node.obfs) { params.set('obfs', node.obfs); if (node.obfsPassword) params.set('obfs-password', node.obfsPassword); }
+        if (node.skipCertVerify) params.set('insecure', '1');
+        return `hysteria2://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+      }
+
+      if (node.type === 'vmess') {
+        const vmessObj = {
+          v: "2", ps: node.name, add: node.server, port: node.port, id: node.uuid,
+          aid: 0, scy: "auto", net: node.network, type: "none",
+          host: node.wsHeaders?.Host || "", path: node.wsPath || "",
+          tls: node.tls ? "tls" : "", sni: node.sni || ""
+        };
+        return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
+      }
+
+      // 新增：Shadowsocks Base64 還原 (SIP002 標準)
+      if (node.type === 'shadowsocks') {
+        const userInfo = `${node.cipher}:${node.password}`;
+        const base64User = utf8ToBase64(userInfo);
+        return `ss://${base64User}@${node.server}:${node.port}#${encodeURIComponent(node.name)}`;
+      }
+
       return null;
     } catch { return null; }
   }).filter(l => l !== null);
+  
   return utf8ToBase64(links.join('\n'));
 }
 

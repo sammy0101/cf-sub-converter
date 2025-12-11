@@ -8,7 +8,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     if (!raw.startsWith('ss://')) return null;
     raw = raw.substring(5);
 
-    // 提取名稱
+    // 1. 提取名稱 (Hash)
     let name = 'Shadowsocks';
     const hashIndex = raw.indexOf('#');
     if (hashIndex !== -1) {
@@ -21,38 +21,46 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     let server = '';
     let portStr = '';
 
-    // 格式判斷與解析
+    // 2. 格式判斷與解析
     if (raw.includes('@')) {
-      // 格式: userinfo@server:port
+      // 格式 A: userinfo@server:port (明文或部分 Base64)
       const parts = raw.split('@');
       const serverPart = parts[parts.length - 1];
       const userPart = parts.slice(0, parts.length - 1).join('@');
 
+      // 解析 Server:Port
       const lastColonIndex = serverPart.lastIndexOf(':');
       if (lastColonIndex === -1) return null;
       server = serverPart.substring(0, lastColonIndex);
       portStr = serverPart.substring(lastColonIndex + 1);
 
+      // 解析 UserInfo
       try {
+        // 先嘗試當作 Base64 解碼
         const decoded = safeBase64Decode(userPart);
+        // 如果解碼後包含冒號，且看起來像 method:password
         if (decoded && decoded.includes(':')) {
           const up = decoded.split(':');
           method = up[0];
           password = up.slice(1).join(':');
         } else {
+          // 解碼失敗或不含冒號，可能是明文
           throw new Error('Not Base64');
         }
       } catch (e) {
+        // 當作明文處理
         const up = userPart.split(':');
         method = up[0];
         password = up.slice(1).join(':');
       }
     } else {
-      // 格式: base64(method:password@server:port)
+      // 格式 B: base64(method:password@server:port) (Legacy)
       const decoded = safeBase64Decode(raw);
       if (!decoded) return null;
+      
       const atIndex = decoded.lastIndexOf('@');
       if (atIndex === -1) return null;
+      
       const userPart = decoded.substring(0, atIndex);
       const serverPart = decoded.substring(atIndex + 1);
       
@@ -72,11 +80,15 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     if (isNaN(port)) return null;
 
     // --- 關鍵修復：針對 Shadowsocks-2022 的 Key 進行標準化 ---
-    // SingBox 要求 Key 必須是標準 Base64 (+/), 不接受 URL-Safe (-_)
-    if (method.includes('2022-blake3') || method.includes('2022-aes')) {
+    // 只要加密方式包含 "2022"，就強制將 URL-Safe Base64 轉為 Standard Base64
+    if (method.includes('2022')) {
+      // 1. 替換字符 (- -> +, _ -> /)
       password = password.replace(/-/g, '+').replace(/_/g, '/');
-      // 補齊 Padding (=)
-      while (password.length % 4) password += '=';
+      // 2. 補齊 Padding (=)
+      const pad = password.length % 4;
+      if (pad) {
+        password += '='.repeat(4 - pad);
+      }
     }
     // -------------------------------------------------------
 

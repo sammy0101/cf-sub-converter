@@ -1,6 +1,84 @@
 import { ProxyNode } from "./types";
 import { safeBase64Decode } from "./utils";
 
+// --- 解析 Shadowsocks ---
+function parseShadowsocks(urlStr: string): ProxyNode | null {
+  try {
+    let url = new URL(urlStr);
+    const name = decodeURIComponent(url.hash.slice(1)) || 'Shadowsocks';
+    
+    // 移除 ss://
+    let raw = urlStr.replace('ss://', '').split('#')[0];
+    let method = '';
+    let password = '';
+    let server = '';
+    let port = 0;
+
+    // 處理格式一：ss://base64(method:password@host:port)
+    if (!raw.includes('@')) {
+      const decoded = safeBase64Decode(raw);
+      const parts = decoded.split('@');
+      if (parts.length === 2) {
+        const userInfo = parts[0].split(':');
+        method = userInfo[0];
+        password = userInfo.slice(1).join(':');
+        const serverInfo = parts[1].split(':');
+        server = serverInfo[0];
+        port = parseInt(serverInfo[1]);
+      }
+    } 
+    // 處理格式二：ss://base64(method:password)@host:port
+    else {
+      const parts = raw.split('@');
+      const serverInfo = parts[1].split(':');
+      server = serverInfo[0];
+      port = parseInt(serverInfo[1]);
+      
+      const userInfo = safeBase64Decode(parts[0]).split(':');
+      method = userInfo[0];
+      password = userInfo.slice(1).join(':');
+    }
+
+    if (!server || !port || !method || !password) return null;
+
+    const node: ProxyNode = {
+      type: 'shadowsocks', // 內部統一標識
+      name,
+      server,
+      port,
+      cipher: method, // SS 的加密方式對應 cipher
+      password,
+      udp: true // SS 預設通常開啟 UDP
+    };
+
+    // 預先生成 SingBox 物件
+    node.singboxObj = {
+      tag: name,
+      type: 'shadowsocks',
+      server: node.server,
+      server_port: node.port,
+      method: node.cipher,
+      password: node.password,
+      plugin: "", // 暫不支援外掛
+      plugin_opts: ""
+    };
+
+    // 預先生成 Clash 物件
+    node.clashObj = {
+      name: name,
+      type: 'ss',
+      server: node.server,
+      port: node.port,
+      cipher: node.cipher,
+      password: node.password,
+      udp: true
+    };
+
+    return node;
+  } catch (e) { return null; }
+}
+
+// --- 解析 VLESS ---
 function parseVless(urlStr: string): ProxyNode | null {
   try {
     const url = new URL(urlStr);
@@ -42,6 +120,7 @@ function parseVless(urlStr: string): ProxyNode | null {
   } catch (e) { return null; }
 }
 
+// --- 解析 Hysteria2 ---
 function parseHysteria2(urlStr: string): ProxyNode | null {
   try {
     const url = new URL(urlStr);
@@ -67,6 +146,7 @@ function parseHysteria2(urlStr: string): ProxyNode | null {
   } catch (e) { return null; }
 }
 
+// --- 解析 Vmess ---
 function parseVmess(vmessUrl: string): ProxyNode | null {
   try {
     const b64 = vmessUrl.replace('vmess://', '');
@@ -93,6 +173,7 @@ function parseVmess(vmessUrl: string): ProxyNode | null {
   } catch (e) { return null; }
 }
 
+// --- 主解析函數 ---
 export async function parseContent(content: string): Promise<ProxyNode[]> {
   let plainText = content;
   if (!content.includes('://')) {
@@ -107,6 +188,7 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
     if (l.startsWith('vless://')) { const n = parseVless(l); if (n) nodes.push(n); } 
     else if (l.startsWith('hysteria2://') || l.startsWith('hy2://')) { const n = parseHysteria2(l); if (n) nodes.push(n); } 
     else if (l.startsWith('vmess://')) { const n = parseVmess(l); if (n) nodes.push(n); }
+    else if (l.startsWith('ss://')) { const n = parseShadowsocks(l); if (n) nodes.push(n); } // 新增 SS 支援
   }
   return nodes;
 }

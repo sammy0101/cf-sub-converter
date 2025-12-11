@@ -1,7 +1,7 @@
 import { ProxyNode } from "./types";
 import { safeBase64Decode } from "./utils";
 
-// --- 解析 Shadowsocks (修復 2022 Key 格式問題) ---
+// --- 解析 Shadowsocks (增強版 V2) ---
 function parseShadowsocks(urlStr: string): ProxyNode | null {
   try {
     let raw = urlStr.trim();
@@ -21,14 +21,13 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     let server = '';
     let portStr = '';
 
-    // 2. 格式判斷與解析
+    // 2. 格式解析 (兼容 userinfo@ 或 base64)
     if (raw.includes('@')) {
-      // 格式 A: userinfo@server:port (明文或部分 Base64)
+      // 格式: userinfo@server:port
       const parts = raw.split('@');
       const serverPart = parts[parts.length - 1];
       const userPart = parts.slice(0, parts.length - 1).join('@');
 
-      // 解析 Server:Port
       const lastColonIndex = serverPart.lastIndexOf(':');
       if (lastColonIndex === -1) return null;
       server = serverPart.substring(0, lastColonIndex);
@@ -36,25 +35,21 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
 
       // 解析 UserInfo
       try {
-        // 先嘗試當作 Base64 解碼
         const decoded = safeBase64Decode(userPart);
-        // 如果解碼後包含冒號，且看起來像 method:password
         if (decoded && decoded.includes(':')) {
           const up = decoded.split(':');
           method = up[0];
           password = up.slice(1).join(':');
         } else {
-          // 解碼失敗或不含冒號，可能是明文
           throw new Error('Not Base64');
         }
       } catch (e) {
-        // 當作明文處理
         const up = userPart.split(':');
         method = up[0];
         password = up.slice(1).join(':');
       }
     } else {
-      // 格式 B: base64(method:password@server:port) (Legacy)
+      // 格式: base64(method:password@server:port)
       const decoded = safeBase64Decode(raw);
       if (!decoded) return null;
       
@@ -79,18 +74,21 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     const port = parseInt(portStr);
     if (isNaN(port)) return null;
 
-    // --- 關鍵修復：針對 Shadowsocks-2022 的 Key 進行標準化 ---
-    // 只要加密方式包含 "2022"，就強制將 URL-Safe Base64 轉為 Standard Base64
-    if (method.includes('2022')) {
-      // 1. 替換字符 (- -> +, _ -> /)
-      password = password.replace(/-/g, '+').replace(/_/g, '/');
-      // 2. 補齊 Padding (=)
-      const pad = password.length % 4;
-      if (pad) {
-        password += '='.repeat(4 - pad);
-      }
+    // --- 關鍵修復區 ---
+    // 強制將 SS-2022 的密碼轉為標準 Base64
+    // 使用 toLowerCase() 確保大小寫都能匹配 (例如 2022-BLAKE3)
+    if (method.toLowerCase().includes('2022')) {
+        // 1. 去除可能存在的空白
+        password = password.trim();
+        // 2. 替換 URL-Safe 字元 (- 轉 +, _ 轉 /)
+        password = password.replace(/-/g, '+').replace(/_/g, '/');
+        // 3. 補齊 Padding (=)
+        const pad = password.length % 4;
+        if (pad) {
+            password += '='.repeat(4 - pad);
+        }
     }
-    // -------------------------------------------------------
+    // ------------------
 
     const node: ProxyNode = {
       type: 'shadowsocks',

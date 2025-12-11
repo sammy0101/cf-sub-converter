@@ -17,7 +17,6 @@ export function toBase64(nodes: ProxyNode[]) {
         if (node.network === 'ws') { if (node.wsPath) params.set('path', node.wsPath); if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host); }
         return `vless://${node.uuid}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
-      
       if (node.type === 'hysteria2') {
         const params = new URLSearchParams();
         if (node.sni) params.set('sni', node.sni);
@@ -25,7 +24,6 @@ export function toBase64(nodes: ProxyNode[]) {
         if (node.skipCertVerify) params.set('insecure', '1');
         return `hysteria2://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
-
       if (node.type === 'vmess') {
         const vmessObj = {
           v: "2", ps: node.name, add: node.server, port: node.port, id: node.uuid,
@@ -36,10 +34,26 @@ export function toBase64(nodes: ProxyNode[]) {
         return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
       }
 
+      // --- 關鍵修正：SS Base64 還原 (補回 TLS 參數) ---
       if (node.type === 'shadowsocks') {
         const userInfo = `${node.cipher}:${node.password}`;
         const base64User = utf8ToBase64(userInfo);
-        return `ss://${base64User}@${node.server}:${node.port}#${encodeURIComponent(node.name)}`;
+        const params = new URLSearchParams();
+        
+        // 如果有 Plugin，加回去
+        // (這裡不特別處理 plugin，因為 SS+TLS 通常不需要傳統 plugin)
+
+        // 如果是 SS over TLS，把參數加回去給 v2rayN 看
+        if (node.tls) {
+            params.set('security', 'tls');
+            if (node.sni) params.set('sni', node.sni);
+            if (node.alpn) params.set('alpn', node.alpn.join(','));
+            if (node.fingerprint) params.set('fp', node.fingerprint);
+            params.set('type', 'tcp'); // v2rayN 習慣
+        }
+        
+        const query = params.toString();
+        return `ss://${base64User}@${node.server}:${node.port}${query ? '?' + query : ''}#${encodeURIComponent(node.name)}`;
       }
 
       return null;
@@ -65,20 +79,9 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
   const text = await fetchWithUA(REMOTE_CONFIG.singbox);
   let config;
   try { config = JSON.parse(text); } catch (e) { throw new Error('Sing-Box_Rules.JSON 格式錯誤'); }
-
-  const outbounds = nodes.map(n => n.singboxObj);
-  const nodeTags = outbounds.map(o => o.tag);
-
-  if (!Array.isArray(config.outbounds)) config.outbounds = [];
-  config.outbounds.push(...outbounds);
-
-  config.outbounds.forEach((out: any) => {
-    if (out.type === 'selector' || out.type === 'urltest') {
-      if (!Array.isArray(out.outbounds)) out.outbounds = [];
-      out.outbounds.push(...nodeTags);
-    }
-  });
-
+  const outbounds = nodes.map(n => n.singboxObj); const nodeTags = outbounds.map(o => o.tag);
+  if (!Array.isArray(config.outbounds)) config.outbounds = []; config.outbounds.push(...outbounds);
+  config.outbounds.forEach((out: any) => { if (out.type === 'selector' || out.type === 'urltest') { if (!Array.isArray(out.outbounds)) out.outbounds = []; out.outbounds.push(...nodeTags); } });
   return JSON.stringify(config, null, 2);
 }
 
@@ -86,19 +89,8 @@ export async function toClashWithTemplate(nodes: ProxyNode[]) {
   const text = await fetchWithUA(REMOTE_CONFIG.clash);
   let config: any;
   try { config = yaml.load(text); } catch (e) { throw new Error('Clash_Rules.YAML 格式錯誤'); }
-
-  const proxies = nodes.map(n => n.clashObj);
-  const proxyNames = proxies.map(p => p.name);
-
-  if (!Array.isArray(config.proxies)) config.proxies = [];
-  config.proxies.push(...proxies);
-
-  if (Array.isArray(config['proxy-groups'])) {
-    config['proxy-groups'].forEach((group: any) => {
-      if (!Array.isArray(group.proxies)) group.proxies = [];
-      group.proxies.push(...proxyNames);
-    });
-  }
-
+  const proxies = nodes.map(n => n.clashObj); const proxyNames = proxies.map(p => p.name);
+  if (!Array.isArray(config.proxies)) config.proxies = []; config.proxies.push(...proxies);
+  if (Array.isArray(config['proxy-groups'])) { config['proxy-groups'].forEach((group: any) => { if (!Array.isArray(group.proxies)) group.proxies = []; group.proxies.push(...proxyNames); }); }
   return yaml.dump(config);
 }

@@ -1,52 +1,6 @@
 import { ProxyNode } from "./types";
 import { safeBase64Decode } from "./utils";
 
-// --- 輔助：SS-2022 Key 強制修復 ---
-function fixSS2022Key(key: string, method: string): string {
-  if (!key) return "";
-  
-  // 1. 先解碼 URL 編碼 (處理 %3A 等符號)
-  try { key = decodeURIComponent(key); } catch(e) {}
-
-  // 2. 移除所有空白和非 Base64 常見符號 (保留 : 用於分割)
-  // 先把 URL-Safe 轉回標準
-  let clean = key.replace(/-/g, '+').replace(/_/g, '/');
-
-  // 3. 嘗試分割：如果包含冒號，只取第一段
-  if (clean.includes(':')) {
-    clean = clean.split(':')[0];
-  }
-
-  // 4. 強力清洗：只保留標準 Base64 字元
-  clean = clean.replace(/[^A-Za-z0-9\+\/]/g, "");
-
-  // 5. [核心修正] 根據加密算法強制截斷長度
-  // 2022-blake3-aes-256-gcm 需要 32 bytes key
-  // 32 bytes = 44 chars in Base64 (包含 padding)
-  if (method.includes('2022-blake3-aes-256-gcm') || method.includes('2022-blake3-chacha20-poly1305')) {
-    if (clean.length > 44) {
-      // 如果超過 44 字元，直接砍掉後面的，只留前 44 個
-      // 這是解決 "got 72" 的終極手段
-      clean = clean.substring(0, 44);
-    }
-  } 
-  // 2022-blake3-aes-128-gcm 需要 16 bytes key
-  // 16 bytes = 24 chars in Base64
-  else if (method.includes('2022-blake3-aes-128-gcm')) {
-    if (clean.length > 24) {
-      clean = clean.substring(0, 24);
-    }
-  }
-
-  // 6. 補齊 Padding (=)
-  const pad = clean.length % 4;
-  if (pad) {
-    clean += '='.repeat(4 - pad);
-  }
-  
-  return clean;
-}
-
 // --- 解析 Shadowsocks ---
 function parseShadowsocks(urlStr: string): ProxyNode | null {
   try {
@@ -85,18 +39,28 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       // 解析 UserInfo
       try {
         const decoded = safeBase64Decode(userPart);
-        if (decoded && decoded.includes(':') && !decoded.includes('@')) {
+        if (decoded && decoded.includes(':')) {
+          // 這裡可能是 method:password 或 method:serverKey:clientKey
           const up = decoded.split(':');
           method = up[0];
-          password = up.slice(1).join(':');
+          // 關鍵修改：如果是 SS-2022，密碼部分只取第二個欄位 (Server Key)
+          // 忽略後面所有的 :clientKey 等等
+          if (method.includes('2022')) {
+             password = up[1]; 
+          } else {
+             password = up.slice(1).join(':');
+          }
         } else {
-          // 不是 Base64，嘗試直接解析
           throw new Error('Not Base64');
         }
       } catch (e) {
         const up = userPart.split(':');
         method = up[0];
-        password = up.slice(1).join(':');
+        if (method.includes('2022')) {
+             password = up[1]; 
+        } else {
+             password = up.slice(1).join(':');
+        }
       }
     } else {
       // 格式 B: base64(method:password@server:port)
@@ -114,23 +78,48 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       server = serverPart.substring(0, lastColonIndex);
       portStr = serverPart.substring(lastColonIndex + 1);
 
-      // 處理 IPv6
       if (server.startsWith('[') && server.endsWith(']')) server = server.slice(1, -1);
 
       const firstColonIndex = userPart.indexOf(':');
       if (firstColonIndex === -1) return null;
       method = userPart.substring(0, firstColonIndex);
-      password = userPart.substring(firstColonIndex + 1);
+      
+      // 處理密碼部分
+      const rest = userPart.substring(firstColonIndex + 1);
+      if (method.includes('2022') && rest.includes(':')) {
+          password = rest.split(':')[0];
+      } else {
+          password = rest;
+      }
     }
 
     if (!server || !portStr || !method || !password) return null;
     const port = parseInt(portStr);
     if (isNaN(port)) return null;
 
-    // --- 應用修復 ---
-    // 針對 2022 協議進行強制截斷修復
+    // --- 最終清洗 (針對 2022) ---
     if (method.toLowerCase().includes('2022')) {
-        password = fixSS2022Key(password, method.toLowerCase());
+        // 1. 移除 URL 編碼殘留
+        try { password = decodeURIComponent(password); } catch(e) {}
+        
+        // 2. 替換字符
+        let clean = password.replace(/-/g, '+').replace(/_/g, '/');
+        
+        // 3. 只保留標準 Base64 字符
+        clean = clean.replace(/[^A-Za-z0-9\+\/]/g, "");
+        
+        // 4. 強制長度截斷 (避免 got 72 錯誤)
+        // 2022-blake3-aes-256-gcm 的 Key 是 32 bytes = 44 base64 chars
+        if (clean.length > 44) {
+            clean = clean.substring(0, 44);
+        }
+        
+        // 5. 補齊 Padding
+        const pad = clean.length % 4;
+        if (pad) {
+            clean += '='.repeat(4 - pad);
+        }
+        password = clean;
     }
     // ------------------
 

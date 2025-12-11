@@ -17,6 +17,7 @@ export function toBase64(nodes: ProxyNode[]) {
         if (node.network === 'ws') { if (node.wsPath) params.set('path', node.wsPath); if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host); }
         return `vless://${node.uuid}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
+      
       if (node.type === 'hysteria2') {
         const params = new URLSearchParams();
         if (node.sni) params.set('sni', node.sni);
@@ -24,6 +25,7 @@ export function toBase64(nodes: ProxyNode[]) {
         if (node.skipCertVerify) params.set('insecure', '1');
         return `hysteria2://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
+
       if (node.type === 'vmess') {
         const vmessObj = {
           v: "2", ps: node.name, add: node.server, port: node.port, id: node.uuid,
@@ -33,18 +35,20 @@ export function toBase64(nodes: ProxyNode[]) {
         };
         return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
       }
+
       if (node.type === 'shadowsocks') {
         const userInfo = `${node.cipher}:${node.password}`;
         const base64User = utf8ToBase64(userInfo);
         return `ss://${base64User}@${node.server}:${node.port}#${encodeURIComponent(node.name)}`;
       }
+
       return null;
     } catch { return null; }
   }).filter(l => l !== null);
+  
   return utf8ToBase64(links.join('\n'));
 }
 
-// 修正：加入 User-Agent 標頭
 async function fetchWithUA(url: string) {
   const resp = await fetch(url + `?t=${Math.random()}`, {
     headers: {
@@ -58,9 +62,7 @@ async function fetchWithUA(url: string) {
 }
 
 export async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
-  // 使用帶 UA 的 fetch
   const text = await fetchWithUA(REMOTE_CONFIG.singbox);
-  
   let config;
   try { config = JSON.parse(text); } catch (e) { throw new Error('Sing-Box_Rules.JSON 格式錯誤'); }
 
@@ -81,9 +83,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
 }
 
 export async function toClashWithTemplate(nodes: ProxyNode[]) {
-  // 使用帶 UA 的 fetch
   const text = await fetchWithUA(REMOTE_CONFIG.clash);
-
   let config: any;
   try { config = yaml.load(text); } catch (e) { throw new Error('Clash_Rules.YAML 格式錯誤'); }
 

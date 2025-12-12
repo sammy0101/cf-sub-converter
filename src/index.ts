@@ -4,43 +4,62 @@ import { parseContent } from './parser';
 import { toSingBoxWithTemplate, toClashWithTemplate, toBase64 } from './generator';
 import { deduplicateNodeNames } from './utils';
 
-// 定義 User-Agent 列表，輪流嘗試，直到成功為止
+// 定義 User-Agent 列表
 const UA_LIST = [
-  'v2rayNG/1.8.5', // 首選：模仿安卓客戶端
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', // 次選：模仿 Chrome 瀏覽器
-  'Clash/1.0.0', // 備選：模仿 Clash
-  'Shadowrocket/1982' // 備選：模仿小火箭
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', // Chrome Windows
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', // Chrome Mac
+  'v2rayNG/1.8.5', // 備用：直接表明身份
 ];
 
 async function fetchSubContent(url: string): Promise<string | null> {
   const separator = url.includes('?') ? '&' : '?';
-  const targetUrl = `${url}${separator}t=${Date.now()}`; // 加時間戳防緩存
+  // 加入隨機參數防止快取
+  const targetUrl = `${url}${separator}t=${Date.now()}`;
 
-  // 輪詢所有 User-Agent
   for (const ua of UA_LIST) {
     try {
+      // 構建完整的瀏覽器標頭，騙過防火牆
+      const headers: any = {
+        'User-Agent': ua,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1',
+        'Connection': 'keep-alive'
+      };
+
       const resp = await fetch(targetUrl, {
-        headers: {
-          'User-Agent': ua,
-          'Accept': '*/*',
-          'Connection': 'close'
-        }
+        method: 'GET',
+        headers: headers,
+        redirect: 'follow'
       });
 
-      // 如果成功拿到 200 OK，回傳內容
       if (resp.ok) {
         const text = await resp.text();
-        if (text.length > 10) { // 確保不是空回應
+        // 簡單驗證內容是否有效 (不是 HTML 錯誤頁面)
+        if (text.length > 0 && !text.includes('<!DOCTYPE html>')) {
            return text;
         }
+        // 如果是 Base64 或純文本，通常不會包含 doctype
+        if (text.length > 0) return text;
       }
-      // 如果是 404 或 403，繼續嘗試下一個 UA
+      
       console.log(`UA [${ua}] failed for ${url}: ${resp.status}`);
+      
     } catch (e) {
       console.error(`Fetch error with UA [${ua}]:`, e);
     }
   }
-  return null; // 全部失敗
+  return null;
 }
 
 export default {
@@ -81,7 +100,7 @@ export default {
         if (!trimmed) return;
         
         if (trimmed.startsWith('http')) { 
-          // 使用新的智慧重試函數
+          // 使用新的強力偽裝函數
           const content = await fetchSubContent(trimmed);
           
           if (content) {
@@ -89,10 +108,10 @@ export default {
             if (nodes.length > 0) {
               allNodes.push(...nodes);
             } else {
-              debugInfo += `\n[解析失敗] ${trimmed}: 內容無法識別\n`;
+              debugInfo += `\n[解析失敗] ${trimmed}: 內容無效 (可能是錯誤頁面)\n`;
             }
           } else {
-            debugInfo += `\n[下載失敗 (所有 UA 都試過了)] ${trimmed} (Status: 404/403/Error)\n`;
+            debugInfo += `\n[下載失敗] ${trimmed} (被防火牆攔截)\n`;
           }
         } else { 
           const nodes = await parseContent(trimmed);
@@ -101,7 +120,7 @@ export default {
       }));
 
       if (allNodes.length === 0) {
-        return new Response(`錯誤：無法獲取訂閱內容。\n\n系統已嘗試使用 v2rayNG, Chrome, Clash 等多種身分存取您的連結，但全部回應 404 或失敗。\n\n請確認：\n1. 您的訂閱連結是否已過期？(請嘗試在瀏覽器無痕模式打開)\n2. 您的機場是否封鎖了 Cloudflare IP？\n\n詳細錯誤:${debugInfo}`, { 
+        return new Response(`錯誤：無法獲取訂閱內容 (400 Bad Request)。\n\n原因可能是：\n1. 您的機場開啟了「防機器人/WAF」模式，攔截了轉換器。\n2. 訂閱連結失效。\n\n詳細錯誤:${debugInfo}`, { 
           status: 400,
           headers: { 'Content-Type': 'text/plain; charset=utf-8' }
         });

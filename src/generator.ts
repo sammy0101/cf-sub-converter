@@ -34,25 +34,25 @@ export function toBase64(nodes: ProxyNode[]) {
         return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
       }
 
-      // --- 標準化 Shadowsocks Base64 ---
+      // --- [v2rayN 專用修復] Shadowsocks Base64 輸出 ---
       if (node.type === 'shadowsocks') {
         const userInfo = `${node.cipher}:${node.password}`;
-        // 使用 URL-Safe Base64
+        // 使用 SIP002 標準 Base64 (URL-Safe)
         const base64User = utf8ToBase64(userInfo).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
         
         const params = new URLSearchParams();
         
-        // 只加入標準 SIP002 參數
+        // 如果開啟了 TLS，強制注入 obfs-local plugin 設定
         if (node.tls) {
-            params.set('security', 'tls');
-            if (node.sni) params.set('sni', node.sni);
-            if (node.alpn) params.set('alpn', node.alpn.join(','));
-            if (node.fingerprint) params.set('fp', node.fingerprint);
-            params.set('type', 'tcp');
+            const sni = node.sni || node.server;
+            // v2rayN 看到這個參數會自動啟用 obfs 插件，進而處理 TLS
+            // 格式: plugin=obfs-local;obfs=tls;obfs-host=SNI
+            const pluginVal = `obfs-local;obfs=tls;obfs-host=${sni}`;
+            params.set('plugin', pluginVal);
         }
         
-        // 如果原本有 plugin，也加回去 (但我們不再主動偽造)
-        if (node.clashObj && node.clashObj.plugin) {
+        // 如果原本就有其他 plugin (且不是我們剛剛加的 TLS)，保留之
+        if (node.clashObj && node.clashObj.plugin && !node.tls) {
              params.set('plugin', node.clashObj.plugin + (node.clashObj['plugin-opts'] ? ';' + new URLSearchParams(node.clashObj['plugin-opts']).toString().replace(/&/g, ';') : ''));
         }
 

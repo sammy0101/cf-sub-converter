@@ -14,6 +14,7 @@ function fixSS2022Key(key: string): string {
   return clean;
 }
 
+// 輔助：解析 Plugin 參數
 function parsePluginParams(str: string): Record<string, string> {
   const params: Record<string, string> = {};
   str.split(';').forEach(p => {
@@ -26,8 +27,17 @@ function parsePluginParams(str: string): Record<string, string> {
 // --- 解析 Shadowsocks ---
 function parseShadowsocks(urlStr: string): ProxyNode | null {
   try {
-    const url = new URL(urlStr);
-    const params = url.searchParams;
+    // 1. 暴力參數提取 (不依賴 new URL，確保一定抓得到參數)
+    let queryMap = new Map<string, string>();
+    if (urlStr.includes('?')) {
+        const queryPart = urlStr.split('?')[1].split('#')[0];
+        queryPart.split('&').forEach(pair => {
+            const [k, v] = pair.split('=');
+            if (k && v) queryMap.set(k, decodeURIComponent(v));
+        });
+    }
+
+    // 2. 提取名稱 (Hash)
     let raw = urlStr.replace('ss://', '');
     const hashIndex = raw.indexOf('#');
     let name = 'Shadowsocks';
@@ -36,8 +46,14 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       raw = raw.substring(0, hashIndex);
     }
     
-    // 基本解析
+    // 去掉問號後的參數，只留 userinfo@host:port
+    if (raw.includes('?')) {
+        raw = raw.split('?')[0];
+    }
+
+    // 3. 解析 userinfo
     let method = ''; let password = ''; let server = ''; let portStr = '';
+    
     if (raw.includes('@')) {
       const parts = raw.split('@');
       const serverPart = parts[parts.length - 1];
@@ -75,23 +91,22 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     const port = parseInt(portStr);
     if (isNaN(port)) return null;
 
-    // 密碼修復
+    // --- 密碼修復 ---
     if (method.toLowerCase().includes('2022')) { password = fixSS2022Key(password); }
 
-    // --- Plugin 處理 ---
-    let pluginStr = params.get('plugin') || '';
-    // 有些連結把 plugin 放在 userinfo 裡，雖然不標準但防呆
-    if (!pluginStr && raw.includes('plugin=')) {
-        // 簡單提取
-        const match = raw.match(/plugin=([^&]+)/);
-        if (match) pluginStr = decodeURIComponent(match[1]);
-    }
+    // --- 參數獲取 (優先使用暴力提取的 Map) ---
+    let pluginStr = queryMap.get('plugin') || '';
+    let security = queryMap.get('security') || '';
+    let sni = queryMap.get('sni') || queryMap.get('host') || server;
+    let alpnStr = queryMap.get('alpn');
+    let fp = queryMap.get('fp') || 'chrome';
+    let echStr = queryMap.get('ech');
 
+    // --- Plugin 處理 ---
     let sbTransport: any = undefined;
     let sbObfs: any = undefined;
 
     if (pluginStr) {
-        try { pluginStr = decodeURIComponent(pluginStr); } catch(e){}
         const pSplit = pluginStr.split(';');
         const pluginName = pSplit[0];
         const pluginArgs = parsePluginParams(pSplit.slice(1).join(';'));
@@ -99,17 +114,15 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
             sbTransport = { type: 'ws', path: pluginArgs['path'] || '/', headers: pluginArgs['host'] ? { Host: pluginArgs['host'] } : undefined };
         } else if (pluginName === 'obfs-local' || pluginName === 'simple-obfs') {
             sbObfs = { type: pluginArgs['obfs'] || 'http', host: pluginArgs['obfs-host'] || 'www.bing.com' };
+            // 如果 plugin 裡寫了 obfs=tls，也視為開啟 TLS
+            if (pluginArgs['obfs'] === 'tls') security = 'tls';
         }
     }
 
-    // --- 關鍵：判斷是否開啟 TLS ---
-    // 1. 標準參數 security=tls
-    // 2. 插件參數 obfs=tls
-    const isTls = params.get('security') === 'tls' || (pluginStr && pluginStr.includes('obfs=tls'));
-    
-    const sni = params.get('sni') || params.get('host') || server;
-    const alpn = params.get('alpn') ? decodeURIComponent(params.get('alpn')!).split(',') : undefined;
-    const fp = params.get('fp') || 'chrome';
+    // --- 關鍵判定：是否開啟 TLS ---
+    // 只要 url 參數裡有 security=tls，或者 plugin 裡有 tls，就開啟
+    const isTls = security === 'tls';
+    const alpn = alpnStr ? alpnStr.split(',') : undefined;
 
     const node: ProxyNode = {
       type: 'shadowsocks', name, server, port, cipher: method, password, udp: true,
@@ -126,6 +139,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       password: node.password
     };
     
+    // SS-2022 UoT
     if (method.toLowerCase().includes('2022')) { 
         node.singboxObj.udp_over_tcp = true; 
     }
@@ -133,7 +147,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     if (sbTransport) node.singboxObj.transport = sbTransport;
     if (sbObfs) node.singboxObj.obfs = sbObfs;
 
-    // *** 強制寫入 TLS 設定 ***
+    // [強制寫入 TLS]
     if (isTls) {
         node.singboxObj.tls = {
             enabled: true,
@@ -141,10 +155,9 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
             alpn: alpn,
             utls: { enabled: true, fingerprint: fp }
         };
-        // 根據你之前的 log，這些節點是 h2，我們這裡保守一點，如果有 h2 就加上 multiplex
-        // 但為了避免上次的錯誤，我們不強制開，除非 alpn 明確寫了 h2
-        if (alpn && alpn.includes('h2')) {
-             node.singboxObj.multiplex = { enabled: true, protocol: "h2", max_connections: 1, min_streams: 2, padding: true };
+        // 加回 ECH (如果有的話)
+        if (echStr) {
+             node.singboxObj.tls.ech = { enabled: true, config: echStr };
         }
     }
 

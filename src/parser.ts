@@ -23,7 +23,7 @@ function parsePluginParams(str: string): Record<string, string> {
   return params;
 }
 
-// --- 解析 Shadowsocks ---
+// --- 解析 Shadowsocks (無 TLS 版) ---
 function parseShadowsocks(urlStr: string): ProxyNode | null {
   try {
     const getParam = (str: string, key: string) => {
@@ -80,25 +80,25 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     const port = parseInt(portStr);
     if (isNaN(port)) return null;
 
+    // 密碼修復 (保留，這是 SS-2022 必須的)
     if (method.toLowerCase().includes('2022')) { password = fixSS2022Key(password); }
 
+    // --- 這裡開始簡化：移除所有 TLS 相關邏輯 ---
+    // 我們只讀取 plugin，但忽略 security=tls
     const pluginStr = getParam(urlStr, 'plugin');
-    const security = getParam(urlStr, 'security');
-    const type = getParam(urlStr, 'type') || 'tcp'; 
-    const sni = getParam(urlStr, 'sni') || getParam(urlStr, 'host') || server;
-    const alpnStr = getParam(urlStr, 'alpn');
-    const fp = getParam(urlStr, 'fp') || 'chrome';
-    const path = getParam(urlStr, 'path') || '/';
-
-    const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0);
-    const alpn = alpnStr ? decodeURIComponent(alpnStr).split(',') : undefined;
-
+    
+    // 強制關閉 TLS
+    const isTls = false;
+    
+    // 如果原本有 plugin (例如 obfs=http)，我們保留它
+    // 但如果 plugin 包含 tls，我們也把它過濾掉或者視情況保留(這裡選擇保留原字串，但不開啟 SingBox 的 tls 模組)
+    
     const node: ProxyNode = {
       type: 'shadowsocks', name, server, port, cipher: method, password, udp: true,
-      tls: isTls, sni: sni, alpn: alpn, fingerprint: fp, network: type
+      tls: false // 標記為無 TLS
     };
 
-    // --- SingBox Config ---
+    // --- 構建 SingBox 物件 ---
     node.singboxObj = {
       tag: name,
       type: 'shadowsocks',
@@ -108,51 +108,43 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       password: node.password
     };
     
+    // SS-2022 仍然需要 UoT，這是協議特性，跟 TLS 無關
     if (method.toLowerCase().includes('2022')) { 
         node.singboxObj.udp_over_tcp = true; 
     }
-
-    // --- 關鍵修正：TCP + TLS 使用 obfs-local ---
-    if (isTls) {
-        if (type === 'ws') {
-             node.singboxObj.plugin = "v2ray-plugin";
-             node.singboxObj.plugin_opts = `mode=websocket;tls=true;host=${sni};path=${path};mux=0`;
-        } else {
-             // 這是 TCP + TLS 的正確模擬方式
-             node.singboxObj.plugin = "obfs-local";
-             node.singboxObj.plugin_opts = `obfs=tls;obfs-host=${sni}`;
-        }
-    } 
-    else if (pluginStr) {
+    
+    // 處理插件 (只處理非 TLS 的插件，例如 obfs=http)
+    if (pluginStr) {
         const pDecoded = decodeURIComponent(pluginStr);
         const pSplit = pDecoded.split(';');
-        node.singboxObj.plugin = pSplit[0];
-        node.singboxObj.plugin_opts = pSplit.slice(1).join(';');
+        const pluginName = pSplit[0];
+        
+        // 如果是 obfs-local (http)，SingBox 支援
+        if (pluginName === 'obfs-local' || pluginName === 'simple-obfs') {
+             const pluginArgs = parsePluginParams(pSplit.slice(1).join(';'));
+             if (pluginArgs['obfs'] !== 'tls') { // 排除 tls 模式
+                 node.singboxObj.plugin = "obfs-local";
+                 node.singboxObj.plugin_opts = `obfs=http;obfs-host=${pluginArgs['obfs-host'] || 'www.bing.com'}`;
+             }
+        }
+        // 注意：SingBox 原生不支援 v2ray-plugin，除非用 transport
+        // 但既然你要「沒 TLS」，通常 v2ray-plugin 都是配合 TLS 用的，所以這裡直接忽略，回歸純 SS
     }
 
-    // --- Clash Config ---
+    // --- 構建 Clash 物件 ---
     node.clashObj = {
       name: name, type: 'ss', server: node.server, port: node.port, cipher: node.cipher, password: node.password, udp: true,
-      plugin: pluginStr ? pluginStr.split(';')[0] : undefined,
-      'plugin-opts': pluginStr ? parsePluginParams(pluginStr.split(';').slice(1).join(';')) : undefined
+      // 這裡只傳遞非 TLS 的 plugin
+      plugin: pluginStr && !pluginStr.includes('tls') ? decodeURIComponent(pluginStr).split(';')[0] : undefined,
+      'plugin-opts': pluginStr && !pluginStr.includes('tls') ? parsePluginParams(decodeURIComponent(pluginStr).split(';').slice(1).join(';')) : undefined
     };
-    
-    // Clash 也需要同步修正
-    if (isTls) {
-        if (type === 'ws') {
-            node.clashObj.plugin = 'v2ray-plugin';
-            node.clashObj['plugin-opts'] = { mode: 'websocket', tls: true, host: sni, path: path };
-        } else {
-            node.clashObj.plugin = 'obfs-local';
-            node.clashObj['plugin-opts'] = { obfs: 'tls', 'obfs-host': sni };
-        }
-    }
 
     return node;
   } catch (e) { return null; }
 }
 
-// ... (請保留 Vless, Hysteria2, Vmess, parseContent 函數) ...
+// ... (以下 Vless, Hysteria2, Vmess 函數內容保持不變) ...
+
 function parseVless(urlStr: string): ProxyNode | null {
   try {
     const url = new URL(urlStr); const params = url.searchParams; const name = decodeURIComponent(url.hash.slice(1)) || 'VLESS';

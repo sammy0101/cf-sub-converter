@@ -1,7 +1,6 @@
 import { ProxyNode } from "./types";
 import { safeBase64Decode } from "./utils";
 
-// --- 輔助：完美修復 SS-2022 Key ---
 function fixSS2022Key(key: string): string {
   if (!key) return "";
   try { key = decodeURIComponent(key); } catch(e) {}
@@ -23,7 +22,6 @@ function parsePluginParams(str: string): Record<string, string> {
   return params;
 }
 
-// --- 解析 Shadowsocks ---
 function parseShadowsocks(urlStr: string): ProxyNode | null {
   try {
     const getParam = (str: string, key: string) => {
@@ -84,13 +82,12 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
 
     const pluginStr = getParam(urlStr, 'plugin');
     const security = getParam(urlStr, 'security');
-    const type = getParam(urlStr, 'type') || 'tcp'; // 預設 TCP
     const sni = getParam(urlStr, 'sni') || getParam(urlStr, 'host') || server;
     const alpnStr = getParam(urlStr, 'alpn');
     const fp = getParam(urlStr, 'fp') || 'chrome';
-    const echStr = getParam(urlStr, 'ech');
+    const path = getParam(urlStr, 'path') || '/';
 
-    const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0) || (echStr && echStr.length > 0);
+    const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0);
     const alpn = alpnStr ? decodeURIComponent(alpnStr).split(',') : undefined;
 
     const node: ProxyNode = {
@@ -98,7 +95,6 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       tls: isTls, sni: sni, alpn: alpn, fingerprint: fp
     };
 
-    // --- 構建 SingBox 物件 ---
     node.singboxObj = {
       tag: name,
       type: 'shadowsocks',
@@ -111,22 +107,11 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     if (method.toLowerCase().includes('2022')) { 
         node.singboxObj.udp_over_tcp = true; 
     }
-    
-    // --- 關鍵修正：依據傳輸類型選擇 Plugin ---
+
     if (isTls) {
-        // 如果是 WebSocket (type=ws)
-        if (type === 'ws') {
-             node.singboxObj.plugin = "v2ray-plugin";
-             const path = getParam(urlStr, 'path') || '/';
-             node.singboxObj.plugin_opts = `mode=websocket;tls=true;host=${sni};path=${path};mux=0`;
-        } 
-        // 如果是 TCP (type=tcp)，你的情況是這裡
-        else {
-             node.singboxObj.plugin = "obfs-local";
-             node.singboxObj.plugin_opts = `obfs=tls;obfs-host=${sni}`;
-        }
+        node.singboxObj.plugin = "v2ray-plugin";
+        node.singboxObj.plugin_opts = `mode=websocket;security=tls;host=${sni};path=${path};mux=0`;
     } 
-    // 原有 Plugin 處理
     else if (pluginStr) {
         const pDecoded = decodeURIComponent(pluginStr);
         const pSplit = pDecoded.split(';');
@@ -134,30 +119,20 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
         node.singboxObj.plugin_opts = pSplit.slice(1).join(';');
     }
 
-    // --- 構建 Clash 物件 ---
     node.clashObj = {
       name: name, type: 'ss', server: node.server, port: node.port, cipher: node.cipher, password: node.password, udp: true,
       plugin: pluginStr ? pluginStr.split(';')[0] : undefined,
       'plugin-opts': pluginStr ? parsePluginParams(pluginStr.split(';').slice(1).join(';')) : undefined
     };
-
-    // 針對 Clash 的自動補全
+    
     if (isTls) {
-        if (type === 'ws') {
-             const path = getParam(urlStr, 'path') || '/';
-             node.clashObj.plugin = 'v2ray-plugin';
-             node.clashObj['plugin-opts'] = { mode: 'websocket', tls: true, host: sni, path: path };
-        } else {
-             node.clashObj.plugin = 'obfs-local';
-             node.clashObj['plugin-opts'] = { obfs: 'tls', 'obfs-host': sni };
-        }
+        node.clashObj.plugin = 'obfs-local';
+        node.clashObj['plugin-opts'] = { obfs: 'tls', 'obfs-host': sni };
     }
 
     return node;
   } catch (e) { return null; }
 }
-
-// ... (以下 Vless, Hysteria2, Vmess 函數內容保持不變，請保留原有的) ...
 
 function parseVless(urlStr: string): ProxyNode | null {
   try {

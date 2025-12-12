@@ -34,24 +34,24 @@ export function toBase64(nodes: ProxyNode[]) {
         return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
       }
 
-      // --- SS Base64 輸出 (標準版) ---
       if (node.type === 'shadowsocks') {
         const userInfo = `${node.cipher}:${node.password}`;
-        // 使用 URL-Safe Base64
         const base64User = utf8ToBase64(userInfo).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
         
         const params = new URLSearchParams();
         
-        // 輸出 SIP002 標準參數
         if (node.tls) {
-            // 這會告訴支援的客戶端 (如 Nekoray/SingBox) 開啟 TLS
-            params.set('security', 'tls'); 
+            params.set('security', 'tls');
             if (node.sni) params.set('sni', node.sni);
             if (node.alpn) params.set('alpn', node.alpn.join(','));
             if (node.fingerprint) params.set('fp', node.fingerprint);
             params.set('type', 'tcp');
         }
         
+        if (node.clashObj && node.clashObj.plugin && !node.tls) {
+             params.set('plugin', node.clashObj.plugin + (node.clashObj['plugin-opts'] ? ';' + new URLSearchParams(node.clashObj['plugin-opts']).toString().replace(/&/g, ';') : ''));
+        }
+
         const query = params.toString();
         return `ss://${base64User}@${node.server}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
       }

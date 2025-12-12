@@ -4,7 +4,7 @@ import { parseContent } from './parser';
 import { toSingBoxWithTemplate, toClashWithTemplate, toBase64 } from './generator';
 import { deduplicateNodeNames } from './utils';
 
-// 改回 v2rayNG，這是機場最喜歡的 UA，通常會直接給 Base64 訂閱
+// 修改：改回 v2rayNG，這是面板最信任的 UA，不會被當成瀏覽器攔截
 const CLIENT_UA = 'v2rayNG/1.8.5';
 
 export default {
@@ -34,7 +34,6 @@ export default {
     
     const target = url.searchParams.get('target') || 'singbox';
     
-    // 用來記錄最後一次抓取的錯誤內容，方便除錯
     let debugInfo = "";
 
     try {
@@ -49,7 +48,7 @@ export default {
         if (trimmed.startsWith('http')) { 
           try { 
             const separator = trimmed.includes('?') ? '&' : '?';
-            // 使用 v2rayNG UA
+            // 這裡使用 CLIENT_UA (v2rayNG)
             const resp = await fetch(`${trimmed}${separator}t=${Date.now()}`, { 
               headers: { 
                 'User-Agent': CLIENT_UA,
@@ -59,13 +58,11 @@ export default {
             
             if (resp.ok) { 
               const text = await resp.text(); 
-              // 嘗試解析
               const nodes = await parseContent(text);
               if (nodes.length > 0) {
                 allNodes.push(...nodes);
               } else {
-                // 雖然成功下載，但解析不出節點，記錄下來
-                debugInfo += `\n[解析失敗] ${trimmed}:\n內容預覽: ${text.substring(0, 150)}...\n`;
+                debugInfo += `\n[解析失敗] ${trimmed}: 內容長度 ${text.length} (可能是空內容)\n`;
               }
             } else {
               debugInfo += `\n[下載失敗] ${trimmed} (Status: ${resp.status})\n`;
@@ -80,9 +77,9 @@ export default {
         }
       }));
 
-      // 如果全部失敗，回傳詳細錯誤訊息給客戶端
+      // 如果全部失敗，回傳詳細錯誤
       if (allNodes.length === 0) {
-        return new Response(`錯誤：未解析到任何有效節點 (400 Bad Request)。\n\n詳細除錯資訊:${debugInfo}`, { 
+        return new Response(`錯誤：未解析到任何有效節點 (400 Bad Request)。\n\n如果狀態碼是 404，請檢查您的訂閱連結是否正確，或者面板是否開啟了瀏覽器攔截。\n\n詳細資訊:${debugInfo}`, { 
           status: 400,
           headers: { 'Content-Type': 'text/plain; charset=utf-8' }
         });

@@ -1,6 +1,7 @@
 import { ProxyNode } from "./types";
 import { safeBase64Decode } from "./utils";
 
+// --- 輔助：完美修復 SS-2022 Key ---
 function fixSS2022Key(key: string): string {
   if (!key) return "";
   try { key = decodeURIComponent(key); } catch(e) {}
@@ -90,8 +91,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
         }
     }
 
-    // --- 關鍵修正：確實獲取 SNI ---
-    // 優先順序：sni > host > server
+    // SNI & TLS 參數
     const isTls = params.get('security') === 'tls';
     const sni = params.get('sni') || params.get('host') || server;
     const alpn = params.get('alpn') ? decodeURIComponent(params.get('alpn')!).split(',') : undefined;
@@ -106,17 +106,21 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       tag: name, type: 'shadowsocks', server: node.server, server_port: node.port, method: node.cipher, password: node.password
     };
     
+    // SS-2022: 開啟 UoT
     if (method.toLowerCase().includes('2022')) { node.singboxObj.udp_over_tcp = true; }
+    
     if (sbTransport) node.singboxObj.transport = sbTransport;
     if (sbObfs) node.singboxObj.obfs = sbObfs;
 
-    // SingBox TLS
+    // SingBox TLS 設定
     if (isTls) {
-        node.singboxObj.tls = { enabled: true, server_name: sni, alpn: alpn, utls: { enabled: true, fingerprint: fp } };
-        // 移除 ECH 以提高穩定性
-        if (alpn && alpn.includes('h2')) { 
-            node.singboxObj.multiplex = { enabled: true, protocol: "h2", max_connections: 1, min_streams: 2, padding: true }; 
-        }
+        node.singboxObj.tls = { 
+            enabled: true, 
+            server_name: sni, 
+            alpn: alpn, 
+            utls: { enabled: true, fingerprint: fp } 
+        };
+        // 移除 Multiplex 設定，避免連線失敗
     }
 
     node.clashObj = {
@@ -124,13 +128,14 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       plugin: pluginStr ? pluginStr.split(';')[0] : undefined,
       'plugin-opts': pluginStr ? parsePluginParams(pluginStr.split(';').slice(1).join(';')) : undefined
     };
-    if (isTls) { node.clashObj.smux = { enabled: true }; }
+    // Clash Meta SS TLS
+    if (isTls) { node.clashObj.smux = { enabled: true }; } // Meta 支援這個
 
     return node;
   } catch (e) { return null; }
 }
 
-// ... (以下 Vless, Hysteria2, Vmess 保持不變，為節省篇幅省略，請保留原有的) ...
+// ... (以下 Vless, Hysteria2, Vmess 保持不變，直接複製原檔案的即可) ...
 
 function parseVless(urlStr: string): ProxyNode | null {
   try {

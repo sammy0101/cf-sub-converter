@@ -34,21 +34,23 @@ export function toBase64(nodes: ProxyNode[]) {
         return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
       }
 
+      // --- SS Base64 輸出 (TCP/WS 區分) ---
       if (node.type === 'shadowsocks') {
         const userInfo = `${node.cipher}:${node.password}`;
         const base64User = utf8ToBase64(userInfo).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-        
         const params = new URLSearchParams();
         
         if (node.tls) {
-            params.set('security', 'tls');
-            if (node.sni) params.set('sni', node.sni);
-            if (node.alpn) params.set('alpn', node.alpn.join(','));
-            if (node.fingerprint) params.set('fp', node.fingerprint);
-            params.set('type', 'tcp');
-        }
-        
-        if (node.clashObj && node.clashObj.plugin && !node.tls) {
+            // 如果是 WS，使用 v2ray-plugin
+            if (node.network === 'ws') {
+                const path = '/'; // 預設路徑
+                params.set('plugin', `v2ray-plugin;mode=websocket;tls=true;host=${node.sni};path=${path};mux=0`);
+            } 
+            // 如果是 TCP，使用 obfs-local
+            else {
+                params.set('plugin', `obfs-local;obfs=tls;obfs-host=${node.sni}`);
+            }
+        } else if (node.clashObj && node.clashObj.plugin) {
              params.set('plugin', node.clashObj.plugin + (node.clashObj['plugin-opts'] ? ';' + new URLSearchParams(node.clashObj['plugin-opts']).toString().replace(/&/g, ';') : ''));
         }
 

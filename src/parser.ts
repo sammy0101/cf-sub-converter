@@ -23,6 +23,7 @@ function parsePluginParams(str: string): Record<string, string> {
   return params;
 }
 
+// --- 解析 Shadowsocks ---
 function parseShadowsocks(urlStr: string): ProxyNode | null {
   try {
     const url = new URL(urlStr);
@@ -91,7 +92,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
         }
     }
 
-    // SNI & TLS 參數
+    // TLS 參數
     const isTls = params.get('security') === 'tls';
     const sni = params.get('sni') || params.get('host') || server;
     const alpn = params.get('alpn') ? decodeURIComponent(params.get('alpn')!).split(',') : undefined;
@@ -106,13 +107,12 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       tag: name, type: 'shadowsocks', server: node.server, server_port: node.port, method: node.cipher, password: node.password
     };
     
-    // SS-2022: 開啟 UoT
-    if (method.toLowerCase().includes('2022')) { node.singboxObj.udp_over_tcp = true; }
+    // 移除 UoT 強制開啟，避免相容性問題
     
     if (sbTransport) node.singboxObj.transport = sbTransport;
     if (sbObfs) node.singboxObj.obfs = sbObfs;
 
-    // SingBox TLS 設定
+    // SingBox TLS
     if (isTls) {
         node.singboxObj.tls = { 
             enabled: true, 
@@ -120,7 +120,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
             alpn: alpn, 
             utls: { enabled: true, fingerprint: fp } 
         };
-        // 移除 Multiplex 設定，避免連線失敗
+        // 移除 Multiplex，求穩
     }
 
     node.clashObj = {
@@ -128,14 +128,15 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       plugin: pluginStr ? pluginStr.split(';')[0] : undefined,
       'plugin-opts': pluginStr ? parsePluginParams(pluginStr.split(';').slice(1).join(';')) : undefined
     };
-    // Clash Meta SS TLS
-    if (isTls) { node.clashObj.smux = { enabled: true }; } // Meta 支援這個
+    // Clash Meta 支援 smux
+    if (isTls) { node.clashObj.smux = { enabled: true }; }
 
     return node;
   } catch (e) { return null; }
 }
 
-// ... (以下 Vless, Hysteria2, Vmess 保持不變，直接複製原檔案的即可) ...
+// ... (請保留原本的 Vless, Hysteria2, Vmess, parseContent 函數) ...
+// 為了代碼完整性，這裡再次提供 parseContent，請確保其他函數存在
 
 function parseVless(urlStr: string): ProxyNode | null {
   try {

@@ -74,6 +74,7 @@ export const HTML_PAGE = `
 <body>
   <div class="container">
     <div class="header"><h1>🔄 <span class="gradient-text">訂閱轉換中心</span></h1><p>客製化遠端規則 • 智能合併多訂閱</p></div>
+    
     <div class="fav-section">
       <h3 class="fav-title">⭐ 我的訂閱收藏 (本機儲存)</h3>
       <div class="fav-form">
@@ -85,26 +86,31 @@ export const HTML_PAGE = `
       </div>
       <div id="favList" class="fav-list"><span style="color:#94a3b8; font-size:0.9rem;">暫無收藏...</span></div>
     </div>
+
     <div class="main-grid">
       <div>
         <label>📥 轉換來源 (點擊上方收藏可直接加入)</label>
         <textarea id="url" style="min-height:200px;" placeholder="在此貼上機場訂閱連結或節點..."></textarea>
+        
         <div style="margin-top: 1rem;">
           <label>🔗 自訂短連結 (自動帶入收藏名稱)</label>
           <input type="text" id="shortCode" placeholder="輸入短鏈名稱，留空則生成長連結" style="width: 100%;">
           <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 5px;">若輸入名稱，連結將變為 https://.../名稱，且資料會儲存於雲端。</div>
         </div>
       </div>
+
       <div class="controls">
         <div><label>🛠 轉換目標</label><select id="target"><option value="singbox">Sing-Box (JSON 模板)</option><option value="clash">Clash Meta (YAML 模板)</option><option value="base64">Base64 (純節點)</option></select></div>
         <button onclick="generate()">⚡ 立即生成</button>
       </div>
     </div>
+
     <div class="result-group" id="resultArea">
       <label>🎉 您的專屬訂閱連結</label>
       <div class="result-row"><input type="text" id="finalUrl" readonly onclick="this.select()"><button class="copy-btn" onclick="copyUrl()">複製</button></div>
       <div id="qrcode"></div>
     </div>
+
     <div class="rules-section">
       <div class="rules-header"><label style="margin:0">🛡️ 內建分流群組</label><a href="https://github.com/sammy0101/myself/tree/main" target="_blank" class="rules-link">查看 GitHub 原始碼 ↗</a></div>
       <div class="rules-grid">
@@ -121,6 +127,7 @@ export const HTML_PAGE = `
     </div>
   </div>
   <div id="toast" class="toast">✅ 複製成功！</div>
+  
   <script>
     const STORAGE_KEY = 'sub_converter_profiles';
     let profiles = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
@@ -145,13 +152,16 @@ export const HTML_PAGE = `
       showToast('📥 已加入: ' + profile.name);
     }
     renderProfiles();
+
     async function generate() {
       const rawInput = document.getElementById('url').value; const target = document.getElementById('target').value;
       const shortCode = document.getElementById('shortCode').value.trim();
       const urls = rawInput.split(/\\n/).map(u => u.trim()).filter(u => u.length > 0).join('|'); 
       if (!urls) { alert('請至少輸入一個連結！'); return; }
+      
       const host = window.location.origin;
       let final = '';
+
       if (shortCode) {
         try {
           const btn = document.querySelector('button[onclick="generate()"]');
@@ -161,7 +171,10 @@ export const HTML_PAGE = `
           final = \`\${host}/\${shortCode}?target=\${target}\`; 
           btn.textContent = '⚡ 立即生成'; btn.disabled = false;
         } catch (e) { alert('儲存短連結失敗: ' + e.message); return; }
-      } else { final = \`\${host}/?url=\${encodeURIComponent(urls)}&target=\${target}\`; }
+      } else {
+        final = \`\${host}/?url=\${encodeURIComponent(urls)}&target=\${target}\`;
+      }
+
       document.getElementById('finalUrl').value = final; document.getElementById('resultArea').classList.add('show');
       const qrContainer = document.getElementById('qrcode'); qrContainer.innerHTML = ''; 
       new QRCode(qrContainer, { text: final, width: 180, height: 180, colorDark : "#000000", colorLight : "#ffffff", correctLevel : QRCode.CorrectLevel.M });

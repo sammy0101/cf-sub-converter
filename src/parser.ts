@@ -1,19 +1,36 @@
 import { ProxyNode } from "./types";
 import { safeBase64Decode } from "./utils";
 
-// --- 輔助：完美修復 SS-2022 Key ---
+// --- 輔助：SS-2022 Key 精準修復 ---
 function fixSS2022Key(key: string): string {
   if (!key) return "";
+  
+  // 1. URL 解碼 (處理 %3A, %3D 等)
   try { key = decodeURIComponent(key); } catch(e) {}
-  if (key.includes(':')) { key = key.split(':')[0]; }
-  let clean = key.replace(/-/g, '+').replace(/_/g, '/');
-  clean = clean.replace(/[^A-Za-z0-9\+\/]/g, "");
-  if (clean.length > 44) { clean = clean.substring(0, 44); }
-  const pad = clean.length % 4;
-  if (pad) { clean += '='.repeat(4 - pad); }
-  return clean;
+
+  // 2. 切割冒號 (SS-2022 格式為 ServerKey:ClientKey)
+  // 我們只需要 ServerKey
+  if (key.includes(':')) {
+    key = key.split(':')[0];
+  }
+
+  // 3. 去除前後空白
+  key = key.trim();
+
+  // 4. 處理 URL-Safe Base64 (將 -_ 轉回 +/)
+  key = key.replace(/-/g, '+').replace(/_/g, '/');
+
+  // 5. 補齊 Padding (=)
+  // Base64 長度必須是 4 的倍數
+  const pad = key.length % 4;
+  if (pad) {
+    key += '='.repeat(4 - pad);
+  }
+  
+  return key;
 }
 
+// 輔助：解析 Plugin 參數
 function parsePluginParams(str: string): Record<string, string> {
   const params: Record<string, string> = {};
   str.split(';').forEach(p => {
@@ -35,8 +52,13 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       name = decodeURIComponent(raw.substring(hashIndex + 1));
       raw = raw.substring(0, hashIndex);
     }
-    
-    let method = ''; let password = ''; let server = ''; let portStr = '';
+
+    let method = '';
+    let password = '';
+    let server = '';
+    let portStr = '';
+
+    // 解析 userinfo@server:port
     if (raw.includes('@')) {
       const parts = raw.split('@');
       const serverPart = parts[parts.length - 1];
@@ -46,13 +68,25 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       server = serverPart.substring(0, lastColonIndex);
       portStr = serverPart.substring(lastColonIndex + 1);
       if (server.startsWith('[') && server.endsWith(']')) server = server.slice(1, -1);
+
       try {
         const decoded = safeBase64Decode(userPart);
-        if (decoded && decoded.includes(':') && !decoded.includes('@')) {
-          const up = decoded.split(':'); method = up[0]; password = up.slice(1).join(':');
-        } else { throw new Error('Not Base64'); }
-      } catch (e) { const up = userPart.split(':'); method = up[0]; password = up.slice(1).join(':'); }
+        // 如果解碼後有冒號，且不像亂碼
+        if (decoded && decoded.includes(':')) {
+          const up = decoded.split(':');
+          method = up[0];
+          password = up.slice(1).join(':');
+        } else {
+          // 可能是明文
+          throw new Error('Not Base64');
+        }
+      } catch (e) {
+        const up = userPart.split(':');
+        method = up[0];
+        password = up.slice(1).join(':');
+      }
     } else {
+      // Legacy Base64
       const decoded = safeBase64Decode(raw);
       if (!decoded) return null;
       const atIndex = decoded.lastIndexOf('@');
@@ -74,12 +108,15 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     const port = parseInt(portStr);
     if (isNaN(port)) return null;
 
-    if (method.toLowerCase().includes('2022')) { password = fixSS2022Key(password); }
+    // --- 密碼修復 (SS-2022) ---
+    if (method.toLowerCase().includes('2022')) {
+        password = fixSS2022Key(password);
+    }
 
+    // --- 處理 Plugin ---
     let pluginStr = params.get('plugin') || '';
     let sbTransport: any = undefined;
     let sbObfs: any = undefined;
-
     if (pluginStr) {
         try { pluginStr = decodeURIComponent(pluginStr); } catch(e){}
         const pSplit = pluginStr.split(';');
@@ -92,51 +129,56 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
         }
     }
 
-    // TLS 參數
+    // --- 處理 TLS 參數 ---
     const isTls = params.get('security') === 'tls';
     const sni = params.get('sni') || params.get('host') || server;
     const alpn = params.get('alpn') ? decodeURIComponent(params.get('alpn')!).split(',') : undefined;
     const fp = params.get('fp') || 'chrome';
+    const echStr = params.get('ech');
 
+    // 構建通用節點
     const node: ProxyNode = {
       type: 'shadowsocks', name, server, port, cipher: method, password, udp: true,
       tls: isTls, sni: sni, alpn: alpn, fingerprint: fp
     };
 
+    // SingBox Config
     node.singboxObj = {
       tag: name, type: 'shadowsocks', server: node.server, server_port: node.port, method: node.cipher, password: node.password
     };
     
-    // 移除 UoT 強制開啟，避免相容性問題
-    
+    // SS-2022 關鍵設定
+    if (method.toLowerCase().includes('2022')) {
+       node.singboxObj.udp_over_tcp = true; 
+    }
+
     if (sbTransport) node.singboxObj.transport = sbTransport;
     if (sbObfs) node.singboxObj.obfs = sbObfs;
 
-    // SingBox TLS
     if (isTls) {
-        node.singboxObj.tls = { 
-            enabled: true, 
-            server_name: sni, 
-            alpn: alpn, 
-            utls: { enabled: true, fingerprint: fp } 
-        };
-        // 移除 Multiplex，求穩
+        node.singboxObj.tls = { enabled: true, server_name: sni, alpn: alpn, utls: { enabled: true, fingerprint: fp } };
+        // ECH (如果機場有提供)
+        if (echStr) { node.singboxObj.tls.ech = { enabled: true, config: decodeURIComponent(echStr) }; }
+        // Multiplex (針對 h2 協議)
+        if (alpn && alpn.includes('h2')) { 
+           node.singboxObj.multiplex = { enabled: true, protocol: "h2", max_connections: 1, min_streams: 2, padding: true }; 
+        }
     }
 
+    // Clash Config
     node.clashObj = {
       name: name, type: 'ss', server: node.server, port: node.port, cipher: node.cipher, password: node.password, udp: true,
       plugin: pluginStr ? pluginStr.split(';')[0] : undefined,
       'plugin-opts': pluginStr ? parsePluginParams(pluginStr.split(';').slice(1).join(';')) : undefined
     };
-    // Clash Meta 支援 smux
     if (isTls) { node.clashObj.smux = { enabled: true }; }
 
     return node;
   } catch (e) { return null; }
 }
 
-// ... (請保留原本的 Vless, Hysteria2, Vmess, parseContent 函數) ...
-// 為了代碼完整性，這裡再次提供 parseContent，請確保其他函數存在
+// ... (以下 Vless, Hy2, Vmess 函數內容請保留原樣) ...
+// 複製上面的 parser.ts 後，請確保沒有刪除下面的函數
 
 function parseVless(urlStr: string): ProxyNode | null {
   try {

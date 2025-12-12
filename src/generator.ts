@@ -6,7 +6,6 @@ import { utf8ToBase64 } from './utils';
 export function toBase64(nodes: ProxyNode[]) {
   const links = nodes.map(node => {
     try {
-      // VLESS
       if (node.type === 'vless') {
         const params = new URLSearchParams();
         params.set('security', node.reality ? 'reality' : (node.tls ? 'tls' : 'none'));
@@ -18,8 +17,6 @@ export function toBase64(nodes: ProxyNode[]) {
         if (node.network === 'ws') { if (node.wsPath) params.set('path', node.wsPath); if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host); }
         return `vless://${node.uuid}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
-      
-      // Hysteria2
       if (node.type === 'hysteria2') {
         const params = new URLSearchParams();
         if (node.sni) params.set('sni', node.sni);
@@ -27,8 +24,6 @@ export function toBase64(nodes: ProxyNode[]) {
         if (node.skipCertVerify) params.set('insecure', '1');
         return `hysteria2://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
-
-      // VMess
       if (node.type === 'vmess') {
         const vmessObj = {
           v: "2", ps: node.name, add: node.server, port: node.port, id: node.uuid,
@@ -39,27 +34,29 @@ export function toBase64(nodes: ProxyNode[]) {
         return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
       }
 
-      // --- [重點修改] Shadowsocks Base64 輸出 ---
+      // --- 標準化 Shadowsocks Base64 ---
       if (node.type === 'shadowsocks') {
         const userInfo = `${node.cipher}:${node.password}`;
-        // 使用 URL-Safe Base64 (SIP002 標準) 兼容性更好
+        // 使用 URL-Safe Base64
         const base64User = utf8ToBase64(userInfo).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
         
         const params = new URLSearchParams();
         
-        // 核心修正：如果有 TLS，強制轉為 v2rayN 看得懂的 plugin 參數
+        // 只加入標準 SIP002 參數
         if (node.tls) {
-            // 如果原本就有 plugin (例如 v2ray-plugin)，就保留
-            // 如果沒有，我們用 simple-obfs 或 v2ray-plugin 來 "騙" v2rayN 開啟 TLS
-            // 這裡使用 obfs-local;obfs=tls;obfs-host=xxx 是最通用的 SS+TLS 寫法
-            const host = node.sni || node.server;
-            // 注意：這裡必須編碼成 URI Component
-            const pluginStr = `obfs-local;obfs=tls;obfs-host=${host}`;
-            params.set('plugin', pluginStr);
+            params.set('security', 'tls');
+            if (node.sni) params.set('sni', node.sni);
+            if (node.alpn) params.set('alpn', node.alpn.join(','));
+            if (node.fingerprint) params.set('fp', node.fingerprint);
+            params.set('type', 'tcp');
+        }
+        
+        // 如果原本有 plugin，也加回去 (但我們不再主動偽造)
+        if (node.clashObj && node.clashObj.plugin) {
+             params.set('plugin', node.clashObj.plugin + (node.clashObj['plugin-opts'] ? ';' + new URLSearchParams(node.clashObj['plugin-opts']).toString().replace(/&/g, ';') : ''));
         }
 
         const query = params.toString();
-        // 組合連結: ss://BASE64@SERVER:PORT/?plugin=...#NAME
         return `ss://${base64User}@${node.server}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
       }
 
@@ -86,20 +83,9 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
   const text = await fetchWithUA(REMOTE_CONFIG.singbox);
   let config;
   try { config = JSON.parse(text); } catch (e) { throw new Error('Sing-Box_Rules.JSON 格式錯誤'); }
-
-  const outbounds = nodes.map(n => n.singboxObj);
-  const nodeTags = outbounds.map(o => o.tag);
-
-  if (!Array.isArray(config.outbounds)) config.outbounds = [];
-  config.outbounds.push(...outbounds);
-
-  config.outbounds.forEach((out: any) => {
-    if (out.type === 'selector' || out.type === 'urltest') {
-      if (!Array.isArray(out.outbounds)) out.outbounds = [];
-      out.outbounds.push(...nodeTags);
-    }
-  });
-
+  const outbounds = nodes.map(n => n.singboxObj); const nodeTags = outbounds.map(o => o.tag);
+  if (!Array.isArray(config.outbounds)) config.outbounds = []; config.outbounds.push(...outbounds);
+  config.outbounds.forEach((out: any) => { if (out.type === 'selector' || out.type === 'urltest') { if (!Array.isArray(out.outbounds)) out.outbounds = []; out.outbounds.push(...nodeTags); } });
   return JSON.stringify(config, null, 2);
 }
 
@@ -107,19 +93,8 @@ export async function toClashWithTemplate(nodes: ProxyNode[]) {
   const text = await fetchWithUA(REMOTE_CONFIG.clash);
   let config: any;
   try { config = yaml.load(text); } catch (e) { throw new Error('Clash_Rules.YAML 格式錯誤'); }
-
-  const proxies = nodes.map(n => n.clashObj);
-  const proxyNames = proxies.map(p => p.name);
-
-  if (!Array.isArray(config.proxies)) config.proxies = [];
-  config.proxies.push(...proxies);
-
-  if (Array.isArray(config['proxy-groups'])) {
-    config['proxy-groups'].forEach((group: any) => {
-      if (!Array.isArray(group.proxies)) group.proxies = [];
-      group.proxies.push(...proxyNames);
-    });
-  }
-
+  const proxies = nodes.map(n => n.clashObj); const proxyNames = proxies.map(p => p.name);
+  if (!Array.isArray(config.proxies)) config.proxies = []; config.proxies.push(...proxies);
+  if (Array.isArray(config['proxy-groups'])) { config['proxy-groups'].forEach((group: any) => { if (!Array.isArray(group.proxies)) group.proxies = []; group.proxies.push(...proxyNames); }); }
   return yaml.dump(config);
 }

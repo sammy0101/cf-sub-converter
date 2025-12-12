@@ -6,6 +6,7 @@ import { utf8ToBase64 } from './utils';
 export function toBase64(nodes: ProxyNode[]) {
   const links = nodes.map(node => {
     try {
+      // VLESS
       if (node.type === 'vless') {
         const params = new URLSearchParams();
         params.set('security', node.reality ? 'reality' : (node.tls ? 'tls' : 'none'));
@@ -17,6 +18,8 @@ export function toBase64(nodes: ProxyNode[]) {
         if (node.network === 'ws') { if (node.wsPath) params.set('path', node.wsPath); if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host); }
         return `vless://${node.uuid}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
+      
+      // Hysteria2
       if (node.type === 'hysteria2') {
         const params = new URLSearchParams();
         if (node.sni) params.set('sni', node.sni);
@@ -24,6 +27,8 @@ export function toBase64(nodes: ProxyNode[]) {
         if (node.skipCertVerify) params.set('insecure', '1');
         return `hysteria2://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
+
+      // VMess
       if (node.type === 'vmess') {
         const vmessObj = {
           v: "2", ps: node.name, add: node.server, port: node.port, id: node.uuid,
@@ -34,27 +39,23 @@ export function toBase64(nodes: ProxyNode[]) {
         return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
       }
 
-      // --- SS Base64 輸出 (TCP/WS 區分) ---
+      // --- [純淨版] Shadowsocks Base64 輸出 ---
       if (node.type === 'shadowsocks') {
         const userInfo = `${node.cipher}:${node.password}`;
+        // 使用 URL-Safe Base64 (SIP002 標準)
         const base64User = utf8ToBase64(userInfo).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        
+        // 這裡完全不加任何參數，回歸最原始的 SS
+        // 除非原本的 parser 有保留 plugin (非 TLS 的 plugin)，才加回去
         const params = new URLSearchParams();
         
-        if (node.tls) {
-            // 如果是 WS，使用 v2ray-plugin
-            if (node.network === 'ws') {
-                const path = '/'; // 預設路徑
-                params.set('plugin', `v2ray-plugin;mode=websocket;tls=true;host=${node.sni};path=${path};mux=0`);
-            } 
-            // 如果是 TCP，使用 obfs-local
-            else {
-                params.set('plugin', `obfs-local;obfs=tls;obfs-host=${node.sni}`);
-            }
-        } else if (node.clashObj && node.clashObj.plugin) {
+        if (node.clashObj && node.clashObj.plugin) {
+             // 如果 parser 判斷這是有 plugin 的 (例如 obfs=http)，才加
              params.set('plugin', node.clashObj.plugin + (node.clashObj['plugin-opts'] ? ';' + new URLSearchParams(node.clashObj['plugin-opts']).toString().replace(/&/g, ';') : ''));
         }
 
         const query = params.toString();
+        // 格式: ss://BASE64@SERVER:PORT#NAME
         return `ss://${base64User}@${node.server}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
       }
 

@@ -82,6 +82,10 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
 
     const pluginStr = getParam(urlStr, 'plugin');
     const security = getParam(urlStr, 'security');
+    
+    // 獲取傳輸類型，默認為 tcp
+    const type = getParam(urlStr, 'type') || 'tcp'; 
+    
     const sni = getParam(urlStr, 'sni') || getParam(urlStr, 'host') || server;
     const alpnStr = getParam(urlStr, 'alpn');
     const fp = getParam(urlStr, 'fp') || 'chrome';
@@ -92,9 +96,10 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
 
     const node: ProxyNode = {
       type: 'shadowsocks', name, server, port, cipher: method, password, udp: true,
-      tls: isTls, sni: sni, alpn: alpn, fingerprint: fp
+      tls: isTls, sni: sni, alpn: alpn, fingerprint: fp, network: type // 記錄 network 類型
     };
 
+    // --- 構建 SingBox 物件 ---
     node.singboxObj = {
       tag: name,
       type: 'shadowsocks',
@@ -108,9 +113,17 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
         node.singboxObj.udp_over_tcp = true; 
     }
 
+    // --- 關鍵修正：區分 TCP 和 WebSocket ---
     if (isTls) {
-        node.singboxObj.plugin = "v2ray-plugin";
-        node.singboxObj.plugin_opts = `mode=websocket;security=tls;host=${sni};path=${path};mux=0`;
+        if (type === 'ws') {
+             // 如果明確指定是 WS，才用 v2ray-plugin
+             node.singboxObj.plugin = "v2ray-plugin";
+             node.singboxObj.plugin_opts = `mode=websocket;tls=true;host=${sni};path=${path};mux=0`;
+        } else {
+             // 否則 (TCP)，使用 obfs-local
+             node.singboxObj.plugin = "obfs-local";
+             node.singboxObj.plugin_opts = `obfs=tls;obfs-host=${sni}`;
+        }
     } 
     else if (pluginStr) {
         const pDecoded = decodeURIComponent(pluginStr);
@@ -119,6 +132,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
         node.singboxObj.plugin_opts = pSplit.slice(1).join(';');
     }
 
+    // --- 構建 Clash 物件 ---
     node.clashObj = {
       name: name, type: 'ss', server: node.server, port: node.port, cipher: node.cipher, password: node.password, udp: true,
       plugin: pluginStr ? pluginStr.split(';')[0] : undefined,
@@ -126,14 +140,20 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     };
     
     if (isTls) {
-        node.clashObj.plugin = 'obfs-local';
-        node.clashObj['plugin-opts'] = { obfs: 'tls', 'obfs-host': sni };
+        if (type === 'ws') {
+            node.clashObj.plugin = 'v2ray-plugin';
+            node.clashObj['plugin-opts'] = { mode: 'websocket', tls: true, host: sni, path: path };
+        } else {
+            node.clashObj.plugin = 'obfs-local';
+            node.clashObj['plugin-opts'] = { obfs: 'tls', 'obfs-host': sni };
+        }
     }
 
     return node;
   } catch (e) { return null; }
 }
 
+// ... (以下函數不變) ...
 function parseVless(urlStr: string): ProxyNode | null {
   try {
     const url = new URL(urlStr); const params = url.searchParams; const name = decodeURIComponent(url.hash.slice(1)) || 'VLESS';

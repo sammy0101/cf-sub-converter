@@ -27,17 +27,10 @@ function parsePluginParams(str: string): Record<string, string> {
 // --- 解析 Shadowsocks ---
 function parseShadowsocks(urlStr: string): ProxyNode | null {
   try {
-    // 1. 暴力參數提取 (不依賴 new URL，確保一定抓得到參數)
-    let queryMap = new Map<string, string>();
-    if (urlStr.includes('?')) {
-        const queryPart = urlStr.split('?')[1].split('#')[0];
-        queryPart.split('&').forEach(pair => {
-            const [k, v] = pair.split('=');
-            if (k && v) queryMap.set(k, decodeURIComponent(v));
-        });
-    }
+    // 0. 預處理：將 URL 解碼，方便正則匹配
+    const rawFull = decodeURIComponent(urlStr);
 
-    // 2. 提取名稱 (Hash)
+    // 1. 提取名稱 (Hash)
     let raw = urlStr.replace('ss://', '');
     const hashIndex = raw.indexOf('#');
     let name = 'Shadowsocks';
@@ -46,12 +39,12 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       raw = raw.substring(0, hashIndex);
     }
     
-    // 去掉問號後的參數，只留 userinfo@host:port
+    // 去掉參數部分，專注解析 userinfo@host:port
     if (raw.includes('?')) {
         raw = raw.split('?')[0];
     }
 
-    // 3. 解析 userinfo
+    // 2. 解析 userinfo
     let method = ''; let password = ''; let server = ''; let portStr = '';
     
     if (raw.includes('@')) {
@@ -65,7 +58,8 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       if (server.startsWith('[') && server.endsWith(']')) server = server.slice(1, -1);
       try {
         const decoded = safeBase64Decode(userPart);
-        if (decoded && decoded.includes(':') && !decoded.includes('@')) {
+        if (decoded && decoded.includes(':')) {
+          // 這裡不做過多判斷，直接切
           const up = decoded.split(':'); method = up[0]; password = up.slice(1).join(':');
         } else { throw new Error('Not Base64'); }
       } catch (e) { const up = userPart.split(':'); method = up[0]; password = up.slice(1).join(':'); }
@@ -91,38 +85,45 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     const port = parseInt(portStr);
     if (isNaN(port)) return null;
 
-    // --- 密碼修復 ---
+    // 密碼修復
     if (method.toLowerCase().includes('2022')) { password = fixSS2022Key(password); }
 
-    // --- 參數獲取 (優先使用暴力提取的 Map) ---
-    let pluginStr = queryMap.get('plugin') || '';
-    let security = queryMap.get('security') || '';
-    let sni = queryMap.get('sni') || queryMap.get('host') || server;
-    let alpnStr = queryMap.get('alpn');
-    let fp = queryMap.get('fp') || 'chrome';
-    let echStr = queryMap.get('ech');
+    // --- 3. 參數暴力提取 (Regex) ---
+    // 不依賴 URL 解析，直接搜字串，保證抓得到
+    const getParam = (key: string) => {
+        const regex = new RegExp(`[?&]${key}=([^&#]*)`, 'i');
+        const match = rawFull.match(regex);
+        return match ? match[1] : '';
+    };
+
+    const security = getParam('security');
+    const sni = getParam('sni') || getParam('host') || server;
+    const alpnStr = getParam('alpn');
+    const fp = getParam('fp') || 'chrome';
+    const echStr = getParam('ech');
+    const pluginStr = getParam('plugin');
 
     // --- Plugin 處理 ---
     let sbTransport: any = undefined;
     let sbObfs: any = undefined;
 
     if (pluginStr) {
-        const pSplit = pluginStr.split(';');
+        // ... (Plugin 處理邏輯保持不變)
+        const pDecoded = decodeURIComponent(pluginStr);
+        const pSplit = pDecoded.split(';');
         const pluginName = pSplit[0];
         const pluginArgs = parsePluginParams(pSplit.slice(1).join(';'));
         if (pluginName === 'v2ray-plugin') {
             sbTransport = { type: 'ws', path: pluginArgs['path'] || '/', headers: pluginArgs['host'] ? { Host: pluginArgs['host'] } : undefined };
         } else if (pluginName === 'obfs-local' || pluginName === 'simple-obfs') {
             sbObfs = { type: pluginArgs['obfs'] || 'http', host: pluginArgs['obfs-host'] || 'www.bing.com' };
-            // 如果 plugin 裡寫了 obfs=tls，也視為開啟 TLS
-            if (pluginArgs['obfs'] === 'tls') security = 'tls';
         }
     }
 
-    // --- 關鍵判定：是否開啟 TLS ---
-    // 只要 url 參數裡有 security=tls，或者 plugin 裡有 tls，就開啟
-    const isTls = security === 'tls';
-    const alpn = alpnStr ? alpnStr.split(',') : undefined;
+    // --- 關鍵：強制 TLS 判斷 ---
+    // 只要字串裡有 security=tls 或 obfs=tls，就是 TLS
+    const isTls = security === 'tls' || rawFull.includes('obfs=tls');
+    const alpn = alpnStr ? decodeURIComponent(alpnStr).split(',') : undefined;
 
     const node: ProxyNode = {
       type: 'shadowsocks', name, server, port, cipher: method, password, udp: true,
@@ -139,7 +140,6 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       password: node.password
     };
     
-    // SS-2022 UoT
     if (method.toLowerCase().includes('2022')) { 
         node.singboxObj.udp_over_tcp = true; 
     }
@@ -147,7 +147,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     if (sbTransport) node.singboxObj.transport = sbTransport;
     if (sbObfs) node.singboxObj.obfs = sbObfs;
 
-    // [強制寫入 TLS]
+    // [強制寫入 TLS] - 這是修復連線的關鍵
     if (isTls) {
         node.singboxObj.tls = {
             enabled: true,
@@ -155,17 +155,17 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
             alpn: alpn,
             utls: { enabled: true, fingerprint: fp }
         };
-        // 加回 ECH (如果有的話)
+        // 你的節點有 ECH，這可能是連線關鍵，我們加回去
         if (echStr) {
-             node.singboxObj.tls.ech = { enabled: true, config: echStr };
+             node.singboxObj.tls.ech = { enabled: true, config: decodeURIComponent(echStr) };
         }
     }
 
     // --- 構建 Clash 物件 ---
     node.clashObj = {
       name: name, type: 'ss', server: node.server, port: node.port, cipher: node.cipher, password: node.password, udp: true,
-      plugin: pluginStr ? pluginStr.split(';')[0] : undefined,
-      'plugin-opts': pluginStr ? parsePluginParams(pluginStr.split(';').slice(1).join(';')) : undefined
+      plugin: pluginStr ? decodeURIComponent(pluginStr).split(';')[0] : undefined,
+      'plugin-opts': pluginStr ? parsePluginParams(decodeURIComponent(pluginStr).split(';').slice(1).join(';')) : undefined
     };
     if (isTls) { node.clashObj.smux = { enabled: true }; }
 

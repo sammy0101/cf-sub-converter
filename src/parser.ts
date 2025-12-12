@@ -14,7 +14,6 @@ function fixSS2022Key(key: string): string {
   return clean;
 }
 
-// 輔助：解析 Plugin 參數
 function parsePluginParams(str: string): Record<string, string> {
   const params: Record<string, string> = {};
   str.split(';').forEach(p => {
@@ -40,7 +39,6 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       name = decodeURIComponent(raw.substring(hashIndex + 1));
       raw = raw.substring(0, hashIndex);
     }
-    
     if (raw.includes('?')) { raw = raw.split('?')[0]; }
 
     let method = ''; let password = ''; let server = ''; let portStr = '';
@@ -89,23 +87,8 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     const sni = getParam(urlStr, 'sni') || getParam(urlStr, 'host') || server;
     const alpnStr = getParam(urlStr, 'alpn');
     const fp = getParam(urlStr, 'fp') || 'chrome';
-    const echStr = getParam(urlStr, 'ech');
 
-    let sbTransport: any = undefined;
-    let sbObfs: any = undefined;
-
-    if (pluginStr) {
-        const pSplit = pluginStr.split(';');
-        const pluginName = pSplit[0];
-        const pluginArgs = parsePluginParams(pSplit.slice(1).join(';'));
-        if (pluginName === 'v2ray-plugin') {
-            sbTransport = { type: 'ws', path: pluginArgs['path'] || '/', headers: pluginArgs['host'] ? { Host: pluginArgs['host'] } : undefined };
-        } else if (pluginName === 'obfs-local' || pluginName === 'simple-obfs') {
-            sbObfs = { type: pluginArgs['obfs'] || 'http', host: pluginArgs['obfs-host'] || 'www.bing.com' };
-        }
-    }
-
-    const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0) || (echStr && echStr.length > 0);
+    const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0);
     const alpn = alpnStr ? decodeURIComponent(alpnStr).split(',') : undefined;
 
     const node: ProxyNode = {
@@ -113,6 +96,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       tls: isTls, sni: sni, alpn: alpn, fingerprint: fp
     };
 
+    // --- 構建 SingBox 物件 ---
     node.singboxObj = {
       tag: name,
       type: 'shadowsocks',
@@ -122,46 +106,48 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       password: node.password
     };
     
+    // SS-2022 UoT
     if (method.toLowerCase().includes('2022')) { 
         node.singboxObj.udp_over_tcp = true; 
     }
+
+    // --- 關鍵修正：針對 Shadowsocks 使用 Plugin 來實現 TLS ---
+    // SingBox 的 shadowsock type 不支援直接寫 "tls": {...} 或 "transport": {...}
+    // 必須使用 plugin (obfs-local) 來包裹 TLS 流量
     
-    // --- 關鍵修正：將 TLS 包裹在 Transport 內 ---
-    // 即使原本沒有 transport (例如純 TCP)，如果要開 TLS，也必須建立一個 TCP transport
     if (isTls) {
-        if (!sbTransport) {
-            sbTransport = { type: 'tcp' }; // 預設 TCP
-        }
-        
-        // 將 TLS 設定注入到 transport 物件中
-        sbTransport.tls = {
-            enabled: true,
-            server_name: sni,
-            alpn: alpn,
-            utls: { enabled: true, fingerprint: fp }
-        };
-
-        if (echStr) {
-             sbTransport.tls.ech = { enabled: true, config: decodeURIComponent(echStr) };
-        }
+        node.singboxObj.plugin = "obfs-local";
+        // 這裡一定要填入正確的 sni，否則伺服器會拒絕握手
+        node.singboxObj.plugin_opts = `obfs=tls;obfs-host=${sni}`;
+    } else if (pluginStr) {
+        // 處理原本就有 plugin 的情況 (例如 v2ray-plugin)
+        // 這裡簡化處理，直接透傳 plugin 參數
+        const pSplit = decodeURIComponent(pluginStr).split(';');
+        node.singboxObj.plugin = pSplit[0];
+        node.singboxObj.plugin_opts = pSplit.slice(1).join(';');
     }
+    // ----------------------------------------------------
 
-    if (sbTransport) node.singboxObj.transport = sbTransport;
-    if (sbObfs) node.singboxObj.obfs = sbObfs;
-    // ----------------------------------------
-
+    // 構建 Clash 物件
     node.clashObj = {
       name: name, type: 'ss', server: node.server, port: node.port, cipher: node.cipher, password: node.password, udp: true,
-      plugin: pluginStr ? pluginStr.split(';')[0] : undefined,
-      'plugin-opts': pluginStr ? parsePluginParams(pluginStr.split(';').slice(1).join(';')) : undefined
+      plugin: pluginStr ? decodeURIComponent(pluginStr).split(';')[0] : undefined,
+      'plugin-opts': pluginStr ? parsePluginParams(decodeURIComponent(pluginStr).split(';').slice(1).join(';')) : undefined
     };
-    if (isTls) { node.clashObj.smux = { enabled: true }; }
+    
+    if (isTls) { 
+        // 確保 Clash 也使用 obfs
+        if (!node.clashObj.plugin) {
+            node.clashObj.plugin = 'obfs-local';
+            node.clashObj['plugin-opts'] = { obfs: 'tls', 'obfs-host': sni };
+        }
+    }
 
     return node;
   } catch (e) { return null; }
 }
 
-// ... (以下 Vless, Hy2, Vmess 保持不變) ...
+// ... (以下 Vless, Hysteria2, Vmess 函數內容保持不變，請保留原有的) ...
 
 function parseVless(urlStr: string): ProxyNode | null {
   try {

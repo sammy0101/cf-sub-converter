@@ -84,6 +84,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
 
     const pluginStr = getParam(urlStr, 'plugin');
     const security = getParam(urlStr, 'security');
+    const type = getParam(urlStr, 'type') || 'tcp'; // 預設 TCP
     const sni = getParam(urlStr, 'sni') || getParam(urlStr, 'host') || server;
     const alpnStr = getParam(urlStr, 'alpn');
     const fp = getParam(urlStr, 'fp') || 'chrome';
@@ -110,28 +111,22 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     if (method.toLowerCase().includes('2022')) { 
         node.singboxObj.udp_over_tcp = true; 
     }
-
-    // --- [關鍵修正] 不用 plugin，改用 transport 來包 TLS ---
-    // 這是最標準的 SS over TLS 寫法
+    
+    // --- 關鍵修正：依據傳輸類型選擇 Plugin ---
     if (isTls) {
-        // 如果沒有 plugin，就不用 plugin 欄位
-        // 而是建立 transport 欄位
-        // 這裡不需要指定 type: tcp，直接寫 tls 屬性是無效的
-        // 必須要有一個 transport 物件
-        
-        // SingBox SS 其實沒有 transport 欄位 (這是 VLESS 的寫法)
-        // 官方文檔指出 SS 如果要 TLS，必須使用 ShadowTLS (這不是你要的) 
-        // 或者是使用 plugin (obfs/v2ray-plugin)
-        
-        // 如果你的伺服器是 X-UI 開啟了 "TLS"，它其實是把 SS 包在一個標準的 TLS 串流裡
-        // 這在 Sing-Box 裡對應的是 "v2ray-plugin" 的 "websocket" + "tls" 模式
-        // 或者根本不是 SS，而是 Trojan ?? (不，你的協議是 SS)
-        
-        // --- 嘗試：回退到 v2ray-plugin + websocket + tls ---
-        // 這是最常見的 X-UI SS+TLS 實作方式
-        node.singboxObj.plugin = "v2ray-plugin";
-        node.singboxObj.plugin_opts = `mode=websocket;tls=true;host=${sni};path=/;mux=0`;
+        // 如果是 WebSocket (type=ws)
+        if (type === 'ws') {
+             node.singboxObj.plugin = "v2ray-plugin";
+             const path = getParam(urlStr, 'path') || '/';
+             node.singboxObj.plugin_opts = `mode=websocket;tls=true;host=${sni};path=${path};mux=0`;
+        } 
+        // 如果是 TCP (type=tcp)，你的情況是這裡
+        else {
+             node.singboxObj.plugin = "obfs-local";
+             node.singboxObj.plugin_opts = `obfs=tls;obfs-host=${sni}`;
+        }
     } 
+    // 原有 Plugin 處理
     else if (pluginStr) {
         const pDecoded = decodeURIComponent(pluginStr);
         const pSplit = pDecoded.split(';');
@@ -139,23 +134,31 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
         node.singboxObj.plugin_opts = pSplit.slice(1).join(';');
     }
 
-    // Clash Config
+    // --- 構建 Clash 物件 ---
     node.clashObj = {
       name: name, type: 'ss', server: node.server, port: node.port, cipher: node.cipher, password: node.password, udp: true,
       plugin: pluginStr ? pluginStr.split(';')[0] : undefined,
       'plugin-opts': pluginStr ? parsePluginParams(pluginStr.split(';').slice(1).join(';')) : undefined
     };
-    if (isTls) { 
-        // Clash 也要同步修改
-        node.clashObj.plugin = 'v2ray-plugin';
-        node.clashObj['plugin-opts'] = { mode: 'websocket', tls: true, host: sni, path: '/' };
+
+    // 針對 Clash 的自動補全
+    if (isTls) {
+        if (type === 'ws') {
+             const path = getParam(urlStr, 'path') || '/';
+             node.clashObj.plugin = 'v2ray-plugin';
+             node.clashObj['plugin-opts'] = { mode: 'websocket', tls: true, host: sni, path: path };
+        } else {
+             node.clashObj.plugin = 'obfs-local';
+             node.clashObj['plugin-opts'] = { obfs: 'tls', 'obfs-host': sni };
+        }
     }
 
     return node;
   } catch (e) { return null; }
 }
 
-// ... (以下函數不變) ...
+// ... (以下 Vless, Hysteria2, Vmess 函數內容保持不變，請保留原有的) ...
+
 function parseVless(urlStr: string): ProxyNode | null {
   try {
     const url = new URL(urlStr); const params = url.searchParams; const name = decodeURIComponent(url.hash.slice(1)) || 'VLESS';

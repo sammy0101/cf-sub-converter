@@ -36,6 +36,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       raw = raw.substring(0, hashIndex);
     }
     
+    // 基本解析
     let method = ''; let password = ''; let server = ''; let portStr = '';
     if (raw.includes('@')) {
       const parts = raw.split('@');
@@ -74,9 +75,18 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     const port = parseInt(portStr);
     if (isNaN(port)) return null;
 
+    // 密碼修復
     if (method.toLowerCase().includes('2022')) { password = fixSS2022Key(password); }
 
+    // --- Plugin 處理 ---
     let pluginStr = params.get('plugin') || '';
+    // 有些連結把 plugin 放在 userinfo 裡，雖然不標準但防呆
+    if (!pluginStr && raw.includes('plugin=')) {
+        // 簡單提取
+        const match = raw.match(/plugin=([^&]+)/);
+        if (match) pluginStr = decodeURIComponent(match[1]);
+    }
+
     let sbTransport: any = undefined;
     let sbObfs: any = undefined;
 
@@ -92,12 +102,14 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
         }
     }
 
-    // TLS 參數提取
-    const isTls = params.get('security') === 'tls';
+    // --- 關鍵：判斷是否開啟 TLS ---
+    // 1. 標準參數 security=tls
+    // 2. 插件參數 obfs=tls
+    const isTls = params.get('security') === 'tls' || (pluginStr && pluginStr.includes('obfs=tls'));
+    
     const sni = params.get('sni') || params.get('host') || server;
     const alpn = params.get('alpn') ? decodeURIComponent(params.get('alpn')!).split(',') : undefined;
     const fp = params.get('fp') || 'chrome';
-    const echStr = params.get('ech');
 
     const node: ProxyNode = {
       type: 'shadowsocks', name, server, port, cipher: method, password, udp: true,
@@ -114,7 +126,6 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       password: node.password
     };
     
-    // SS-2022 設定
     if (method.toLowerCase().includes('2022')) { 
         node.singboxObj.udp_over_tcp = true; 
     }
@@ -122,7 +133,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     if (sbTransport) node.singboxObj.transport = sbTransport;
     if (sbObfs) node.singboxObj.obfs = sbObfs;
 
-    // [關鍵] 注入 TLS 設定
+    // *** 強制寫入 TLS 設定 ***
     if (isTls) {
         node.singboxObj.tls = {
             enabled: true,
@@ -130,8 +141,11 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
             alpn: alpn,
             utls: { enabled: true, fingerprint: fp }
         };
-        // 暫時移除 Multiplex 以求穩
-        // if (alpn && alpn.includes('h2')) { node.singboxObj.multiplex = ... }
+        // 根據你之前的 log，這些節點是 h2，我們這裡保守一點，如果有 h2 就加上 multiplex
+        // 但為了避免上次的錯誤，我們不強制開，除非 alpn 明確寫了 h2
+        if (alpn && alpn.includes('h2')) {
+             node.singboxObj.multiplex = { enabled: true, protocol: "h2", max_connections: 1, min_streams: 2, padding: true };
+        }
     }
 
     // --- 構建 Clash 物件 ---
@@ -146,8 +160,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
   } catch (e) { return null; }
 }
 
-// ... (以下 Vless, Hy2, Vmess 函數內容請保留原樣) ...
-// 為了代碼完整性，這裡再次提供 parseContent，請確保其他函數存在
+// ... (以下 Vless, Hysteria2, Vmess 函數內容保持不變，請保留原有的) ...
 
 function parseVless(urlStr: string): ProxyNode | null {
   try {

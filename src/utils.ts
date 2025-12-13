@@ -36,38 +36,49 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
   });
 }
 
-// --- 新增：SS-2022 智慧金鑰調整 ---
-export function adjustSS2022Key(key: string, method: string): string {
+// --- 智慧 Shadowsocks 金鑰標準化 ---
+export function normalizeSSKey(key: string, method: string): string {
   if (!key) return "";
+  const lowerMethod = method.toLowerCase();
 
-  // 1. 判斷目標長度 (Bytes)
-  // aes-128-gcm -> 16 bytes
-  // aes-256-gcm / chacha20 -> 32 bytes
-  const targetBytes = method.includes('128-gcm') ? 16 : 32;
-
-  try {
-    // 2. 處理 URL-Safe 並補齊 Padding
-    let base64 = key.replace(/-/g, '+').replace(/_/g, '/');
-    while (base64.length % 4) {
-      base64 += '=';
-    }
-
-    // 3. 解碼為二進制字串
-    const binary = atob(base64);
-
-    // 4. 如果長度超過目標，進行截斷
-    // 這能處理 ServerKey:ClientKey 的情況，也能處理單純 Key 過長的情況
-    if (binary.length >= targetBytes) {
-      const sliced = binary.substring(0, targetBytes);
-      // 5. 重新編碼為標準 Base64
-      return btoa(sliced);
-    } 
-    
-    // 如果長度不足，直接回傳原始處理過的 Base64
-    return base64;
-
-  } catch (e) {
-    // 如果解碼失敗，回傳原始值
+  // 情況 A: 傳統加密 (aes-256-gcm, chacha20-poly1305 等)
+  // 不需要做任何 Base64 清洗或切割，直接回傳原密碼
+  if (!lowerMethod.includes('2022')) {
     return key;
   }
+
+  // 情況 B: SS-2022 (BLAKE3)
+  // 必須進行嚴格的 Base64 清洗和長度控制
+  try { 
+    key = decodeURIComponent(key); 
+  } catch(e) {}
+
+  // 1. 如果格式是 ServerKey:ClientKey，只取 ServerKey
+  if (key.includes(':')) {
+    key = key.split(':')[0];
+  }
+
+  // 2. Base64 符號標準化
+  let clean = key.replace(/-/g, '+').replace(/_/g, '/');
+  clean = clean.replace(/[^A-Za-z0-9\+\/]/g, ""); // 白名單過濾
+
+  // 3. 根據算法決定截斷長度
+  // 128-bit key = 16 bytes = 24 base64 chars
+  // 256-bit key = 32 bytes = 44 base64 chars
+  let limit = 44; 
+  if (lowerMethod.includes('128-gcm')) {
+    limit = 24;
+  }
+
+  if (clean.length > limit) {
+    clean = clean.substring(0, limit);
+  }
+
+  // 4. 補齊 Padding
+  const pad = clean.length % 4;
+  if (pad) {
+    clean += '='.repeat(4 - pad);
+  }
+  
+  return clean;
 }

@@ -1,5 +1,5 @@
 import { ProxyNode } from "./types";
-import { safeBase64Decode, adjustSS2022Key } from "./utils";
+import { safeBase64Decode } from "./utils";
 
 function parsePluginParams(str: string): Record<string, string> {
   const params: Record<string, string> = {};
@@ -29,6 +29,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
 
     let method = ''; let password = ''; let server = ''; let portStr = '';
     
+    // 解析 userinfo@host:port
     if (raw.includes('@')) {
       const parts = raw.split('@');
       const serverPart = parts[parts.length - 1];
@@ -40,11 +41,12 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       if (server.startsWith('[') && server.endsWith(']')) server = server.slice(1, -1);
       try {
         const decoded = safeBase64Decode(userPart);
-        if (decoded && decoded.includes(':')) { // 放寬檢查
+        if (decoded && decoded.includes(':') && !decoded.includes('@')) {
           const up = decoded.split(':'); method = up[0]; password = up.slice(1).join(':');
         } else { throw new Error('Not Base64'); }
       } catch (e) { const up = userPart.split(':'); method = up[0]; password = up.slice(1).join(':'); }
     } else {
+      // Legacy Base64
       const decoded = safeBase64Decode(raw);
       if (!decoded) return null;
       const atIndex = decoded.lastIndexOf('@');
@@ -72,9 +74,10 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     const sni = getParam(urlStr, 'sni') || getParam(urlStr, 'host') || server;
     const alpnStr = getParam(urlStr, 'alpn');
     const fp = getParam(urlStr, 'fp') || 'chrome';
-    const echStr = getParam(urlStr, 'ech');
+    const path = getParam(urlStr, 'path') || '/';
 
-    const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0) || (echStr && echStr.length > 0);
+    // 判斷是否啟用 TLS
+    const isTls = security === 'tls' || urlStr.includes('obfs=tls') || urlStr.includes('tls=true');
     const alpn = alpnStr ? decodeURIComponent(alpnStr).split(',') : undefined;
 
     const node: ProxyNode = {
@@ -89,17 +92,23 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       server: node.server,
       server_port: node.port,
       method: node.cipher,
-      // 這裡呼叫新的調整函數
-      password: method.toLowerCase().includes('2022') ? adjustSS2022Key(password, method.toLowerCase()) : password
+      password: node.password
     };
-    
-    if (method.toLowerCase().includes('2022')) { 
-        node.singboxObj.udp_over_tcp = true; 
-    }
 
-    // --- 這裡保持「純淨」，不加 Plugin/TLS，因為你說這樣不通 ---
-    // 但如果你之後想試，可以把這裡的 obfs-local 加回來
-    // 目前保持空白，只依賴正確的 Key 和 TCP 連線
+    // [AES-256-GCM + TLS]
+    // 為了讓 SingBox 支援 SS+TLS，我們強制使用 v2ray-plugin (WebSocket 模式)
+    // 這是最穩定且相容性最好的組合
+    if (isTls) {
+        node.singboxObj.plugin = "v2ray-plugin";
+        node.singboxObj.plugin_opts = `mode=websocket;security=tls;tls=true;host=${sni};path=${path};mux=0`;
+    } 
+    // 如果原本就有 Plugin，則透傳
+    else if (pluginStr) {
+        const pDecoded = decodeURIComponent(pluginStr);
+        const pSplit = pDecoded.split(';');
+        node.singboxObj.plugin = pSplit[0];
+        node.singboxObj.plugin_opts = pSplit.slice(1).join(';');
+    }
 
     // --- Clash Config ---
     node.clashObj = {
@@ -107,12 +116,19 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       plugin: pluginStr ? pluginStr.split(';')[0] : undefined,
       'plugin-opts': pluginStr ? parsePluginParams(pluginStr.split(';').slice(1).join(';')) : undefined
     };
+    
+    // 同步 Clash 設定
+    if (isTls) {
+        node.clashObj.plugin = 'v2ray-plugin';
+        node.clashObj['plugin-opts'] = { mode: 'websocket', tls: true, host: sni, path: path };
+    }
 
     return node;
   } catch (e) { return null; }
 }
 
-// ... (以下 Vless, Hy2, Vmess 函數內容保持不變) ...
+// ... (以下 Vless, Hy2, Vmess 保持不變，直接複製原有的) ...
+
 function parseVless(urlStr: string): ProxyNode | null {
   try {
     const url = new URL(urlStr); const params = url.searchParams; const name = decodeURIComponent(url.hash.slice(1)) || 'VLESS';

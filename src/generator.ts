@@ -3,7 +3,7 @@ import { ProxyNode } from './types';
 import { REMOTE_CONFIG } from './constants';
 import { utf8ToBase64 } from './utils';
 
-// V2RayN Base64 生成邏輯 (保持不變)
+// V2RayN Base64 生成 (保持你說能通的邏輯：給完整密碼，不加 TLS 參數)
 export function toBase64(nodes: ProxyNode[]) {
   const links = nodes.map(node => {
     try {
@@ -35,25 +35,16 @@ export function toBase64(nodes: ProxyNode[]) {
         return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
       }
 
-      // SS Base64 (保持原樣，給 V2RayN 完整的 key)
+      // SS Base64 (維持不變：給 V2RayN 完整的密碼)
       if (node.type === 'shadowsocks') {
         const userInfo = `${node.cipher}:${node.password}`;
+        // 使用 URL-Safe Base64 (SIP002)
         const base64User = utf8ToBase64(userInfo).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        
+        // 不加任何 plugin 參數，維持你說「能通」的狀態
         const params = new URLSearchParams();
-        
-        if (node.tls) {
-            params.set('security', 'tls');
-            if (node.sni) params.set('sni', node.sni);
-            if (node.alpn) params.set('alpn', node.alpn.join(','));
-            if (node.fingerprint) params.set('fp', node.fingerprint);
-            params.set('type', 'tcp');
-        }
-        
-        if (node.clashObj && node.clashObj.plugin && !node.tls) {
-             params.set('plugin', node.clashObj.plugin + (node.clashObj['plugin-opts'] ? ';' + new URLSearchParams(node.clashObj['plugin-opts']).toString().replace(/&/g, ';') : ''));
-        }
-
         const query = params.toString();
+        
         return `ss://${base64User}@${node.server}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
       }
 
@@ -88,30 +79,37 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
      // 針對 Shadowsocks-2022 的特別處理
      if (obj.type === 'shadowsocks' && obj.method.toLowerCase().includes('2022')) {
          
-         // [核心修正] 切割邏輯：取 Client Key (冒號後面)
-         if (obj.password.includes(':')) {
-             // 格式通常是 ServerKey:ClientKey
-             // SingBox 作為客戶端，需要用 ClientKey 去連線
-             const parts = obj.password.split(':');
-             // 取最後一個部分 (防止有多個冒號的情況)
-             obj.password = parts[parts.length - 1];
+         // [核心修正] 不管密碼原來長怎樣，直接標準化並截斷到 44 字元
+         // 因為 aes-256-gcm 的 key 固定是 32 bytes，轉成 Base64 就是 44 個字
+         
+         // 1. 先處理 URL Safe 轉回 Standard
+         let clean = obj.password.replace(/-/g, '+').replace(/_/g, '/');
+         
+         // 2. 清除所有非 Base64 字符 (空格, 換行等)
+         clean = clean.replace(/[^A-Za-z0-9\+\/]/g, "");
+         
+         // 3. 暴力截斷：只取前 44 個字元
+         if (clean.length > 44) {
+             clean = clean.substring(0, 44);
          }
          
-         // 清洗與截斷 (確保格式正確)
-         let clean = obj.password.replace(/-/g, '+').replace(/_/g, '/');
-         clean = clean.replace(/[^A-Za-z0-9\+\/]/g, "");
-         if (clean.length > 44) clean = clean.substring(0, 44);
+         // 4. 補齊 Padding (=)
          const pad = clean.length % 4;
-         if (pad) clean += '='.repeat(4 - pad);
+         if (pad) {
+             clean += '='.repeat(4 - pad);
+         }
+         
+         // 寫回修正後的密碼
          obj.password = clean;
 
-         // 移除所有額外設定，回歸純 TCP
+         // 5. 確保移除所有可能導致問題的參數，回歸純 TCP
          delete obj.plugin;
          delete obj.plugin_opts;
          delete obj.transport;
          delete obj.tls;
          delete obj.multiplex;
          
+         // 6. 保留 UoT (SS-2022 規範)
          obj.udp_over_tcp = true; 
      }
      return obj;

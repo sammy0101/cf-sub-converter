@@ -36,41 +36,38 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
   });
 }
 
-// --- 新增：SIP022 標準金鑰處理 ---
-export function getExact32ByteKey(key: string): string {
+// --- 新增：SS-2022 智慧金鑰調整 ---
+export function adjustSS2022Key(key: string, method: string): string {
   if (!key) return "";
 
-  // 1. 如果有冒號，通常格式是 ServerKey:ClientKey
-  // 我們只需要第一部分 (ServerKey)
-  if (key.includes(':')) {
-    key = key.split(':')[0];
-  }
+  // 1. 判斷目標長度 (Bytes)
+  // aes-128-gcm -> 16 bytes
+  // aes-256-gcm / chacha20 -> 32 bytes
+  const targetBytes = method.includes('128-gcm') ? 16 : 32;
 
   try {
-    // 2. 處理 URL-Safe
+    // 2. 處理 URL-Safe 並補齊 Padding
     let base64 = key.replace(/-/g, '+').replace(/_/g, '/');
-    
-    // 3. 補齊 Padding (這一步很重要，否則 atob 會失敗)
     while (base64.length % 4) {
       base64 += '=';
     }
 
-    // 4. 解碼為二進制字串
+    // 3. 解碼為二進制字串
     const binary = atob(base64);
 
-    // 5. 強制截取前 32 bytes (Shadowsocks-2022-256 規範)
-    if (binary.length >= 32) {
-      const sliced = binary.substring(0, 32);
-      // 6. 重新編碼為標準 Base64
+    // 4. 如果長度超過目標，進行截斷
+    // 這能處理 ServerKey:ClientKey 的情況，也能處理單純 Key 過長的情況
+    if (binary.length >= targetBytes) {
+      const sliced = binary.substring(0, targetBytes);
+      // 5. 重新編碼為標準 Base64
       return btoa(sliced);
     } 
     
-    // 如果長度不足 32 (例如是 aes-128)，則原樣返回，或截取 16
-    // 這裡假設是 256 為主，如果遇到 16 bytes 的 key 也不會報錯
-    return btoa(binary);
+    // 如果長度不足，直接回傳原始處理過的 Base64
+    return base64;
 
   } catch (e) {
-    // 如果解碼失敗，回傳原始值試試運氣
+    // 如果解碼失敗，回傳原始值
     return key;
   }
 }

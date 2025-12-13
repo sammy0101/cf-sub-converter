@@ -1,9 +1,8 @@
 import yaml from 'js-yaml';
 import { ProxyNode } from './types';
 import { REMOTE_CONFIG } from './constants';
-import { utf8ToBase64, getExact32ByteKey } from './utils';
+import { utf8ToBase64, adjustSS2022Key } from './utils';
 
-// V2RayN Base64 (保持原樣，因為它能通)
 export function toBase64(nodes: ProxyNode[]) {
   const links = nodes.map(node => {
     try {
@@ -35,7 +34,7 @@ export function toBase64(nodes: ProxyNode[]) {
         return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
       }
 
-      // SS Base64
+      // SS Base64 (V2RayN 專用 - 保持原樣完整參數)
       if (node.type === 'shadowsocks') {
         const userInfo = `${node.cipher}:${node.password}`;
         const base64User = utf8ToBase64(userInfo).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -76,7 +75,7 @@ async function fetchWithUA(url: string) {
   return await resp.text();
 }
 
-// --- SingBox 生成器 (嚴格遵守 SIP022) ---
+// --- SingBox 生成器 ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
   const text = await fetchWithUA(REMOTE_CONFIG.singbox);
   let config;
@@ -87,17 +86,16 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
      
      // 針對 Shadowsocks-2022 的特別處理
      if (obj.type === 'shadowsocks' && obj.method.toLowerCase().includes('2022')) {
-         // 使用新寫的二進制截斷函數
-         obj.password = getExact32ByteKey(obj.password);
+         // 使用新寫的 adjustSS2022Key 來確保長度正確
+         obj.password = adjustSS2022Key(obj.password, obj.method.toLowerCase());
 
-         // 移除干擾項
+         // 移除所有額外設定，回歸純 TCP
          delete obj.plugin;
          delete obj.plugin_opts;
          delete obj.transport;
          delete obj.tls;
          delete obj.multiplex;
          
-         // SIP022 建議開啟，如果不通可嘗試註解掉
          obj.udp_over_tcp = true; 
      }
      return obj;

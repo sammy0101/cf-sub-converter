@@ -1,14 +1,20 @@
 import { ProxyNode } from "./types";
 import { safeBase64Decode } from "./utils";
 
-// --- 輔助：完美修復 SS-2022 Key ---
+// --- 輔助：完美修復 SS-2022 Key (僅供 SingBox 使用) ---
 function fixSS2022Key(key: string): string {
   if (!key) return "";
   try { key = decodeURIComponent(key); } catch(e) {}
+  
+  // SingBox 只需要 Server Key (冒號前)
   if (key.includes(':')) { key = key.split(':')[0]; }
+  
   let clean = key.replace(/-/g, '+').replace(/_/g, '/');
   clean = clean.replace(/[^A-Za-z0-9\+\/]/g, "");
+  
+  // 強制截斷為 32 bytes (44 chars)
   if (clean.length > 44) { clean = clean.substring(0, 44); }
+  
   const pad = clean.length % 4;
   if (pad) { clean += '='.repeat(4 - pad); }
   return clean;
@@ -23,7 +29,6 @@ function parsePluginParams(str: string): Record<string, string> {
   return params;
 }
 
-// --- 解析 Shadowsocks (無 TLS 版) ---
 function parseShadowsocks(urlStr: string): ProxyNode | null {
   try {
     const getParam = (str: string, key: string) => {
@@ -54,7 +59,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       if (server.startsWith('[') && server.endsWith(']')) server = server.slice(1, -1);
       try {
         const decoded = safeBase64Decode(userPart);
-        if (decoded && decoded.includes(':') && !decoded.includes('@')) {
+        if (decoded && decoded.includes(':')) { // 這裡放寬條件
           const up = decoded.split(':'); method = up[0]; password = up.slice(1).join(':');
         } else { throw new Error('Not Base64'); }
       } catch (e) { const up = userPart.split(':'); method = up[0]; password = up.slice(1).join(':'); }
@@ -80,70 +85,81 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     const port = parseInt(portStr);
     if (isNaN(port)) return null;
 
-    // 密碼修復 (保留，這是 SS-2022 必須的)
-    if (method.toLowerCase().includes('2022')) { password = fixSS2022Key(password); }
+    // 移除這裡的全域 fixSS2022Key，保留完整密碼給 v2rayN
+    // if (method.toLowerCase().includes('2022')) { password = fixSS2022Key(password); }
 
-    // --- 這裡開始簡化：移除所有 TLS 相關邏輯 ---
-    // 我們只讀取 plugin，但忽略 security=tls
     const pluginStr = getParam(urlStr, 'plugin');
-    
-    // 強制關閉 TLS
-    const isTls = false;
-    
-    // 如果原本有 plugin (例如 obfs=http)，我們保留它
-    // 但如果 plugin 包含 tls，我們也把它過濾掉或者視情況保留(這裡選擇保留原字串，但不開啟 SingBox 的 tls 模組)
-    
+    const security = getParam(urlStr, 'security');
+    const type = getParam(urlStr, 'type') || 'tcp'; 
+    const sni = getParam(urlStr, 'sni') || getParam(urlStr, 'host') || server;
+    const alpnStr = getParam(urlStr, 'alpn');
+    const fp = getParam(urlStr, 'fp') || 'chrome';
+    const path = getParam(urlStr, 'path') || '/';
+    const echStr = getParam(urlStr, 'ech');
+
+    const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0) || (echStr && echStr.length > 0);
+    const alpn = alpnStr ? decodeURIComponent(alpnStr).split(',') : undefined;
+
     const node: ProxyNode = {
       type: 'shadowsocks', name, server, port, cipher: method, password, udp: true,
-      tls: false // 標記為無 TLS
+      tls: isTls, sni: sni, alpn: alpn, fingerprint: fp, network: type,
+      // 這裡新增一個 raw properties 存放 ECH 等資訊，供 generator 使用
+      reality: echStr ? { publicKey: '', shortId: echStr } : undefined // 借用 reality 欄位存 ECH string
     };
 
-    // --- 構建 SingBox 物件 ---
+    // --- SingBox Config (使用截斷後的 Key) ---
     node.singboxObj = {
       tag: name,
       type: 'shadowsocks',
       server: node.server,
       server_port: node.port,
       method: node.cipher,
-      password: node.password
+      // 這裡才調用 fixSS2022Key
+      password: method.toLowerCase().includes('2022') ? fixSS2022Key(password) : password
     };
     
-    // SS-2022 仍然需要 UoT，這是協議特性，跟 TLS 無關
     if (method.toLowerCase().includes('2022')) { 
         node.singboxObj.udp_over_tcp = true; 
     }
-    
-    // 處理插件 (只處理非 TLS 的插件，例如 obfs=http)
-    if (pluginStr) {
+
+    if (isTls) {
+        if (type === 'ws') {
+             node.singboxObj.plugin = "v2ray-plugin";
+             node.singboxObj.plugin_opts = `mode=websocket;tls=true;host=${sni};path=${path};mux=0`;
+        } else {
+             node.singboxObj.plugin = "obfs-local";
+             node.singboxObj.plugin_opts = `obfs=tls;obfs-host=${sni}`;
+        }
+    } 
+    else if (pluginStr) {
         const pDecoded = decodeURIComponent(pluginStr);
         const pSplit = pDecoded.split(';');
-        const pluginName = pSplit[0];
-        
-        // 如果是 obfs-local (http)，SingBox 支援
-        if (pluginName === 'obfs-local' || pluginName === 'simple-obfs') {
-             const pluginArgs = parsePluginParams(pSplit.slice(1).join(';'));
-             if (pluginArgs['obfs'] !== 'tls') { // 排除 tls 模式
-                 node.singboxObj.plugin = "obfs-local";
-                 node.singboxObj.plugin_opts = `obfs=http;obfs-host=${pluginArgs['obfs-host'] || 'www.bing.com'}`;
-             }
-        }
-        // 注意：SingBox 原生不支援 v2ray-plugin，除非用 transport
-        // 但既然你要「沒 TLS」，通常 v2ray-plugin 都是配合 TLS 用的，所以這裡直接忽略，回歸純 SS
+        node.singboxObj.plugin = pSplit[0];
+        node.singboxObj.plugin_opts = pSplit.slice(1).join(';');
     }
 
-    // --- 構建 Clash 物件 ---
+    // --- Clash Config ---
     node.clashObj = {
       name: name, type: 'ss', server: node.server, port: node.port, cipher: node.cipher, password: node.password, udp: true,
-      // 這裡只傳遞非 TLS 的 plugin
-      plugin: pluginStr && !pluginStr.includes('tls') ? decodeURIComponent(pluginStr).split(';')[0] : undefined,
-      'plugin-opts': pluginStr && !pluginStr.includes('tls') ? parsePluginParams(decodeURIComponent(pluginStr).split(';').slice(1).join(';')) : undefined
+      plugin: pluginStr ? pluginStr.split(';')[0] : undefined,
+      'plugin-opts': pluginStr ? parsePluginParams(pluginStr.split(';').slice(1).join(';')) : undefined
     };
+    
+    if (isTls) {
+        if (type === 'ws') {
+            node.clashObj.plugin = 'v2ray-plugin';
+            node.clashObj['plugin-opts'] = { mode: 'websocket', tls: true, host: sni, path: path };
+        } else {
+            node.clashObj.plugin = 'obfs-local';
+            node.clashObj['plugin-opts'] = { obfs: 'tls', 'obfs-host': sni };
+        }
+    }
 
     return node;
   } catch (e) { return null; }
 }
 
-// ... (以下 Vless, Hysteria2, Vmess 函數內容保持不變) ...
+// ... (以下 Vless, Hy2, Vmess, parseContent 保持不變，請保留) ...
 
 function parseVless(urlStr: string): ProxyNode | null {
   try {

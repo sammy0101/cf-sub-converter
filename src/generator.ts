@@ -34,28 +34,11 @@ export function toBase64(nodes: ProxyNode[]) {
         return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
       }
 
-      // --- SS Base64 (標準 AES-256-GCM + TLS) ---
+      // --- SS Base64 (純淨版) ---
       if (node.type === 'shadowsocks') {
         const userInfo = `${node.cipher}:${node.password}`;
         const base64User = utf8ToBase64(userInfo).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-        
-        const params = new URLSearchParams();
-        
-        // 為了讓 V2RayN 支援 TLS，必須使用 plugin 參數
-        if (node.tls) {
-            // 建構 v2ray-plugin 參數
-            const host = node.sni || node.server;
-            const path = '/'; // 預設路徑
-            // plugin=v2ray-plugin;mode=websocket;security=tls;host=xxx;path=/
-            const pluginVal = `v2ray-plugin;mode=websocket;security=tls;host=${host};path=${path};mux=0`;
-            params.set('plugin', pluginVal);
-        } else if (node.clashObj && node.clashObj.plugin) {
-             // 保留原有的 plugin
-             params.set('plugin', node.clashObj.plugin + (node.clashObj['plugin-opts'] ? ';' + new URLSearchParams(node.clashObj['plugin-opts']).toString().replace(/&/g, ';') : ''));
-        }
-
-        const query = params.toString();
-        return `ss://${base64User}@${node.server}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
+        return `ss://${base64User}@${node.server}:${node.port}#${encodeURIComponent(node.name)}`;
       }
 
       return null;
@@ -81,20 +64,10 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
   const text = await fetchWithUA(REMOTE_CONFIG.singbox);
   let config;
   try { config = JSON.parse(text); } catch (e) { throw new Error('Sing-Box_Rules.JSON 格式錯誤'); }
-  
-  // 直接使用 node.singboxObj，因為 AES-256-GCM 不需要像 SS-2022 那樣清洗密碼
-  const outbounds = nodes.map(n => n.singboxObj);
+  const outbounds = nodes.map(n => n.singboxObj); // 直接使用 parser 處理好的物件
   const nodeTags = outbounds.map(o => o.tag);
-
-  if (!Array.isArray(config.outbounds)) config.outbounds = [];
-  config.outbounds.push(...outbounds);
-
-  config.outbounds.forEach((out: any) => {
-    if (out.type === 'selector' || out.type === 'urltest') {
-      if (!Array.isArray(out.outbounds)) out.outbounds = [];
-      out.outbounds.push(...nodeTags);
-    }
-  });
+  if (!Array.isArray(config.outbounds)) config.outbounds = []; config.outbounds.push(...outbounds);
+  config.outbounds.forEach((out: any) => { if (out.type === 'selector' || out.type === 'urltest') { if (!Array.isArray(out.outbounds)) out.outbounds = []; out.outbounds.push(...nodeTags); } });
   return JSON.stringify(config, null, 2);
 }
 

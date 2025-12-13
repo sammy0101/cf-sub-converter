@@ -1,7 +1,7 @@
 import yaml from 'js-yaml';
 import { ProxyNode } from './types';
 import { REMOTE_CONFIG } from './constants';
-import { utf8ToBase64, adjustSS2022Key } from './utils';
+import { utf8ToBase64 } from './utils';
 
 export function toBase64(nodes: ProxyNode[]) {
   const links = nodes.map(node => {
@@ -34,21 +34,23 @@ export function toBase64(nodes: ProxyNode[]) {
         return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
       }
 
-      // SS Base64 (V2RayN 專用 - 保持原樣完整參數)
+      // --- SS Base64 (標準 AES-256-GCM + TLS) ---
       if (node.type === 'shadowsocks') {
         const userInfo = `${node.cipher}:${node.password}`;
         const base64User = utf8ToBase64(userInfo).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        
         const params = new URLSearchParams();
         
+        // 為了讓 V2RayN 支援 TLS，必須使用 plugin 參數
         if (node.tls) {
-            params.set('security', 'tls');
-            if (node.sni) params.set('sni', node.sni);
-            if (node.alpn) params.set('alpn', node.alpn.join(','));
-            if (node.fingerprint) params.set('fp', node.fingerprint);
-            params.set('type', 'tcp');
-        }
-        
-        if (node.clashObj && node.clashObj.plugin && !node.tls) {
+            // 建構 v2ray-plugin 參數
+            const host = node.sni || node.server;
+            const path = '/'; // 預設路徑
+            // plugin=v2ray-plugin;mode=websocket;security=tls;host=xxx;path=/
+            const pluginVal = `v2ray-plugin;mode=websocket;security=tls;host=${host};path=${path};mux=0`;
+            params.set('plugin', pluginVal);
+        } else if (node.clashObj && node.clashObj.plugin) {
+             // 保留原有的 plugin
              params.set('plugin', node.clashObj.plugin + (node.clashObj['plugin-opts'] ? ';' + new URLSearchParams(node.clashObj['plugin-opts']).toString().replace(/&/g, ';') : ''));
         }
 
@@ -75,33 +77,14 @@ async function fetchWithUA(url: string) {
   return await resp.text();
 }
 
-// --- SingBox 生成器 ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
   const text = await fetchWithUA(REMOTE_CONFIG.singbox);
   let config;
   try { config = JSON.parse(text); } catch (e) { throw new Error('Sing-Box_Rules.JSON 格式錯誤'); }
-
-  const outbounds = nodes.map(n => {
-     const obj = JSON.parse(JSON.stringify(n.singboxObj));
-     
-     // 針對 Shadowsocks-2022 的特別處理
-     if (obj.type === 'shadowsocks' && obj.method.toLowerCase().includes('2022')) {
-         // 使用新寫的 adjustSS2022Key 來確保長度正確
-         obj.password = adjustSS2022Key(obj.password, obj.method.toLowerCase());
-
-         // 移除所有額外設定，回歸純 TCP
-         delete obj.plugin;
-         delete obj.plugin_opts;
-         delete obj.transport;
-         delete obj.tls;
-         delete obj.multiplex;
-         
-         obj.udp_over_tcp = true; 
-     }
-     return obj;
-  });
   
-  const nodeTags = outbounds.map((o:any) => o.tag);
+  // 直接使用 node.singboxObj，因為 AES-256-GCM 不需要像 SS-2022 那樣清洗密碼
+  const outbounds = nodes.map(n => n.singboxObj);
+  const nodeTags = outbounds.map(o => o.tag);
 
   if (!Array.isArray(config.outbounds)) config.outbounds = [];
   config.outbounds.push(...outbounds);

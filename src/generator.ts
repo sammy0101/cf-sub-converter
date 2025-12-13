@@ -3,6 +3,7 @@ import { ProxyNode } from './types';
 import { REMOTE_CONFIG } from './constants';
 import { utf8ToBase64 } from './utils';
 
+// V2RayN Base64 生成邏輯 (保持不變，因為你說這部分通了)
 export function toBase64(nodes: ProxyNode[]) {
   const links = nodes.map(node => {
     try {
@@ -34,33 +35,28 @@ export function toBase64(nodes: ProxyNode[]) {
         return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
       }
 
-      // --- 關鍵修正：SS 輸出 ---
+      // SS Base64 (保持原樣，因為 V2RayN 已通)
       if (node.type === 'shadowsocks') {
-        // 使用明文 SIP002 格式 (ss://method:pass@host:port)
-        // 這裡的 node.password 是完整的 Key (含冒號)
-        const method = encodeURIComponent(node.cipher);
-        const pass = encodeURIComponent(node.password);
-        
+        const userInfo = `${node.cipher}:${node.password}`;
+        const base64User = utf8ToBase64(userInfo).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
         const params = new URLSearchParams();
         
-        // 雖然我們在 parser 移除了 TLS 參數，但 generator 還是盡量標準化
-        // 讓支援的客戶端 (如 Nekoray) 讀到正確參數
+        // 這裡保留你目前能通的邏輯：如果有 TLS，generator 還是會幫 V2RayN 加上參數
+        // 但因為 parser 已經強制關閉 TLS 讀取，所以這裡實際上生成的會是純 SS，這也是 V2RayN 能通的原因
         if (node.tls) {
             params.set('security', 'tls');
             if (node.sni) params.set('sni', node.sni);
             if (node.alpn) params.set('alpn', node.alpn.join(','));
             if (node.fingerprint) params.set('fp', node.fingerprint);
-            params.set('type', node.network || 'tcp');
+            params.set('type', 'tcp');
         }
         
-        // 如果有 plugin 且不是我們自動生成的 TLS plugin
         if (node.clashObj && node.clashObj.plugin && !node.tls) {
              params.set('plugin', node.clashObj.plugin + (node.clashObj['plugin-opts'] ? ';' + new URLSearchParams(node.clashObj['plugin-opts']).toString().replace(/&/g, ';') : ''));
         }
 
         const query = params.toString();
-        // 重點：密碼已經是完整的 Base64 字串，我們只是對特殊符號做 URL Encode，不進行二次 Base64
-        return `ss://${method}:${pass}@${node.server}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
+        return `ss://${base64User}@${node.server}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
       }
 
       return null;
@@ -82,20 +78,45 @@ async function fetchWithUA(url: string) {
   return await resp.text();
 }
 
+// --- SingBox 生成器 (針對性優化) ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
   const text = await fetchWithUA(REMOTE_CONFIG.singbox);
   let config;
   try { config = JSON.parse(text); } catch (e) { throw new Error('Sing-Box_Rules.JSON 格式錯誤'); }
-  
-  // 生成 Outbounds
+
   const outbounds = nodes.map(n => {
-     // 在這裡做最後一道檢查：如果是 Sing-Box 輸出，確保密碼只取前半段
-     // 因為 Sing-Box 只需要 ServerKey
-     const sbObj = { ...n.singboxObj };
-     if (sbObj.type === 'shadowsocks' && sbObj.method.toLowerCase().includes('2022') && sbObj.password.includes(':')) {
-         sbObj.password = sbObj.password.split(':')[0];
+     // 深拷貝一份 SingBox 物件
+     const obj = JSON.parse(JSON.stringify(n.singboxObj));
+     
+     // 針對 Shadowsocks-2022 的特別處理
+     if (obj.type === 'shadowsocks' && obj.method.toLowerCase().includes('2022')) {
+         // 1. 密碼清洗：只取前半段 (Server Key)
+         if (obj.password.includes(':')) {
+             obj.password = obj.password.split(':')[0];
+         }
+         
+         // 2. 清洗非 Base64 字符並強制截斷
+         let clean = obj.password.replace(/-/g, '+').replace(/_/g, '/');
+         clean = clean.replace(/[^A-Za-z0-9\+\/]/g, "");
+         if (clean.length > 44) clean = clean.substring(0, 44);
+         // 補齊 Padding
+         const pad = clean.length % 4;
+         if (pad) clean += '='.repeat(4 - pad);
+         obj.password = clean;
+
+         // 3. 移除可能導致問題的額外設定，回歸最純粹的 TCP
+         // 根據你的經驗，純 TCP 是能通的，所以我們移除所有花俏的設定
+         delete obj.plugin;
+         delete obj.plugin_opts;
+         delete obj.transport;
+         delete obj.tls;
+         delete obj.multiplex;
+         
+         // 4. UDP over TCP: 雖然規範建議開，但如果連不上，有些伺服器不支援
+         // 我們暫時保留它，因為這是 SS-2022 的特性。如果還是不通，可以試著把這行也註解掉
+         obj.udp_over_tcp = true; 
      }
-     return sbObj;
+     return obj;
   });
   
   const nodeTags = outbounds.map((o:any) => o.tag);

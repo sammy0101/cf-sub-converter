@@ -34,15 +34,33 @@ export function toBase64(nodes: ProxyNode[]) {
         return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
       }
 
-      // --- Shadowsocks Base64 (給 V2RayN) ---
+      // --- 關鍵修正：SS 輸出 ---
       if (node.type === 'shadowsocks') {
-        // 這裡我們保留完整的密碼 (含冒號，如果有的話)
-        // 格式: ss://method:password@host:port
+        // 使用明文 SIP002 格式 (ss://method:pass@host:port)
+        // 這裡的 node.password 是完整的 Key (含冒號)
         const method = encodeURIComponent(node.cipher);
         const pass = encodeURIComponent(node.password);
         
-        // 這裡不加任何多餘參數，模擬那份「能通」的連結
-        return `ss://${method}:${pass}@${node.server}:${node.port}#${encodeURIComponent(node.name)}`;
+        const params = new URLSearchParams();
+        
+        // 雖然我們在 parser 移除了 TLS 參數，但 generator 還是盡量標準化
+        // 讓支援的客戶端 (如 Nekoray) 讀到正確參數
+        if (node.tls) {
+            params.set('security', 'tls');
+            if (node.sni) params.set('sni', node.sni);
+            if (node.alpn) params.set('alpn', node.alpn.join(','));
+            if (node.fingerprint) params.set('fp', node.fingerprint);
+            params.set('type', node.network || 'tcp');
+        }
+        
+        // 如果有 plugin 且不是我們自動生成的 TLS plugin
+        if (node.clashObj && node.clashObj.plugin && !node.tls) {
+             params.set('plugin', node.clashObj.plugin + (node.clashObj['plugin-opts'] ? ';' + new URLSearchParams(node.clashObj['plugin-opts']).toString().replace(/&/g, ';') : ''));
+        }
+
+        const query = params.toString();
+        // 重點：密碼已經是完整的 Base64 字串，我們只是對特殊符號做 URL Encode，不進行二次 Base64
+        return `ss://${method}:${pass}@${node.server}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
       }
 
       return null;
@@ -68,18 +86,18 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
   const text = await fetchWithUA(REMOTE_CONFIG.singbox);
   let config;
   try { config = JSON.parse(text); } catch (e) { throw new Error('Sing-Box_Rules.JSON 格式錯誤'); }
-
-  // 轉換節點並處理特殊邏輯
+  
+  // 生成 Outbounds
   const outbounds = nodes.map(n => {
-      const obj = { ...n.singboxObj };
-      
-      // [關鍵修正] 針對 Sing-Box，如果 SS 密碼有冒號，只取前半段
-      if (obj.type === 'shadowsocks' && obj.password.includes(':')) {
-          obj.password = obj.password.split(':')[0];
-      }
-      return obj;
+     // 在這裡做最後一道檢查：如果是 Sing-Box 輸出，確保密碼只取前半段
+     // 因為 Sing-Box 只需要 ServerKey
+     const sbObj = { ...n.singboxObj };
+     if (sbObj.type === 'shadowsocks' && sbObj.method.toLowerCase().includes('2022') && sbObj.password.includes(':')) {
+         sbObj.password = sbObj.password.split(':')[0];
+     }
+     return sbObj;
   });
-
+  
   const nodeTags = outbounds.map((o:any) => o.tag);
 
   if (!Array.isArray(config.outbounds)) config.outbounds = [];
@@ -91,7 +109,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
       out.outbounds.push(...nodeTags);
     }
   });
-
   return JSON.stringify(config, null, 2);
 }
 

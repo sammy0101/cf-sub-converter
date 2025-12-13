@@ -1,8 +1,9 @@
 import yaml from 'js-yaml';
 import { ProxyNode } from './types';
 import { REMOTE_CONFIG } from './constants';
-import { utf8ToBase64 } from './utils';
+import { utf8ToBase64, getExact32ByteKey } from './utils';
 
+// V2RayN Base64 (保持原樣，因為它能通)
 export function toBase64(nodes: ProxyNode[]) {
   const links = nodes.map(node => {
     try {
@@ -34,12 +35,24 @@ export function toBase64(nodes: ProxyNode[]) {
         return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
       }
 
-      // --- SS Base64 (V2RayN 專用) ---
+      // SS Base64
       if (node.type === 'shadowsocks') {
         const userInfo = `${node.cipher}:${node.password}`;
-        // V2RayN 需要完整的 Key (包含冒號)，所以這裡不切割
         const base64User = utf8ToBase64(userInfo).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
         const params = new URLSearchParams();
+        
+        if (node.tls) {
+            params.set('security', 'tls');
+            if (node.sni) params.set('sni', node.sni);
+            if (node.alpn) params.set('alpn', node.alpn.join(','));
+            if (node.fingerprint) params.set('fp', node.fingerprint);
+            params.set('type', 'tcp');
+        }
+        
+        if (node.clashObj && node.clashObj.plugin && !node.tls) {
+             params.set('plugin', node.clashObj.plugin + (node.clashObj['plugin-opts'] ? ';' + new URLSearchParams(node.clashObj['plugin-opts']).toString().replace(/&/g, ';') : ''));
+        }
+
         const query = params.toString();
         return `ss://${base64User}@${node.server}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
       }
@@ -63,7 +76,7 @@ async function fetchWithUA(url: string) {
   return await resp.text();
 }
 
-// --- SingBox 生成器 (針對性優化) ---
+// --- SingBox 生成器 (嚴格遵守 SIP022) ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
   const text = await fetchWithUA(REMOTE_CONFIG.singbox);
   let config;
@@ -74,47 +87,17 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
      
      // 針對 Shadowsocks-2022 的特別處理
      if (obj.type === 'shadowsocks' && obj.method.toLowerCase().includes('2022')) {
-         
-         // [核心修正] 獲取 Client Key
-         // 格式: ServerKey:ClientKey
-         // 我們必須使用 ClientKey 來連線
-         let key = obj.password;
-         
-         if (key.includes(':')) {
-             const parts = key.split(':');
-             // 取最後一段 (Client Key)
-             key = parts[parts.length - 1];
-         }
-         
-         // 清除可能存在的 URL 編碼
-         try { key = decodeURIComponent(key); } catch(e) {}
-         
-         // 簡單的 Base64 符號替換
-         key = key.replace(/-/g, '+').replace(/_/g, '/');
-         
-         // [絕對截斷]
-         // SS-2022-256 的 Key 固定是 32 bytes = 44 base64 chars
-         // 多一個字元 SingBox 都會報錯
-         if (key.length > 44) {
-             key = key.substring(0, 44);
-         }
-         
-         // 補齊 Padding
-         const pad = key.length % 4;
-         if (pad) {
-             key += '='.repeat(4 - pad);
-         }
-         
-         obj.password = key;
+         // 使用新寫的二進制截斷函數
+         obj.password = getExact32ByteKey(obj.password);
 
-         // 移除所有額外設定，回歸純 TCP
+         // 移除干擾項
          delete obj.plugin;
          delete obj.plugin_opts;
          delete obj.transport;
          delete obj.tls;
          delete obj.multiplex;
          
-         // 必須開啟 UoT
+         // SIP022 建議開啟，如果不通可嘗試註解掉
          obj.udp_over_tcp = true; 
      }
      return obj;

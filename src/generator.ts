@@ -3,7 +3,7 @@ import { ProxyNode } from './types';
 import { REMOTE_CONFIG } from './constants';
 import { utf8ToBase64 } from './utils';
 
-// V2RayN Base64 生成邏輯 (保持不變，因為你說這部分通了)
+// V2RayN Base64 生成邏輯 (保持不變)
 export function toBase64(nodes: ProxyNode[]) {
   const links = nodes.map(node => {
     try {
@@ -35,14 +35,12 @@ export function toBase64(nodes: ProxyNode[]) {
         return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
       }
 
-      // SS Base64 (保持原樣，因為 V2RayN 已通)
+      // SS Base64 (保持原樣，給 V2RayN 完整的 key)
       if (node.type === 'shadowsocks') {
         const userInfo = `${node.cipher}:${node.password}`;
         const base64User = utf8ToBase64(userInfo).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
         const params = new URLSearchParams();
         
-        // 這裡保留你目前能通的邏輯：如果有 TLS，generator 還是會幫 V2RayN 加上參數
-        // 但因為 parser 已經強制關閉 TLS 讀取，所以這裡實際上生成的會是純 SS，這也是 V2RayN 能通的原因
         if (node.tls) {
             params.set('security', 'tls');
             if (node.sni) params.set('sni', node.sni);
@@ -85,35 +83,35 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
   try { config = JSON.parse(text); } catch (e) { throw new Error('Sing-Box_Rules.JSON 格式錯誤'); }
 
   const outbounds = nodes.map(n => {
-     // 深拷貝一份 SingBox 物件
      const obj = JSON.parse(JSON.stringify(n.singboxObj));
      
      // 針對 Shadowsocks-2022 的特別處理
      if (obj.type === 'shadowsocks' && obj.method.toLowerCase().includes('2022')) {
-         // 1. 密碼清洗：只取前半段 (Server Key)
+         
+         // [核心修正] 切割邏輯：取 Client Key (冒號後面)
          if (obj.password.includes(':')) {
-             obj.password = obj.password.split(':')[0];
+             // 格式通常是 ServerKey:ClientKey
+             // SingBox 作為客戶端，需要用 ClientKey 去連線
+             const parts = obj.password.split(':');
+             // 取最後一個部分 (防止有多個冒號的情況)
+             obj.password = parts[parts.length - 1];
          }
          
-         // 2. 清洗非 Base64 字符並強制截斷
+         // 清洗與截斷 (確保格式正確)
          let clean = obj.password.replace(/-/g, '+').replace(/_/g, '/');
          clean = clean.replace(/[^A-Za-z0-9\+\/]/g, "");
          if (clean.length > 44) clean = clean.substring(0, 44);
-         // 補齊 Padding
          const pad = clean.length % 4;
          if (pad) clean += '='.repeat(4 - pad);
          obj.password = clean;
 
-         // 3. 移除可能導致問題的額外設定，回歸最純粹的 TCP
-         // 根據你的經驗，純 TCP 是能通的，所以我們移除所有花俏的設定
+         // 移除所有額外設定，回歸純 TCP
          delete obj.plugin;
          delete obj.plugin_opts;
          delete obj.transport;
          delete obj.tls;
          delete obj.multiplex;
          
-         // 4. UDP over TCP: 雖然規範建議開，但如果連不上，有些伺服器不支援
-         // 我們暫時保留它，因為這是 SS-2022 的特性。如果還是不通，可以試著把這行也註解掉
          obj.udp_over_tcp = true; 
      }
      return obj;

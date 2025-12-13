@@ -1,24 +1,37 @@
 import { ProxyNode } from "./types";
 import { safeBase64Decode } from "./utils";
 
-// --- 輔助：修復 Base64 格式 (不切割，保留完整資訊) ---
-function fixBase64String(str: string): string {
-  if (!str) return "";
-  try { str = decodeURIComponent(str); } catch(e) {}
-  
-  // 1. 替換 URL-Safe 字元
-  let clean = str.replace(/-/g, '+').replace(/_/g, '/');
-  
-  // 2. 去除空白
-  clean = clean.replace(/\s/g, '');
-  
-  // 3. 補齊 Padding
+// --- 輔助：修復單個 Base64 字串 ---
+function fixSingleBase64(str: string): string {
+  // 1. 移除空白
+  let clean = str.trim();
+  // 2. 替換 URL-Safe
+  clean = clean.replace(/-/g, '+').replace(/_/g, '/');
+  // 3. 白名單過濾
+  clean = clean.replace(/[^A-Za-z0-9\+\/]/g, "");
+  // 4. 補齊 Padding
   const pad = clean.length % 4;
   if (pad) {
     clean += '='.repeat(4 - pad);
   }
-  
   return clean;
+}
+
+// --- 輔助：智慧修復 SS-2022 Key (支援 ServerKey:ClientKey) ---
+function fixSS2022Key(key: string): string {
+  if (!key) return "";
+  try { key = decodeURIComponent(key); } catch(e) {}
+  
+  // 如果包含冒號，代表是 ServerKey:ClientKey 格式
+  if (key.includes(':')) {
+    const parts = key.split(':');
+    // 分別修復每一部分，然後再組裝回去
+    // 這樣可以避免把 "Base64:Base64" 當成一個整體來補 "="，導致出現 "====" 這種錯誤
+    return parts.map(part => fixSingleBase64(part)).join(':');
+  }
+  
+  // 只有單個 Key
+  return fixSingleBase64(key);
 }
 
 function parsePluginParams(str: string): Record<string, string> {
@@ -33,6 +46,12 @@ function parsePluginParams(str: string): Record<string, string> {
 // --- 解析 Shadowsocks ---
 function parseShadowsocks(urlStr: string): ProxyNode | null {
   try {
+    const getParam = (str: string, key: string) => {
+        const regex = new RegExp(`[?&]${key}=([^&#]*)`, 'i');
+        const match = str.match(regex);
+        return match ? decodeURIComponent(match[1]) : '';
+    };
+
     let raw = urlStr.replace('ss://', '');
     const hashIndex = raw.indexOf('#');
     let name = 'Shadowsocks';
@@ -40,8 +59,6 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       name = decodeURIComponent(raw.substring(hashIndex + 1));
       raw = raw.substring(0, hashIndex);
     }
-    
-    // 移除 URL 參數 (完全忽略 TLS/Plugin 參數，回歸純淨)
     if (raw.includes('?')) { raw = raw.split('?')[0]; }
 
     let method = ''; let password = ''; let server = ''; let portStr = '';
@@ -54,30 +71,14 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       if (lastColonIndex === -1) return null;
       server = serverPart.substring(0, lastColonIndex);
       portStr = serverPart.substring(lastColonIndex + 1);
-      
-      // 處理 IPv6
       if (server.startsWith('[') && server.endsWith(']')) server = server.slice(1, -1);
-
       try {
         const decoded = safeBase64Decode(userPart);
-        // 判斷是否為 method:password 格式
         if (decoded && decoded.includes(':')) {
-            const firstColon = decoded.indexOf(':');
-            method = decoded.substring(0, firstColon);
-            password = decoded.substring(firstColon + 1);
-        } else {
-            throw new Error('Not Base64');
-        }
-      } catch (e) {
-        // 明文格式
-        const firstColon = userPart.indexOf(':');
-        if (firstColon !== -1) {
-            method = userPart.substring(0, firstColon);
-            password = userPart.substring(firstColon + 1);
-        }
-      }
+          const up = decoded.split(':'); method = up[0]; password = up.slice(1).join(':');
+        } else { throw new Error('Not Base64'); }
+      } catch (e) { const up = userPart.split(':'); method = up[0]; password = up.slice(1).join(':'); }
     } else {
-      // Legacy Base64
       const decoded = safeBase64Decode(raw);
       if (!decoded) return null;
       const atIndex = decoded.lastIndexOf('@');
@@ -89,52 +90,94 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       server = serverPart.substring(0, lastColonIndex);
       portStr = serverPart.substring(lastColonIndex + 1);
       if (server.startsWith('[') && server.endsWith(']')) server = server.slice(1, -1);
-
-      const firstColon = userPart.indexOf(':');
-      if (firstColon !== -1) {
-          method = userPart.substring(0, firstColon);
-          password = userPart.substring(firstColon + 1);
-      }
+      const firstColonIndex = userPart.indexOf(':');
+      if (firstColonIndex === -1) return null;
+      method = userPart.substring(0, firstColonIndex);
+      password = userPart.substring(firstColonIndex + 1);
     }
 
     if (!server || !portStr || !method || !password) return null;
     const port = parseInt(portStr);
     if (isNaN(port)) return null;
 
-    // --- 關鍵修改：只做格式修復，不切割冒號 ---
-    // 如果是 SS-2022，password 可能包含 ServerKey:ClientKey
-    // 我們保留完整字串，留給 Generator 決定怎麼用
-    if (method.toLowerCase().includes('2022')) {
-        password = fixBase64String(password);
+    // --- 密碼修復 (保留完整 Key) ---
+    if (method.toLowerCase().includes('2022')) { 
+        password = fixSS2022Key(password); 
     }
+
+    const pluginStr = getParam(urlStr, 'plugin');
+    const security = getParam(urlStr, 'security');
+    const type = getParam(urlStr, 'type') || 'tcp'; 
+    const sni = getParam(urlStr, 'sni') || getParam(urlStr, 'host') || server;
+    const alpnStr = getParam(urlStr, 'alpn');
+    const fp = getParam(urlStr, 'fp') || 'chrome';
+    const path = getParam(urlStr, 'path') || '/';
+
+    const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0);
+    const alpn = alpnStr ? decodeURIComponent(alpnStr).split(',') : undefined;
 
     const node: ProxyNode = {
       type: 'shadowsocks', name, server, port, cipher: method, password, udp: true,
-      tls: false // 強制關閉 TLS，參考你的成功案例
+      tls: isTls, sni: sni, alpn: alpn, fingerprint: fp, network: type
     };
 
     // --- 構建 SingBox 物件 ---
-    // 這裡只放入基本資訊，Generator 會再處理密碼
     node.singboxObj = {
       tag: name,
       type: 'shadowsocks',
       server: node.server,
       server_port: node.port,
       method: node.cipher,
-      password: node.password 
+      // 關鍵：SingBox 只需要 ServerKey (冒號前)，所以這裡切開
+      password: (method.toLowerCase().includes('2022') && node.password.includes(':')) 
+                ? node.password.split(':')[0] 
+                : node.password
     };
+    
+    // SS-2022 UoT
+    if (method.toLowerCase().includes('2022')) { 
+        node.singboxObj.udp_over_tcp = true; 
+    }
+    
+    // [TCP + TLS -> obfs-local]
+    if (isTls) {
+        if (type === 'ws') {
+             node.singboxObj.plugin = "v2ray-plugin";
+             node.singboxObj.plugin_opts = `mode=websocket;tls=true;host=${sni};path=${path};mux=0`;
+        } else {
+             node.singboxObj.plugin = "obfs-local";
+             node.singboxObj.plugin_opts = `obfs=tls;obfs-host=${sni}`;
+        }
+    } 
+    else if (pluginStr) {
+        const pDecoded = decodeURIComponent(pluginStr);
+        const pSplit = pDecoded.split(';');
+        node.singboxObj.plugin = pSplit[0];
+        node.singboxObj.plugin_opts = pSplit.slice(1).join(';');
+    }
 
     // --- 構建 Clash 物件 ---
     node.clashObj = {
-      name: name, type: 'ss', server: node.server, port: node.port, cipher: node.cipher, password: node.password, udp: true
+      name: name, type: 'ss', server: node.server, port: node.port, cipher: node.cipher, password: node.password, udp: true,
+      plugin: pluginStr ? pluginStr.split(';')[0] : undefined,
+      'plugin-opts': pluginStr ? parsePluginParams(pluginStr.split(';').slice(1).join(';')) : undefined
     };
+    
+    if (isTls) {
+        if (type === 'ws') {
+            node.clashObj.plugin = 'v2ray-plugin';
+            node.clashObj['plugin-opts'] = { mode: 'websocket', tls: true, host: sni, path: path };
+        } else {
+            node.clashObj.plugin = 'obfs-local';
+            node.clashObj['plugin-opts'] = { obfs: 'tls', 'obfs-host': sni };
+        }
+    }
 
     return node;
   } catch (e) { return null; }
 }
 
-// ... (以下 Vless, Hysteria2, Vmess, parseContent 保持不變，請保留) ...
-
+// ... (以下 Vless, Hy2, Vmess, parseContent 保持不變) ...
 function parseVless(urlStr: string): ProxyNode | null {
   try {
     const url = new URL(urlStr); const params = url.searchParams; const name = decodeURIComponent(url.hash.slice(1)) || 'VLESS';

@@ -39,24 +39,32 @@ export function toBase64(nodes: ProxyNode[]) {
         return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
       }
 
-      // --- [純淨版] Shadowsocks Base64 輸出 ---
+      // --- [關鍵修正] Shadowsocks 改用明文格式輸出 ---
       if (node.type === 'shadowsocks') {
-        const userInfo = `${node.cipher}:${node.password}`;
-        // 使用 URL-Safe Base64 (SIP002 標準)
-        const base64User = utf8ToBase64(userInfo).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        // 不再對 UserInfo 進行 Base64 編碼，而是使用 URL Encode
+        // 格式: ss://method:password@server:port
+        const method = encodeURIComponent(node.cipher);
+        const pass = encodeURIComponent(node.password); // 這裡包含完整的 Key (含冒號)
         
-        // 這裡完全不加任何參數，回歸最原始的 SS
-        // 除非原本的 parser 有保留 plugin (非 TLS 的 plugin)，才加回去
         const params = new URLSearchParams();
         
-        if (node.clashObj && node.clashObj.plugin) {
-             // 如果 parser 判斷這是有 plugin 的 (例如 obfs=http)，才加
-             params.set('plugin', node.clashObj.plugin + (node.clashObj['plugin-opts'] ? ';' + new URLSearchParams(node.clashObj['plugin-opts']).toString().replace(/&/g, ';') : ''));
+        if (node.tls) {
+            params.set('security', 'tls');
+            if (node.sni) params.set('sni', node.sni);
+            if (node.alpn) params.set('alpn', node.alpn.join(','));
+            if (node.fingerprint) params.set('fp', node.fingerprint);
+            
+            // 補上 ECH (存在 reality.shortId 裡)
+            if (node.reality && node.reality.shortId) {
+                params.set('ech', decodeURIComponent(node.reality.shortId));
+            }
+            
+            params.set('type', 'tcp');
         }
-
+        
         const query = params.toString();
-        // 格式: ss://BASE64@SERVER:PORT#NAME
-        return `ss://${base64User}@${node.server}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
+        // 使用明文格式
+        return `ss://${method}:${pass}@${node.server}:${node.port}${query ? '?' + query : ''}#${encodeURIComponent(node.name)}`;
       }
 
       return null;

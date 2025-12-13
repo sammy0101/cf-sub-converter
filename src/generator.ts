@@ -6,7 +6,6 @@ import { utf8ToBase64 } from './utils';
 export function toBase64(nodes: ProxyNode[]) {
   const links = nodes.map(node => {
     try {
-      // VLESS
       if (node.type === 'vless') {
         const params = new URLSearchParams();
         params.set('security', node.reality ? 'reality' : (node.tls ? 'tls' : 'none'));
@@ -18,8 +17,6 @@ export function toBase64(nodes: ProxyNode[]) {
         if (node.network === 'ws') { if (node.wsPath) params.set('path', node.wsPath); if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host); }
         return `vless://${node.uuid}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
-      
-      // Hysteria2
       if (node.type === 'hysteria2') {
         const params = new URLSearchParams();
         if (node.sni) params.set('sni', node.sni);
@@ -27,8 +24,6 @@ export function toBase64(nodes: ProxyNode[]) {
         if (node.skipCertVerify) params.set('insecure', '1');
         return `hysteria2://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
-
-      // VMess
       if (node.type === 'vmess') {
         const vmessObj = {
           v: "2", ps: node.name, add: node.server, port: node.port, id: node.uuid,
@@ -39,32 +34,15 @@ export function toBase64(nodes: ProxyNode[]) {
         return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
       }
 
-      // --- [關鍵修正] Shadowsocks 改用明文格式輸出 ---
+      // --- Shadowsocks Base64 (給 V2RayN) ---
       if (node.type === 'shadowsocks') {
-        // 不再對 UserInfo 進行 Base64 編碼，而是使用 URL Encode
-        // 格式: ss://method:password@server:port
+        // 這裡我們保留完整的密碼 (含冒號，如果有的話)
+        // 格式: ss://method:password@host:port
         const method = encodeURIComponent(node.cipher);
-        const pass = encodeURIComponent(node.password); // 這裡包含完整的 Key (含冒號)
+        const pass = encodeURIComponent(node.password);
         
-        const params = new URLSearchParams();
-        
-        if (node.tls) {
-            params.set('security', 'tls');
-            if (node.sni) params.set('sni', node.sni);
-            if (node.alpn) params.set('alpn', node.alpn.join(','));
-            if (node.fingerprint) params.set('fp', node.fingerprint);
-            
-            // 補上 ECH (存在 reality.shortId 裡)
-            if (node.reality && node.reality.shortId) {
-                params.set('ech', decodeURIComponent(node.reality.shortId));
-            }
-            
-            params.set('type', 'tcp');
-        }
-        
-        const query = params.toString();
-        // 使用明文格式
-        return `ss://${method}:${pass}@${node.server}:${node.port}${query ? '?' + query : ''}#${encodeURIComponent(node.name)}`;
+        // 這裡不加任何多餘參數，模擬那份「能通」的連結
+        return `ss://${method}:${pass}@${node.server}:${node.port}#${encodeURIComponent(node.name)}`;
       }
 
       return null;
@@ -90,9 +68,30 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[]) {
   const text = await fetchWithUA(REMOTE_CONFIG.singbox);
   let config;
   try { config = JSON.parse(text); } catch (e) { throw new Error('Sing-Box_Rules.JSON 格式錯誤'); }
-  const outbounds = nodes.map(n => n.singboxObj); const nodeTags = outbounds.map(o => o.tag);
-  if (!Array.isArray(config.outbounds)) config.outbounds = []; config.outbounds.push(...outbounds);
-  config.outbounds.forEach((out: any) => { if (out.type === 'selector' || out.type === 'urltest') { if (!Array.isArray(out.outbounds)) out.outbounds = []; out.outbounds.push(...nodeTags); } });
+
+  // 轉換節點並處理特殊邏輯
+  const outbounds = nodes.map(n => {
+      const obj = { ...n.singboxObj };
+      
+      // [關鍵修正] 針對 Sing-Box，如果 SS 密碼有冒號，只取前半段
+      if (obj.type === 'shadowsocks' && obj.password.includes(':')) {
+          obj.password = obj.password.split(':')[0];
+      }
+      return obj;
+  });
+
+  const nodeTags = outbounds.map((o:any) => o.tag);
+
+  if (!Array.isArray(config.outbounds)) config.outbounds = [];
+  config.outbounds.push(...outbounds);
+
+  config.outbounds.forEach((out: any) => {
+    if (out.type === 'selector' || out.type === 'urltest') {
+      if (!Array.isArray(out.outbounds)) out.outbounds = [];
+      out.outbounds.push(...nodeTags);
+    }
+  });
+
   return JSON.stringify(config, null, 2);
 }
 

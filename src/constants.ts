@@ -1,6 +1,8 @@
+// 這裡將網址改為你當前專案 (cf-sub-converter) 的 Raw 連結
+// 注意：GitHub 是區分大小寫的，請確保檔名 (.JSON / .YAML) 與你上傳的完全一致
 export const REMOTE_CONFIG = {
-  singbox: 'https://raw.githubusercontent.com/sammy0101/myself/main/Sing-Box_Rules.JSON',
-  clash: 'https://raw.githubusercontent.com/sammy0101/myself/main/Clash_Rules.YAML'
+  singbox: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Sing-Box_Rules.JSON',
+  clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML'
 };
 
 export const HTML_PAGE = `
@@ -10,7 +12,10 @@ export const HTML_PAGE = `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>訂閱轉換器</title>
+  
+  <!-- 網站圖示 -->
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔄</text></svg>">
+  
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <style>
     :root { --bg: #0f172a; --card-bg: #1e293b; --input-bg: #020617; --text-main: #f8fafc; --text-sub: #94a3b8; --accent: #38bdf8; --accent-hover: #0ea5e9; --border: #334155; --success: #22c55e; --danger: #ef4444; --card-hover: #2d3a52; }
@@ -112,7 +117,7 @@ export const HTML_PAGE = `
     </div>
 
     <div class="rules-section">
-      <div class="rules-header"><label style="margin:0">🛡️ 內建分流群組</label><a href="https://github.com/sammy0101/myself/tree/main" target="_blank" class="rules-link">查看 GitHub 原始碼 ↗</a></div>
+      <div class="rules-header"><label style="margin:0">🛡️ 內建分流群組</label><a href="https://github.com/sammy0101/cf-sub-converter/tree/main" target="_blank" class="rules-link">查看 GitHub 原始碼 ↗</a></div>
       <div class="rules-grid">
         <div class="rule-card"><span class="rule-name">🚀 節點選擇</span><span class="rule-desc">手動切換節點</span></div>
         <div class="rule-card"><span class="rule-name">⚡ 自動選擇</span><span class="rule-desc">自動測速切換</span></div>

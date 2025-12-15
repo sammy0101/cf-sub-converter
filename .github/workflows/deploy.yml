@@ -1,10 +1,14 @@
 name: Deploy to Cloudflare Workers
 
 on:
+  # 這是原本的：當 Push 到 main 或 master 時自動執行
   push:
     branches:
       - main
       - master
+  
+  # ✅ 新增這個：允許手動執行 (Manual Trigger)
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -16,14 +20,14 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      # 替換 KV ID (這一步保持不變)
+      # 替換 KV ID
       - name: Inject KV ID from Secrets
         run: |
           sed -i 's/KV_ID_PLACEHOLDER/${{ secrets.CF_KV_ID }}/g' wrangler.toml
 
-      # 部署步驟 (加入 accountId)
+      # 部署步驟
       - name: Deploy
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}  # <--- 新增這一行
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}

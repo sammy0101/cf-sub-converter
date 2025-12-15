@@ -1,30 +1,50 @@
 import { ProxyNode } from "./types";
 
+// --- 修正：支援 UTF-8 的 Base64 解碼 ---
 export function safeBase64Decode(str: string): string {
+  // 1. 補齊 Padding
   str = str.replace(/-/g, '+').replace(/_/g, '/');
   while (str.length % 4) str += '=';
+
   try {
-    return atob(str);
-  } catch {
+    // 2. 使用標準 atob 解碼為二進制字串
+    const binaryString = atob(str);
+    
+    // 3. 將二進制字串轉換為 Uint8Array
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    // 4. 使用 TextDecoder 以 UTF-8 格式解碼 (解決中文亂碼的關鍵)
+    return new TextDecoder('utf-8').decode(bytes);
+  } catch (e) {
+    console.error('Base64 decode failed:', e);
     return "";
   }
 }
 
 export function utf8ToBase64(str: string): string {
-  return btoa(unescape(encodeURIComponent(str)));
+  // 編碼時同樣要確保 UTF-8 兼容性
+  return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g,
+      function toSolidBytes(match, p1) {
+          return String.fromCharCode(parseInt(p1, 16));
+      }));
 }
 
 export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
   const nameCounts = new Map<string, number>();
   
   return nodes.map(node => {
-    let finalName = node.name;
-    if (nameCounts.has(node.name)) {
-      const count = nameCounts.get(node.name)! + 1;
-      nameCounts.set(node.name, count);
-      finalName = `${node.name} ${count}`;
+    // 強制再次解碼名稱，防止有漏網之魚的 URL 編碼
+    let finalName = tryDecodeURIComponent(node.name);
+
+    if (nameCounts.has(finalName)) {
+      const count = nameCounts.get(finalName)! + 1;
+      nameCounts.set(finalName, count);
+      finalName = `${finalName} ${count}`;
     } else {
-      nameCounts.set(node.name, 1);
+      nameCounts.set(finalName, 1);
     }
     
     // Update internal names
@@ -36,49 +56,32 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
   });
 }
 
-// --- 智慧 Shadowsocks 金鑰標準化 ---
-export function normalizeSSKey(key: string, method: string): string {
-  if (!key) return "";
-  const lowerMethod = method.toLowerCase();
+// 輔助：安全的 URL 解碼 (防止 % 符號報錯)
+export function tryDecodeURIComponent(str: string): string {
+  try {
+    return decodeURIComponent(str);
+  } catch (e) {
+    return str;
+  }
+}
 
-  // 情況 A: 傳統加密 (aes-256-gcm, chacha20-poly1305 等)
-  // 不需要做任何 Base64 清洗或切割，直接回傳原密碼
-  if (!lowerMethod.includes('2022')) {
+// 輔助：SS-2022 智慧金鑰調整
+export function adjustSS2022Key(key: string, method: string): string {
+  if (!key) return "";
+  const targetBytes = method.includes('128-gcm') ? 16 : 32;
+
+  try {
+    let base64 = key.replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4) base64 += '=';
+
+    const binaryString = atob(base64); // Key 是 raw bytes，不需要 TextDecoder
+    
+    if (binaryString.length >= targetBytes) {
+      const sliced = binaryString.substring(0, targetBytes);
+      return btoa(sliced);
+    } 
+    return base64;
+  } catch (e) {
     return key;
   }
-
-  // 情況 B: SS-2022 (BLAKE3)
-  // 必須進行嚴格的 Base64 清洗和長度控制
-  try { 
-    key = decodeURIComponent(key); 
-  } catch(e) {}
-
-  // 1. 如果格式是 ServerKey:ClientKey，只取 ServerKey
-  if (key.includes(':')) {
-    key = key.split(':')[0];
-  }
-
-  // 2. Base64 符號標準化
-  let clean = key.replace(/-/g, '+').replace(/_/g, '/');
-  clean = clean.replace(/[^A-Za-z0-9\+\/]/g, ""); // 白名單過濾
-
-  // 3. 根據算法決定截斷長度
-  // 128-bit key = 16 bytes = 24 base64 chars
-  // 256-bit key = 32 bytes = 44 base64 chars
-  let limit = 44; 
-  if (lowerMethod.includes('128-gcm')) {
-    limit = 24;
-  }
-
-  if (clean.length > limit) {
-    clean = clean.substring(0, limit);
-  }
-
-  // 4. 補齊 Padding
-  const pad = clean.length % 4;
-  if (pad) {
-    clean += '='.repeat(4 - pad);
-  }
-  
-  return clean;
 }

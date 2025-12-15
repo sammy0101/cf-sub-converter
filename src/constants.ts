@@ -1,8 +1,8 @@
 // 這裡將網址改為你當前專案 (cf-sub-converter) 的 Raw 連結
 // 注意：GitHub 是區分大小寫的，請確保檔名 (.JSON / .YAML) 與你上傳的完全一致
 export const REMOTE_CONFIG = {
-  singbox: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Sing-Box_Rules.JSON',
-  clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML'
+  singbox: 'https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/Sing-Box_Rules.JSON',
+  clash: 'https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/Clash_Rules.YAML'
 };
 
 export const HTML_PAGE = `

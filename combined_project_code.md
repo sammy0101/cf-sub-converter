@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sat Aug 22 13:25:30 UTC 2026
+Generated on: Sat Aug 22 13:28:57 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -1289,7 +1289,7 @@ export const HTML_PAGE = `
     .btn-icon:hover { background: var(--bg-hover); color: var(--primary); }
     .btn-ghost { background: transparent; color: var(--text-muted); padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.85rem;}
     .btn-ghost:hover { background: var(--bg-hover); color: var(--text-main); }
-    .btn-danger:hover { color: var(--danger); border-color: rgba(239, 68, 68, 0.3); }
+    .btn-danger:hover { color: var(--danger); border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.1); }
 
     .results-wrapper { display: none; }
     .results-wrapper.show { display: block; }
@@ -1302,9 +1302,11 @@ export const HTML_PAGE = `
     .result-actions { display: flex; gap: 6px; }
 
     .fav-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; margin-top: 1rem; }
-    .fav-card { background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.25rem; cursor: pointer; transition: border-color 0.2s; }
-    .fav-card:hover { border-color: var(--primary); }
-    .fav-title { font-weight: 600; font-size: 0.95rem; margin-bottom: 6px; }
+    .fav-card { 
+      background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.25rem; cursor: pointer; transition: all 0.2s ease; 
+    }
+    .fav-card:hover { border-color: var(--primary); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+    .fav-title { font-weight: 600; font-size: 0.95rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
     .fav-url { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .fav-actions { display: flex; gap: 8px; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); justify-content: flex-end; }
     .empty-state { text-align: center; padding: 2rem; color: var(--text-muted); font-size: 0.9rem; border: 1px dashed var(--border); border-radius: var(--radius-md); }
@@ -1529,29 +1531,125 @@ export const HTML_PAGE = `
 
   <script>
     let favs = [];
+
     async function loadFavs() {
       try {
         const resp = await fetch('/favs');
         if (resp.ok) favs = await resp.json();
         renderFavs();
-      } catch(e) {}
+      } catch(e) {
+        console.error('載入配置失敗:', e);
+      }
     }
     
     function renderFavs() {
       const grid = document.getElementById('favGrid');
-      if (favs.length === 0) {
+      if (!favs || favs.length === 0) {
         grid.innerHTML = '<div class="empty-state">目前尚未儲存配置</div>';
         return;
       }
-      grid.innerHTML = favs.map((f, i) => \`
+      grid.innerHTML = favs.map((f, i) => {
+        const includeBadge = f.include ? \`<span class="badge" style="background: rgba(16, 185, 129, 0.1); color: var(--success); border-color: rgba(16, 185, 129, 0.2); margin-right: 4px;">保: \${f.include}</span>\` : '';
+        const excludeBadge = f.exclude ? \`<span class="badge" style="background: rgba(239, 68, 68, 0.1); color: var(--danger); border-color: rgba(239, 68, 68, 0.2); margin-right: 4px;">排: \${f.exclude}</span>\` : '';
+        const renameBadge = f.rename ? \`<span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--primary); border-color: rgba(59, 130, 246, 0.2)">替: \${f.rename}</span>\` : '';
+
+        return \`
         <div class="fav-card" onclick="useFav(\${i})">
-          <div class="fav-title">\${f.name}</div>
+          <div class="fav-title">
+            <svg viewBox="0 0 24 24" style="width:16px;height:16px;color:var(--primary)"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+            \${f.name}
+          </div>
           <div class="fav-url">\${f.url}</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;">
+            \${includeBadge}
+            \${excludeBadge}
+            \${renameBadge}
+          </div>
           <div class="fav-actions">
             <button class="btn btn-ghost" onclick="event.stopPropagation(); editFav(\${i})">編輯</button>
             <button class="btn btn-ghost btn-danger" onclick="event.stopPropagation(); deleteFav(\${i})">刪除</button>
           </div>
-        </div>\`).join('');
+        </div>\`;
+      }).join('');
+    }
+
+    // 💥 載入配置到主輸入框
+    function useFav(index) {
+      if (!favs[index]) return;
+      const f = favs[index];
+      document.getElementById('urlInput').value = f.url || '';
+      document.getElementById('shortCode').value = (f.name || '').replace(/\\s+/g, '-').toLowerCase();
+      document.getElementById('includeKeywords').value = f.include || '';
+      document.getElementById('excludeKeywords').value = f.exclude || '';
+      document.getElementById('renameKeywords').value = f.rename || '';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      showToast('已載入配置：' + f.name);
+    }
+
+    // 💥 編輯配置
+    function editFav(index) {
+      if (!favs[index]) return;
+      const f = favs[index];
+      document.getElementById('modalTitle').textContent = '編輯配置';
+      document.getElementById('favName').value = f.name || '';
+      document.getElementById('favUrl').value = f.url || '';
+      document.getElementById('favInclude').value = f.include || '';
+      document.getElementById('favExclude').value = f.exclude || '';
+      document.getElementById('favRename').value = f.rename || '';
+      document.getElementById('modal').dataset.edit = index;
+      document.getElementById('modal').classList.add('show');
+    }
+
+    // 💥 刪除配置
+    async function deleteFav(index) {
+      if (!confirm('確定要刪除這筆配置嗎？')) return;
+      try {
+        const resp = await fetch('/favs', { 
+          method: 'DELETE', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ index }) 
+        });
+        if (resp.ok) {
+          await loadFavs();
+          showToast('已成功刪除配置');
+        } else {
+          showToast('刪除失敗', false);
+        }
+      } catch(e) {
+        showToast('刪除失敗: ' + e.message, false);
+      }
+    }
+
+    // 💥 儲存配置 (支援新增與更新)
+    async function saveFav() {
+      const name = document.getElementById('favName').value.trim();
+      const url = document.getElementById('favUrl').value.trim();
+      const include = document.getElementById('favInclude').value.trim();
+      const exclude = document.getElementById('favExclude').value.trim();
+      const rename = document.getElementById('favRename').value.trim();
+      if (!name || !url) return showToast('請完整填寫名稱與節點內容', false);
+
+      const editIndex = document.getElementById('modal').dataset.edit;
+      try {
+        if (editIndex !== '' && editIndex !== undefined) {
+          await fetch('/favs', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ index: parseInt(editIndex, 10), name, url, include, exclude, rename })
+          });
+        } else {
+          await fetch('/favs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, url, include, exclude, rename })
+          });
+        }
+        closeModal();
+        await loadFavs();
+        showToast('配置儲存成功！');
+      } catch(e) {
+        showToast('儲存失敗，請重試', false);
+      }
     }
 
     async function generate() {
@@ -1650,8 +1748,18 @@ export const HTML_PAGE = `
       t.className = 'toast show' + (isSuccess ? ' success' : '');
       setTimeout(() => t.classList.remove('show'), 3000);
     }
-    function openModal() { document.getElementById('modal').classList.add('show'); }
+    function openModal() { 
+      document.getElementById('modalTitle').textContent = '新增配置';
+      document.getElementById('favName').value = '';
+      document.getElementById('favUrl').value = '';
+      document.getElementById('favInclude').value = '';
+      document.getElementById('favExclude').value = '';
+      document.getElementById('favRename').value = '';
+      delete document.getElementById('modal').dataset.edit;
+      document.getElementById('modal').classList.add('show'); 
+    }
     function closeModal() { document.getElementById('modal').classList.remove('show'); }
+    
     loadFavs();
   </script>
 </body>

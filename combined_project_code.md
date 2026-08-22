@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sat Aug 22 13:35:26 UTC 2026
+Generated on: Sat Aug 22 13:36:10 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -2722,14 +2722,12 @@ export function toBase64(nodes: ProxyNode[]): string {
   return utf8ToBase64(rawLinks);
 }
 
-// --- 高可用 SWR 模板拉取機制 (方案 B1) ---
+// --- 高可用 SWR 模板拉取機制 ---
 async function fetchTemplateWithSWR(url: string, cacheKey: string, fallbackJsonStr: string, env?: Env): Promise<string> {
-  // 1. 若有 KV，先讀取本地快取
   if (env?.SUB_CACHE) {
     try {
       const cached = await env.SUB_CACHE.get(`tpl:${cacheKey}`);
       if (cached) {
-        // 非同步背景 SWR 更新快取 (Stale-While-Revalidate)
         fetch(`${url}?t=${Date.now()}`, {
           headers: { 'User-Agent': 'v2rayNG/1.8.5' }
         }).then(async res => {
@@ -2743,7 +2741,6 @@ async function fetchTemplateWithSWR(url: string, cacheKey: string, fallbackJsonS
     } catch {}
   }
 
-  // 2. 嘗試從 GitHub 即時獲取
   try {
     const resp = await fetch(`${url}?t=${Date.now()}`, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
@@ -2757,11 +2754,10 @@ async function fetchTemplateWithSWR(url: string, cacheKey: string, fallbackJsonS
     }
   } catch {}
 
-  // 3. 容災降級：返回專案內建的應急模板
   return fallbackJsonStr;
 }
 
-// --- Sing-Box 配置生成 (含 B2 策略組注入) ---
+// --- Sing-Box 配置生成 ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env): Promise<string> {
   const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox', FALLBACK_SINGBOX_RULES, env);
   const config = JSON.parse(text);
@@ -2771,11 +2767,9 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env): Prom
   
   if (!Array.isArray(config.outbounds)) config.outbounds = [];
 
-  // B2 智慧分組：提取低倍率節點與專線節點
   const lowRateTags = nodes.filter(n => n.multiplier !== undefined && n.multiplier < 1.0).map(n => n.name);
   const iplcTags = nodes.filter(n => n.isIplc).map(n => n.name);
 
-  // 動態注入「🏎️ 低倍率節點」
   if (lowRateTags.length > 0) {
     config.outbounds.unshift({
       type: 'selector',
@@ -2784,7 +2778,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env): Prom
     });
   }
 
-  // 動態注入「⚡ 專線加速」
   if (iplcTags.length > 0) {
     config.outbounds.unshift({
       type: 'selector',
@@ -2795,7 +2788,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env): Prom
 
   config.outbounds.push(...outbounds);
 
-  // 將所有節點加入 selector / urltest
   config.outbounds.forEach((out: Record<string, unknown>) => {
     if (out.type === 'selector' || out.type === 'urltest') {
       if (!Array.isArray(out.outbounds)) out.outbounds = [];
@@ -2809,7 +2801,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env): Prom
   return JSON.stringify(config, null, 2);
 }
 
-// --- Clash Meta 配置生成 (含 B2 策略組注入) ---
+// --- Clash Meta 配置生成 ---
 export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env): Promise<string> {
   const text = await fetchTemplateWithSWR(REMOTE_CONFIG.clash, 'clash', FALLBACK_CLASH_RULES, env);
   const config = yaml.load(text) as Record<string, unknown>;
@@ -2824,7 +2816,6 @@ export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env): Promis
   if (!Array.isArray(config.proxies)) config.proxies = [];
   config.proxies.push(...proxies);
 
-  // B2 智慧分組
   const lowRateNames = nodes.filter(n => n.multiplier !== undefined && n.multiplier < 1.0).map(n => n.name);
   const iplcNames = nodes.filter(n => n.isIplc).map(n => n.name);
 
@@ -2859,7 +2850,7 @@ export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env): Promis
   return yaml.dump(config, { indent: 2, noRefs: true });
 }
 
-// --- Surge 5 配置生成 (方案 A) ---
+// --- Surge 5 配置生成 ---
 export function toSurge(nodes: ProxyNode[]): string {
   const lines: string[] = ['[Proxy]'];
   const nodeNames: string[] = [];
@@ -2897,7 +2888,7 @@ export function toSurge(nodes: ProxyNode[]): string {
   return lines.join('\n');
 }
 
-// --- Quantumult X (server_remote) 格式生成 (方案 A) ---
+// --- Quantumult X (server_remote) ---
 export function toQuantumultX(nodes: ProxyNode[]): string {
   const lines: string[] = [];
 
@@ -2919,7 +2910,7 @@ export function toQuantumultX(nodes: ProxyNode[]): string {
   return lines.join('\n');
 }
 
-// --- Loon 格式生成 (方案 A) ---
+// --- Loon 格式生成 ---
 export function toLoon(nodes: ProxyNode[]): string {
   const lines: string[] = ['[Proxy]'];
 
@@ -2933,6 +2924,11 @@ export function toLoon(nodes: ProxyNode[]): string {
       let l = `${name} = Vless,${node.server},${node.port},"${node.uuid}",tls=${node.tls ? 'true' : 'false'},sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`;
       if (node.network === 'ws') l += `,transport=ws,path=${node.wsPath || '/'}`;
       lines.push(l);
+    } else if (node.type === 'vmess') {
+      let v = `${name} = vmess,${node.server},${node.port},auto,"${node.uuid}",fast-open=false,udp=true`;
+      if (node.tls) v += `,over-tls=true,tls-name=${node.sni || node.server}`;
+      if (node.network === 'ws') v += `,transport=ws,path=${node.wsPath || '/'}`;
+      lines.push(v);
     } else if (node.type === 'hysteria2') {
       lines.push(`${name} = Hysteria2,${node.server},${node.port},password=${node.password},sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`);
     }

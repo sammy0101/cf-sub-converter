@@ -215,7 +215,6 @@ export default {
           scripts += await getArgoScriptFromGithub(node, port, token, domain) + '\n\n';
 
           const targetDomain = (token.trim() && domain.trim()) ? domain.trim() : "請在VPS執行一鍵安裝腳本獲取臨時域名.trycloudflare.com";
-          // 💥 方案 D1: 若指定優選 IP，將伺服器位址替換為優選 IP，並將 host 與 sni 鎖定為隧道域名
           const connectionServer = cleanIp || targetDomain;
           const argoNodeName = `${node.name}_Argo${cleanIp ? '_優選' : ''}`;
 
@@ -285,11 +284,14 @@ export default {
       }
     }
 
-    // Favs API
+    // --- 完整 Favorites API (GET / POST / PUT / DELETE) ---
     const FAVS_KEY = 'favorites';
-    const getFavs = async (): Promise<unknown[]> => {
+    const getFavs = async (): Promise<Array<Record<string, string>>> => {
       const data = await env.SUB_CACHE.get(FAVS_KEY);
       return data ? JSON.parse(data) : [];
+    };
+    const saveFavs = async (favs: Array<Record<string, string>>): Promise<void> => {
+      await env.SUB_CACHE.put(FAVS_KEY, JSON.stringify(favs));
     };
 
     if (request.method === 'GET' && url.pathname === '/favs') {
@@ -299,13 +301,56 @@ export default {
 
     if (request.method === 'POST' && url.pathname === '/favs') {
       try {
-        const body = await request.json();
+        const body = (await request.json()) as Record<string, string>;
+        if (!body.name || !body.url) return new Response('Missing name or url', { status: 400 });
         const favs = await getFavs();
-        favs.push(body);
-        await env.SUB_CACHE.put(FAVS_KEY, JSON.stringify(favs));
+        favs.push({
+          name: body.name,
+          url: body.url,
+          include: body.include || '',
+          exclude: body.exclude || '',
+          rename: body.rename || ''
+        });
+        await saveFavs(favs);
         return new Response('OK', { status: 200 });
       } catch {
         return new Response('Error saving favorite', { status: 500 });
+      }
+    }
+
+    if (request.method === 'PUT' && url.pathname === '/favs') {
+      try {
+        const body = (await request.json()) as { index?: number; name?: string; url?: string; include?: string; exclude?: string; rename?: string };
+        if (body.index === undefined || !body.name || !body.url) return new Response('Missing data', { status: 400 });
+        const favs = await getFavs();
+        if (body.index >= 0 && body.index < favs.length) {
+          favs[body.index] = {
+            name: body.name,
+            url: body.url,
+            include: body.include || '',
+            exclude: body.exclude || '',
+            rename: body.rename || ''
+          };
+          await saveFavs(favs);
+        }
+        return new Response('OK', { status: 200 });
+      } catch {
+        return new Response('Error updating favorite', { status: 500 });
+      }
+    }
+
+    if (request.method === 'DELETE' && url.pathname === '/favs') {
+      try {
+        const body = (await request.json()) as { index?: number };
+        if (body.index === undefined) return new Response('Missing index', { status: 400 });
+        const favs = await getFavs();
+        if (body.index >= 0 && body.index < favs.length) {
+          favs.splice(body.index, 1);
+          await saveFavs(favs);
+        }
+        return new Response('OK', { status: 200 });
+      } catch {
+        return new Response('Error deleting favorite', { status: 500 });
       }
     }
 
@@ -478,7 +523,6 @@ export default {
       }
     }
 
-    // 若無 target 且非代理客戶端 UA，導向 HTML
     if (!target) {
       const host = `https://${url.host}`;
       const encodedUrl = encodeURIComponent(urlParam);

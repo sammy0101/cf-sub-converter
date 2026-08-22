@@ -107,21 +107,22 @@ export const HTML_PAGE = `
     }
     .btn-primary { background-color: var(--primary); color: white; width: 100%; padding: 1rem; font-size: 1.05rem; }
     .btn-primary:hover { background-color: var(--primary-hover); }
-    .btn-icon { background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border); padding: 0.6rem; border-radius: var(--radius-sm); }
-    .btn-icon:hover { background: var(--bg-hover); color: var(--primary); }
+    .btn-icon { background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border); padding: 0.6rem; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s; }
+    .btn-icon:hover { background: var(--bg-hover); color: var(--primary); border-color: var(--text-muted); }
     .btn-ghost { background: transparent; color: var(--text-muted); padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.85rem;}
     .btn-ghost:hover { background: var(--bg-hover); color: var(--text-main); }
     .btn-danger:hover { color: var(--danger); border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.1); }
 
     .results-wrapper { display: none; }
-    .results-wrapper.show { display: block; }
+    .results-wrapper.show { display: block; animation: slideUp 0.3s ease forwards; }
     .result-item { display: flex; align-items: center; gap: 1rem; background-color: var(--bg-input); border: 1px solid var(--border); padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1rem; }
+    .result-icon-box { width: 44px; height: 44px; border-radius: var(--radius-sm); background-color: var(--bg-panel); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; color: var(--primary); flex-shrink: 0; }
     .result-info { flex: 1; min-width: 140px; }
     .result-name { font-weight: 600; font-size: 0.95rem; color: var(--text-main); }
     .result-desc { font-size: 0.8rem; color: var(--text-muted); }
     .result-input-wrapper { flex: 2; position: relative; }
     .result-input-wrapper input { width: 100%; padding: 0.6rem 0.8rem; background: var(--bg-panel); font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-muted); }
-    .result-actions { display: flex; gap: 6px; }
+    .result-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
     .fav-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; margin-top: 1rem; }
     .fav-card { 
@@ -144,6 +145,15 @@ export const HTML_PAGE = `
     .cmd-group { display: flex; gap: 8px; margin-top: 8px; align-items: center; width: 100%; }
     .cmd-group input { flex: 1; }
     .cmd-group .btn { flex-shrink: 0; }
+
+    @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+    @media (max-width: 640px) {
+      .result-item { flex-direction: column; align-items: stretch; gap: 8px; padding: 1rem; }
+      .result-icon-box { display: none; }
+      .result-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+      .result-actions .btn-icon { height: 38px; display: flex; justify-content: center; align-items: center; }
+    }
   </style>
 </head>
 <body>
@@ -196,7 +206,7 @@ export const HTML_PAGE = `
       </button>
     </main>
 
-    <!-- ⚡ 轉換結果面板 (包含全平台格式) -->
+    <!-- ⚡ 轉換結果面板 (包含全平台格式與 QRCODE 按鈕) -->
     <section class="results-wrapper" id="results">
       <div class="panel">
         <div class="panel-header">
@@ -206,53 +216,95 @@ export const HTML_PAGE = `
           </h2>
         </div>
         
-        <!-- 自適應 -->
+        <!-- 1. 自適應 -->
         <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+          </div>
           <div class="result-info"><div class="result-name">自適應 (Auto)</div><div class="result-desc">自動識別客戶端協議</div></div>
           <div class="result-input-wrapper"><input type="text" id="adaptiveUrl" readonly></div>
-          <div class="result-actions"><button class="btn-icon" onclick="copyResult('adaptiveUrl')">複製</button></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('adaptiveUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('adaptiveUrl')" title="顯示 QR Code"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
         </div>
 
-        <!-- Clash Meta -->
+        <!-- 2. Clash Meta -->
         <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"></path><line x1="16" y1="8" x2="2" y2="22"></line><line x1="17.5" y1="15" x2="9" y2="6.5"></line></svg>
+          </div>
           <div class="result-info"><div class="result-name">Clash Meta (Mihomo)</div><div class="result-desc">YAML 配置 · 含低倍率/專線分組</div></div>
           <div class="result-input-wrapper"><input type="text" id="clashUrl" readonly></div>
-          <div class="result-actions"><button class="btn-icon" onclick="copyResult('clashUrl')">複製</button></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('clashUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('clashUrl')" title="顯示 QR Code"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
         </div>
 
-        <!-- Sing-Box -->
+        <!-- 3. Sing-Box -->
         <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+          </div>
           <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · Mixed TUN / 智慧路由</div></div>
           <div class="result-input-wrapper"><input type="text" id="singboxUrl" readonly></div>
-          <div class="result-actions"><button class="btn-icon" onclick="copyResult('singboxUrl')">複製</button></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('singboxUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('singboxUrl')" title="顯示 QR Code"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
         </div>
 
-        <!-- Surge 5 -->
+        <!-- 4. Surge 5 -->
         <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+          </div>
           <div class="result-info"><div class="result-name">Surge 5</div><div class="result-desc">標準 Surge .conf 格式</div></div>
           <div class="result-input-wrapper"><input type="text" id="surgeUrl" readonly></div>
-          <div class="result-actions"><button class="btn-icon" onclick="copyResult('surgeUrl')">複製</button></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('surgeUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('surgeUrl')" title="顯示 QR Code"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
         </div>
 
-        <!-- Quantumult X -->
+        <!-- 5. Quantumult X -->
         <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+          </div>
           <div class="result-info"><div class="result-name">Quantumult X</div><div class="result-desc">server_remote 遠端節點列表</div></div>
           <div class="result-input-wrapper"><input type="text" id="quanxUrl" readonly></div>
-          <div class="result-actions"><button class="btn-icon" onclick="copyResult('quanxUrl')">複製</button></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('quanxUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('quanxUrl')" title="顯示 QR Code"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
         </div>
 
-        <!-- Loon -->
+        <!-- 6. Loon -->
         <div class="result-item">
           <div class="result-info"><div class="result-name">Loon</div><div class="result-desc">Loon 代理配置清單</div></div>
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M8 12h8"></path><path d="M12 8v8"></path></svg>
+          </div>
           <div class="result-input-wrapper"><input type="text" id="loonUrl" readonly></div>
-          <div class="result-actions"><button class="btn-icon" onclick="copyResult('loonUrl')">複製</button></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('loonUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('loonUrl')" title="顯示 QR Code"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
         </div>
 
-        <!-- Base64 -->
+        <!-- 7. Base64 -->
         <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+          </div>
           <div class="result-info"><div class="result-name">Base64</div><div class="result-desc">通用明文 / v2rayNG / PassWall</div></div>
           <div class="result-input-wrapper"><input type="text" id="base64Url" readonly></div>
-          <div class="result-actions"><button class="btn-icon" onclick="copyResult('base64Url')">複製</button></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('base64Url')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('base64Url')" title="顯示 QR Code"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
         </div>
       </div>
     </section>
@@ -395,7 +447,6 @@ export const HTML_PAGE = `
       }).join('');
     }
 
-    // 💥 載入配置到主輸入框
     function useFav(index) {
       if (!favs[index]) return;
       const f = favs[index];
@@ -408,7 +459,6 @@ export const HTML_PAGE = `
       showToast('已載入配置：' + f.name);
     }
 
-    // 💥 編輯配置
     function editFav(index) {
       if (!favs[index]) return;
       const f = favs[index];
@@ -422,7 +472,6 @@ export const HTML_PAGE = `
       document.getElementById('modal').classList.add('show');
     }
 
-    // 💥 刪除配置
     async function deleteFav(index) {
       if (!confirm('確定要刪除這筆配置嗎？')) return;
       try {
@@ -442,7 +491,6 @@ export const HTML_PAGE = `
       }
     }
 
-    // 💥 儲存配置 (支援新增與更新)
     async function saveFav() {
       const name = document.getElementById('favName').value.trim();
       const url = document.getElementById('favUrl').value.trim();
@@ -510,6 +558,34 @@ export const HTML_PAGE = `
 
       document.getElementById('results').classList.add('show');
       showToast('全客戶端連結生成完畢！');
+    }
+
+    // 💥 彈出 QR Code 掃描視窗
+    function showQr(id) {
+      const url = document.getElementById(id).value;
+      if (!url) return;
+      const win = window.open('', '_blank', 'width=420,height=480');
+      if (!win) return showToast('請允許瀏覽器開啟彈出視窗', false);
+      win.document.write(\`
+        <!DOCTYPE html><html><head><meta charset="utf-8"><title>掃碼訂閱</title>
+        <style>
+          body { margin:0; background:#0f172a; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; font-family:sans-serif; }
+          .qr-container { padding:24px; background:#ffffff; border-radius:16px; box-shadow:0 10px 25px rgba(0,0,0,0.5); }
+          .title { margin-top:24px; font-size:16px; color:#f8fafc; font-weight:600; letter-spacing:0.5px; }
+          .subtitle { margin-top:8px; font-size:13px; color:#94a3b8; text-align:center; max-width:280px; word-break:break-all;}
+        </style>
+        </head><body>
+        <div class="qr-container"><div id="qr"></div></div>
+        <div class="title">使用客戶端掃描行動條碼</div>
+        <div class="subtitle">\${url}</div>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\\/script>
+        <script>
+          setTimeout(() => {
+            new QRCode(document.getElementById('qr'), { text: "\${url}", width: 260, height: 260, colorDark: "#0f172a", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.L });
+          }, 100);
+        <\\/script>
+        </body></html>
+      \`);
     }
 
     async function parseVlessNodes() {

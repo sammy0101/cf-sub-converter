@@ -2,6 +2,15 @@ export interface Env {
   SUB_CACHE: KVNamespace;
 }
 
+export interface WireGuardConfig {
+  privateKey: string;
+  localAddress: string[];
+  publicKey?: string;
+  presharedKey?: string;
+  mtu?: number;
+  reserved?: number[];
+}
+
 export interface ProxyNode {
   type: string;
   name: string;
@@ -23,8 +32,22 @@ export interface ProxyNode {
   obfs?: string;
   obfsPassword?: string;
   skipCertVerify?: boolean;
-  singboxObj?: any; 
-  clashObj?: any;
+  singboxObj?: Record<string, unknown>;
+  clashObj?: Record<string, unknown>;
   congestion_control?: string;
   udp_relay_mode?: string;
+  // VLESS SplitHTTP (xhttp)
+  xhttpPath?: string;
+  xhttpHost?: string;
+  xhttpMode?: string;
+  // WireGuard / WARP
+  wireguard?: WireGuardConfig;
+  // 標籤特徵 (B2 方案)
+  multiplier?: number;
+  isIplc?: boolean;
+}
+
+export interface CachedTemplate {
+  content: string;
+  updatedAt: number;
 }

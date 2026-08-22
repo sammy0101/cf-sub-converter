@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sat Aug 22 13:43:04 UTC 2026
+Generated on: Sat Aug 22 18:27:47 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -3351,15 +3351,45 @@ jobs:
 
 ## 🚀 部署教學
 
-### 方法一：一鍵快速部署 (最推薦、零設定)
+### 方法一：一鍵按鈕快速部署 (最推薦、零設定自動託管)
 
 點擊本說明文件上方的 **Deploy to Cloudflare Workers** 藍色按鈕。
-- Cloudflare 網頁精靈會引導您登入，並**自動建立並綁定 KV 命名空間（`SUB_CACHE`）**。
-- 自動建立 GitHub 複製倉庫，後續 `git push` 即自動觸發 Cloudflare CI/CD 部署。
+
+* **零設定自動託管**：Cloudflare 網頁部署精靈會引導您登入，並**在背景全自動為您建立並對接好所需的 KV 命名空間（`SUB_CACHE`）**，完全不需要您手動至儀表板綁定。
+* **自建 CI/CD (Workers Builds)**：Cloudflare 會在您的 GitHub 下自動建立此專案的複製倉庫。未來只要在 GitHub 修改並 `git push`，Cloudflare 就會自動在端點編譯部署，**此模式完全不需要設定 GitHub Secrets 密鑰**。
 
 ---
 
-### 方法二：本地 Wrangler 手動部署
+### 方法二：手動 Fork 本專案並使用 GitHub Actions 自動部署 (需設定 Secrets)
+
+如果您選擇**手動 Fork 本項目**並利用倉庫內建的 GitHub Actions 自動進行 CI/CD 部署，請依照以下步驟操作：
+
+1. **Fork 本專案**：
+   點擊本倉庫右上角的 **`Fork`** 按鈕，將專案複製一份到您的 GitHub 帳號下。
+
+2. **建立 Cloudflare KV 命名空間**：
+   - 登入 [Cloudflare Dashboard](https://dash.cloudflare.com/)。
+   - 點擊左側選單的 **`Storage & Databases` (儲存與資料庫)** ➔ **`KV`**。
+   - 點擊 **`Create a namespace`**，輸入名稱（例如 `SUB_CACHE`），建立完成後複製其 **Namespace ID**。
+
+3. **設定 GitHub Repository Secrets**：
+   前往您 Fork 出來的 GitHub 倉庫頁面，依次點擊：
+   **`Settings`** ➔ **`Secrets and variables`** ➔ **`Actions`** ➔ **`New repository secret`**，添加以下三個密鑰：
+
+   | 密鑰名稱 (Secret Name) | 說明與獲取方式 |
+   | :--- | :--- |
+   | **`CF_API_TOKEN`** | **Cloudflare API 權杖**<br>獲取方式：Cloudflare 首頁 ➔ 右上角「我的個人資料」➔「API 權杖」➔「建立權杖」➔ 選擇「編輯 Cloudflare Workers」模板（需具備 Workers 與 KV 的編輯權限）。 |
+   | **`CF_ACCOUNT_ID`** | **Cloudflare 帳戶 ID**<br>獲取方式：登入 Cloudflare ➔ 點擊任意網域或 Worker 頁面，在右側欄位即可找到「帳戶 ID (Account ID)」。 |
+   | **`CF_KV_ID`** | **KV 命名空間 ID**<br>獲取方式：填入步驟 2 中建立的 `SUB_CACHE` 命名空間 ID。 |
+
+4. **觸發自動部署**：
+   - 前往 GitHub 倉庫的 **`Actions`** 標籤頁。
+   - 點擊左側的 **`Deploy to Cloudflare Workers`** 工作流，點擊 **`Run workflow`** 手動執行部署。
+   - 後續只要您對 `main` 或 `master` 分支推送（Push）任何代碼變更，GitHub Actions 就會全自動為您編譯並發布至 Cloudflare Workers。
+
+---
+
+### 方法三：本地手動編譯部署 (Wrangler CLI)
 
 1. **克隆專案並安裝依賴**：
    ```bash
@@ -3471,7 +3501,9 @@ cf-sub-converter/
 ├── argo.sh               # VPS Argo 隧道 2.0 一鍵安裝與自我修復通用腳本
 ├── Sing-Box_Rules.JSON   # 遠端 Sing-Box 混合 TUN 規則模板
 ├── Clash_Rules.YAML      # 遠端 Clash Meta (Mihomo) 規則模板
-└── wrangler.toml         # Cloudflare Workers 配置檔
+├── wrangler.toml         # Cloudflare Workers 配置檔
+└── .github/workflows/
+    └── deploy.yml        # GitHub Actions 自動化部署工作流
 ```
 
 ---

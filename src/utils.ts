@@ -1,6 +1,6 @@
 import { ProxyNode } from "./types";
 
-// --- 完美 Base64 解碼 ---
+// --- 安全 Base64 解碼 ---
 export function safeBase64Decode(str: string): string {
   try {
     let b64 = str.replace(/-/g, '+').replace(/_/g, '/').replace(/[^A-Za-z0-9+/=]/g, '');
@@ -12,18 +12,17 @@ export function safeBase64Decode(str: string): string {
       bytes[i] = binaryStr.charCodeAt(i);
     }
     return new TextDecoder('utf-8').decode(bytes);
-  } catch (e) {
+  } catch {
     return "";
   }
 }
 
 export function utf8ToBase64(str: string): string {
   try {
-    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g,
-        function toSolidBytes(match, p1) {
-            return String.fromCharCode(parseInt(p1, 16));
-        }));
-  } catch (e) {
+    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => {
+      return String.fromCharCode(parseInt(p1, 16));
+    }));
+  } catch {
     return btoa(str);
   }
 }
@@ -31,8 +30,27 @@ export function utf8ToBase64(str: string): string {
 export function tryDecodeURIComponent(str: string): string {
   try {
     return decodeURIComponent(str);
-  } catch (e) {
+  } catch {
     return str;
+  }
+}
+
+// --- 節點倍率與專線特徵提取 (方案 B2) ---
+export function enrichNodeFeatures(node: ProxyNode): void {
+  const name = node.name || '';
+  
+  // 倍率識別 (例如: 0.1x, 0.5X, 1.5倍, 2×)
+  const multiplierMatch = name.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:x|X|倍|×)/);
+  if (multiplierMatch) {
+    const val = parseFloat(multiplierMatch[1]);
+    if (!isNaN(val)) {
+      node.multiplier = val;
+    }
+  }
+
+  // 專線特徵識別 (IPLC / IEPL / 專線 / 內網)
+  if (/(IPLC|IEPL|专线|專線|内网|內網|BGP专线)/i.test(name)) {
+    node.isIplc = true;
   }
 }
 
@@ -44,7 +62,7 @@ export function addFlag(name: string): string {
 
   const upper = name.toUpperCase();
 
-  const isMatch = (codes: string, keywords: string) => {
+  const isMatch = (codes: string, keywords: string): boolean => {
     const codeRegex = new RegExp(`(?:^|[^A-Z])(${codes})(?![A-Z])`);
     const keywordRegex = new RegExp(`(${keywords})`);
     return codeRegex.test(upper) || keywordRegex.test(upper);
@@ -61,12 +79,10 @@ export function addFlag(name: string): string {
   if (isMatch('BR|BRA|SAO', '巴西|圣保罗|聖保羅|BRAZIL')) return "🇧🇷 " + name;
   if (isMatch('EG|EGY|CAI', '埃及|开罗|開羅|EGYPT')) return "🇪🇬 " + name;
   if (isMatch('VN|VNM|HAN|SGN', '越南|河内|河內|西贡|VIETNAM')) return "🇻🇳 " + name;
-  
   if (isMatch('MO|MAC|MFM', '澳門|澳门')) return "🇲🇴 " + name;
   if (isMatch('KH|KHM|PNH', '柬埔寨|金边|金邊|CAMBODIA')) return "🇰🇭 " + name;
   if (isMatch('GR|GRC|ATH', '希腊|希臘|雅典|GREECE')) return "🇬🇷 " + name;
   if (isMatch('PL|POL|WAW', '波兰|波蘭|华沙|華沙|POLAND')) return "🇵🇱 " + name;
-  
   if (isMatch('IT|ITA|MIL', '意大利|義大和|米兰|羅馬|ITALY')) return "🇮🇹 " + name;
   if (isMatch('ES|ESP|MAD', '西班牙|马德里|巴塞隆納|SPAIN')) return "🇪🇸 " + name;
   if (isMatch('DE|DEU|FRA', '德国|德國|法兰克福|GERMANY')) return "🇩🇪 " + name;
@@ -77,11 +93,11 @@ export function addFlag(name: string): string {
   if (isMatch('NO|NOR|OSL', '挪威|奥斯陆|NORWAY')) return "🇳🇴 " + name;
   if (isMatch('FI|FIN|HEL', '芬兰|芬蘭|赫尔辛基|FINLAND')) return "🇫🇮 " + name;
   if (isMatch('DK|DNK|CPH', '丹麦|丹麥|哥本哈根|DENMARK')) return "🇩🇰 " + name;
-  if (isMatch('IE|IRL|DUB', '爱玩|愛爾蘭|都柏林|IRELAND')) return "🇮🇪 " + name;
+  if (isMatch('IE|IRL|DUB', '爱尔兰|愛爾蘭|都柏林|IRELAND')) return "🇮🇪 " + name;
   if (isMatch('PT|PRT|LIS', '葡萄牙|里斯本|PORTUGAL')) return "🇵🇹 " + name;
   if (isMatch('TH|THA|BKK', '泰国|泰國|曼谷|THAILAND')) return "🇹🇭 " + name;
   if (isMatch('MY|MYS|KUL', '马来西亚|馬來西亞|吉隆坡|MALAYSIA')) return "🇲🇾 " + name;
-  if (isMatch('PH|PHL|MNL', '物理宾|物理賓|马尼拉|PHILIPPINES')) return "🇵🇭 " + name;
+  if (isMatch('PH|PHL|MNL', '菲律宾|菲律賓|马尼拉|PHILIPPINES')) return "🇵🇭 " + name;
   if (isMatch('ID|IDN|CGK', '印度尼西亚|印尼|雅加达|INDONESIA')) return "🇮🇩 " + name;
   if (isMatch('TR|TUR|IST', '土耳其|伊斯坦堡|TURKEY')) return "🇹🇷 " + name;
   if (isMatch('IN|IND|BOM', '印度|孟买|INDIA')) return "🇮🇳 " + name;
@@ -99,7 +115,7 @@ export function addFlag(name: string): string {
   return "🇺🇳 " + name;
 }
 
-// 按國旗進行歸類排序（🇺🇳 置於最頂部，其餘依黃金順序排布）
+// 按國旗進行歸類排序（🇺🇳 置於頂部）
 export function groupNodesByFlag(nodes: ProxyNode[]): ProxyNode[] {
   const groups = new Map<string, ProxyNode[]>();
   const flagOrder: string[] = [];
@@ -107,13 +123,10 @@ export function groupNodesByFlag(nodes: ProxyNode[]): ProxyNode[] {
   for (const node of nodes) {
     const flaggedName = addFlag(node.name || 'node');
     
-    // 提取國旗 Emoji (包含 surrogate pairs)
-    let flag = '';
+    let flag = '🇺🇳';
     const match = flaggedName.match(/^([\uD83C][\uDDE6-\uDDFF][\uD83C][\uDDE6-\uDDFF])/);
     if (match) {
       flag = match[1];
-    } else {
-      flag = '🇺🇳';
     }
     
     if (!groups.has(flag)) {
@@ -123,16 +136,14 @@ export function groupNodesByFlag(nodes: ProxyNode[]): ProxyNode[] {
     groups.get(flag)!.push(node);
   }
   
-  // 黃金地區排序順序
   const standardOrder = [
-    '🇭🇰', '🇹🇼', '🇯🇵', '🇸🇬', '🇰🇷',  // 1. 亞太一線核心
-    '🇺🇸', '🇬🇧', '🇨🇦', '🇦🇺',        // 2. 歐美主流大戶
-    '🇲🇴', '🇨🇳', '🇹🇭', '🇻🇳', '🇲🇾', '🇵🇭', '🇮🇩', // 3. 特區與東南亞
-    '🇩🇪', '🇫🇷', '🇳🇱', '🇷🇺', '🇮🇳', '🇹🇷'  // 4. 歐洲與全球主流
+    '🇭🇰', '🇹🇼', '🇯🇵', '🇸🇬', '🇰🇷',
+    '🇺🇸', '🇬🇧', '🇨🇦', '🇦🇺',
+    '🇲🇴', '🇨🇳', '🇹🇭', '🇻🇳', '🇲🇾', '🇵🇭', '🇮🇩',
+    '🇩🇪', '🇫🇷', '🇳🇱', '🇷🇺', '🇮🇳', '🇹🇷'
   ];
   
   flagOrder.sort((a, b) => {
-    // 🇺🇳 (聯合國國旗/臨時佔位符/官網提示) 優先排序在最前面
     if (a === '🇺🇳' && b !== '🇺🇳') return -1;
     if (b === '🇺🇳' && a !== '🇺🇳') return 1;
     
@@ -153,13 +164,13 @@ export function groupNodesByFlag(nodes: ProxyNode[]): ProxyNode[] {
   return result;
 }
 
-// --- 去重複命名與還原機場預設排序 ---
+// 去重複命名與賦予特徵標記
 export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
   const seenKey = new Set<string>();
   const nameCount = new Map<string, number>();
 
   return nodes.filter(node => {
-    const key = `${node.server}:${node.port}:${node.uuid || node.password || ''}`;
+    const key = `${node.server}:${node.port}:${node.uuid || node.password || ''}:${node.type}`;
 
     if (seenKey.has(key)) return false;
     seenKey.add(key);
@@ -173,12 +184,17 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
     } else {
       const count = nameCount.get(baseName)! + 1;
       nameCount.set(baseName, count);
-      // 💥 修正：將原本的 " (count)" 格式修改為 "_count"
       node.name = `${baseName}_${count}`;
     }
     
-    if (node.singboxObj) node.singboxObj.tag = node.name;
-    if (node.clashObj) node.clashObj.name = node.name;
+    enrichNodeFeatures(node);
+
+    if (node.singboxObj) {
+      node.singboxObj.tag = node.name;
+    }
+    if (node.clashObj) {
+      node.clashObj.name = node.name;
+    }
 
     return true;
   });

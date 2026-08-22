@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sat Aug 22 13:32:34 UTC 2026
+Generated on: Sat Aug 22 13:35:26 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -1428,7 +1428,7 @@ export const HTML_PAGE = `
       </button>
     </main>
 
-    <!-- ⚡ 轉換結果面板 (包含全平台格式與 QRCODE 按鈕) -->
+    <!-- ⚡ 轉換結果面板 -->
     <section class="results-wrapper" id="results">
       <div class="panel">
         <div class="panel-header">
@@ -1503,12 +1503,12 @@ export const HTML_PAGE = `
           </div>
         </div>
 
-        <!-- 6. Loon -->
+        <!-- 6. Loon (💥 順序已修正，圖標置於左側) -->
         <div class="result-item">
-          <div class="result-info"><div class="result-name">Loon</div><div class="result-desc">Loon 代理配置清單</div></div>
           <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M8 12h8"></path><path d="M12 8v8"></path></svg>
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
           </div>
+          <div class="result-info"><div class="result-name">Loon</div><div class="result-desc">Loon 代理配置清單</div></div>
           <div class="result-input-wrapper"><input type="text" id="loonUrl" readonly></div>
           <div class="result-actions">
             <button class="btn-icon" onclick="copyResult('loonUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
@@ -1782,7 +1782,6 @@ export const HTML_PAGE = `
       showToast('全客戶端連結生成完畢！');
     }
 
-    // 💥 彈出 QR Code 掃描視窗
     function showQr(id) {
       const url = document.getElementById(id).value;
       if (!url) return;

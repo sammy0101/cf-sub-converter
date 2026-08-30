@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Aug 30 18:23:47 UTC 2026
+Generated on: Sun Aug 30 18:29:15 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -490,11 +490,6 @@ rules:
         "detour": "direct"
       },
       {
-        "tag": "block-dns",
-        "type": "rcode",
-        "code": "success"
-      },
-      {
         "tag": "fakeip-dns",
         "type": "fakeip",
         "inet4_range": "198.18.0.0/15",
@@ -505,7 +500,7 @@ rules:
       { "outbound": "any", "server": "system-dns" },
       { "clash_mode": "Direct", "server": "system-dns" },
       { "clash_mode": "Global", "server": "remote-dns" },
-      { "rule_set": "rs-ads", "server": "block-dns" },
+      { "rule_set": "rs-ads", "action": "reject" },
       {
         "domain": [
           "github.com",

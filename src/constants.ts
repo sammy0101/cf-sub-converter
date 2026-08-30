@@ -4,7 +4,7 @@ export const REMOTE_CONFIG = {
   clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML'
 };
 
-// 方案 B1 內嵌緊急降級模板 (Sing-Box 1.14+ 規範)
+// 方案 B1 內嵌緊急降級模板 (Sing-Box 1.14+ 規範，無 dns-out 出站)
 export const FALLBACK_SINGBOX_RULES = JSON.stringify({
   log: { level: "info" },
   dns: {
@@ -28,6 +28,12 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
     { type: "direct", tag: "direct" },
     { type: "block", tag: "block" }
   ],
+  route: {
+    rules: [
+      { protocol: "dns", action: "hijack-dns" }
+    ],
+    auto_detect_interface: true
+  },
   cache_file: { enabled: true, store_fakeip: true }
 });
 

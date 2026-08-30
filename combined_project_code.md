@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Aug 30 19:19:19 UTC 2026
+Generated on: Sun Aug 30 19:19:50 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -2621,10 +2621,14 @@ export interface CachedTemplate {
 ## File: src/generator.ts
 ````ts
 // src/generator.ts
+// @ts-ignore
+import packageJson from '../package.json';
 import yaml from 'js-yaml';
 import { Env, ProxyNode } from './types';
 import { REMOTE_CONFIG, FALLBACK_SINGBOX_RULES, FALLBACK_CLASH_RULES } from './constants';
 import { utf8ToBase64 } from './utils';
+
+const version = packageJson.version || '3.5.0';
 
 // --- 明文 URI 格式導出 ---
 export function toRawLinks(nodes: ProxyNode[]): string {
@@ -2732,18 +2736,27 @@ export function toBase64(nodes: ProxyNode[]): string {
   return utf8ToBase64(rawLinks);
 }
 
-// --- 高可用 SWR 模板拉取機制 ---
-async function fetchTemplateWithSWR(url: string, cacheKey: string, fallbackJsonStr: string, env?: Env): Promise<string> {
-  if (env?.SUB_CACHE) {
+// --- 具備 forceRefresh 與版本自動校驗的 SWR 模板拉取機制 ---
+async function fetchTemplateWithSWR(
+  url: string,
+  cacheType: string,
+  fallbackJsonStr: string,
+  env?: Env,
+  forceRefresh = false
+): Promise<string> {
+  const dynamicKey = `tpl:${cacheType}:${version}`;
+
+  if (!forceRefresh && env?.SUB_CACHE) {
     try {
-      const cached = await env.SUB_CACHE.get(`tpl:${cacheKey}`);
+      const cached = await env.SUB_CACHE.get(dynamicKey);
       if (cached) {
+        // 非同步背景檢查更新
         fetch(`${url}?t=${Date.now()}`, {
           headers: { 'User-Agent': 'v2rayNG/1.8.5' }
         }).then(async res => {
           if (res.ok) {
             const freshText = await res.text();
-            await env.SUB_CACHE.put(`tpl:${cacheKey}`, freshText, { expirationTtl: 86400 });
+            await env.SUB_CACHE.put(dynamicKey, freshText, { expirationTtl: 86400 });
           }
         }).catch(() => {});
         return cached;
@@ -2751,6 +2764,7 @@ async function fetchTemplateWithSWR(url: string, cacheKey: string, fallbackJsonS
     } catch {}
   }
 
+  // 強制刷新或快取不存在時直接從 GitHub 即時獲取
   try {
     const resp = await fetch(`${url}?t=${Date.now()}`, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
@@ -2758,7 +2772,7 @@ async function fetchTemplateWithSWR(url: string, cacheKey: string, fallbackJsonS
     if (resp.ok) {
       const text = await resp.text();
       if (env?.SUB_CACHE) {
-        await env.SUB_CACHE.put(`tpl:${cacheKey}`, text, { expirationTtl: 86400 });
+        await env.SUB_CACHE.put(dynamicKey, text, { expirationTtl: 86400 });
       }
       return text;
     }
@@ -2767,9 +2781,9 @@ async function fetchTemplateWithSWR(url: string, cacheKey: string, fallbackJsonS
   return fallbackJsonStr;
 }
 
-// --- Sing-Box 配置生成 (更新至 v6 快取鍵以確保正確 route 嗅探結構) ---
-export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env): Promise<string> {
-  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox_v6', FALLBACK_SINGBOX_RULES, env);
+// --- Sing-Box 配置生成 ---
+export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
+  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox', FALLBACK_SINGBOX_RULES, env, forceRefresh);
   const config = JSON.parse(text);
   
   const outbounds = nodes.map(n => JSON.parse(JSON.stringify(n.singboxObj)));
@@ -2812,8 +2826,8 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env): Prom
 }
 
 // --- Clash Meta 配置生成 ---
-export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env): Promise<string> {
-  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.clash, 'clash_v6', FALLBACK_CLASH_RULES, env);
+export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
+  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.clash, 'clash', FALLBACK_CLASH_RULES, env, forceRefresh);
   const config = yaml.load(text) as Record<string, unknown>;
   
   const proxies = nodes.map(n => {

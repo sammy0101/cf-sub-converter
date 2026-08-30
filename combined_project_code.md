@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Aug 30 19:19:50 UTC 2026
+Generated on: Sun Aug 30 19:20:15 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -788,7 +788,7 @@ export default {
       }
     }
 
-    // POST /api/argo-generate (支援優選 IP / 官方優選域名注入 - 方案 D1)
+    // POST /api/argo-generate
     if (request.method === 'POST' && url.pathname === '/api/argo-generate') {
       try {
         const body = (await request.json()) as {
@@ -897,7 +897,7 @@ export default {
       }
     }
 
-    // --- 完整 Favorites API (GET / POST / PUT / DELETE) ---
+    // Favorites API
     const FAVS_KEY = 'favorites';
     const getFavs = async (): Promise<Array<Record<string, string>>> => {
       const data = await env.SUB_CACHE.get(FAVS_KEY);
@@ -972,6 +972,8 @@ export default {
     let includeParam = url.searchParams.get('include') || '';
     let excludeParam = url.searchParams.get('exclude') || '';
     let renameParam = url.searchParams.get('rename') || '';
+    // 💥 支援 ?force=1 或 ?nocache=1 即時強制穿透快取
+    const forceRefresh = url.searchParams.has('force') || url.searchParams.has('nocache');
 
     const path = decodeURIComponent(url.pathname.slice(1)); 
 
@@ -1165,7 +1167,7 @@ export default {
     let fileExt = '.txt';
 
     if (target === 'clash') {
-      result = await toClashWithTemplate(uniqueNodes, env);
+      result = await toClashWithTemplate(uniqueNodes, env, forceRefresh);
       contentType = 'text/yaml';
       fileExt = '.yaml';
     } else if (target === 'surge') {
@@ -1185,7 +1187,7 @@ export default {
       contentType = 'text/plain';
       fileExt = '.txt';
     } else {
-      result = await toSingBoxWithTemplate(uniqueNodes, env);
+      result = await toSingBoxWithTemplate(uniqueNodes, env, forceRefresh);
       contentType = 'application/json';
       fileExt = '.json';
     }

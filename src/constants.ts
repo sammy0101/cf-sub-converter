@@ -4,7 +4,7 @@ export const REMOTE_CONFIG = {
   clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML'
 };
 
-// 方案 B1 內嵌緊急降級模板 (Sing-Box 1.14+ 規範，直連 DNS 無 detour)
+// 方案 B1 內嵌緊急降級模板 (final: local-dns 杜絕死鎖)
 export const FALLBACK_SINGBOX_RULES = JSON.stringify({
   log: { level: "info" },
   dns: {
@@ -15,10 +15,10 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
       { tag: "fakeip-dns", type: "fakeip", inet4_range: "198.18.0.0/15", inet6_range: "fc00::/18" }
     ],
     rules: [
-      { outbound: "any", server: "system-dns" },
+      { outbound: "any", server: "local-dns" },
       { rule_set: "rs-ads", action: "reject" }
     ],
-    final: "remote-dns",
+    final: "local-dns",
     strategy: "ipv4_only"
   },
   inbounds: [{ type: "tun", tag: "tun-in", interface_name: "tun0", auto_route: true, stack: "mixed" }],
@@ -236,7 +236,7 @@ export const HTML_PAGE = `
         <!-- 1. 自適應 -->
         <div class="result-item">
           <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1 4-10z"></path></svg>
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
           </div>
           <div class="result-info"><div class="result-name">自適應 (Auto)</div><div class="result-desc">自動識別客戶端協議</div></div>
           <div class="result-input-wrapper"><input type="text" id="adaptiveUrl" readonly></div>

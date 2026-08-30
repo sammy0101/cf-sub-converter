@@ -145,9 +145,9 @@ async function fetchTemplateWithSWR(url: string, cacheKey: string, fallbackJsonS
   return fallbackJsonStr;
 }
 
-// --- Sing-Box 配置生成 (更新至 v3 快取鍵以切換為 reject 動作) ---
+// --- Sing-Box 配置生成 (更新至 v4 快取鍵以切換為 hijack-dns) ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env): Promise<string> {
-  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox_v3', FALLBACK_SINGBOX_RULES, env);
+  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox_v4', FALLBACK_SINGBOX_RULES, env);
   const config = JSON.parse(text);
   
   const outbounds = nodes.map(n => JSON.parse(JSON.stringify(n.singboxObj)));
@@ -191,7 +191,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env): Prom
 
 // --- Clash Meta 配置生成 ---
 export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env): Promise<string> {
-  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.clash, 'clash_v3', FALLBACK_CLASH_RULES, env);
+  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.clash, 'clash_v4', FALLBACK_CLASH_RULES, env);
   const config = yaml.load(text) as Record<string, unknown>;
   
   const proxies = nodes.map(n => {

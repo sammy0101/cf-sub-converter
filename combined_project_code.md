@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Aug 30 19:04:10 UTC 2026
+Generated on: Sun Aug 30 19:15:15 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -481,13 +481,11 @@ rules:
       {
         "tag": "local-dns",
         "type": "udp",
-        "server": "223.5.5.5",
-        "detour": "direct"
+        "server": "223.5.5.5"
       },
       {
         "tag": "system-dns",
-        "type": "local",
-        "detour": "direct"
+        "type": "local"
       },
       {
         "tag": "fakeip-dns",

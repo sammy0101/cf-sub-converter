@@ -14,13 +14,11 @@
       {
         "tag": "local-dns",
         "type": "udp",
-        "server": "223.5.5.5",
-        "detour": "direct"
+        "server": "223.5.5.5"
       },
       {
         "tag": "system-dns",
-        "type": "local",
-        "detour": "direct"
+        "type": "local"
       },
       {
         "tag": "fakeip-dns",

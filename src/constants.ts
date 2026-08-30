@@ -12,12 +12,11 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
       { tag: "remote-dns", type: "https", server: "8.8.8.8", detour: "🚀 節點選擇" },
       { tag: "local-dns", type: "udp", server: "223.5.5.5", detour: "direct" },
       { tag: "system-dns", type: "local", detour: "direct" },
-      { tag: "block-dns", type: "rcode", code: "success" },
       { tag: "fakeip-dns", type: "fakeip", inet4_range: "198.18.0.0/15", inet6_range: "fc00::/18" }
     ],
     rules: [
       { outbound: "any", server: "system-dns" },
-      { rule_set: "rs-ads", server: "block-dns" }
+      { rule_set: "rs-ads", action: "reject" }
     ],
     final: "remote-dns",
     strategy: "ipv4_only"

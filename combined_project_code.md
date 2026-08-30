@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Aug 30 19:26:22 UTC 2026
+Generated on: Sun Aug 30 19:26:58 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -2790,9 +2790,9 @@ async function fetchTemplateWithSWR(
   return fallbackJsonStr;
 }
 
-// --- Sing-Box 配置生成 ---
+// --- Sing-Box 配置生成 (更新至 v7 快取鍵以確保 final: local-dns 消除死鎖) ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
-  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox', FALLBACK_SINGBOX_RULES, env, forceRefresh);
+  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox_v7', FALLBACK_SINGBOX_RULES, env, forceRefresh);
   const config = JSON.parse(text);
   
   const outbounds = nodes.map(n => JSON.parse(JSON.stringify(n.singboxObj)));
@@ -2836,7 +2836,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
 
 // --- Clash Meta 配置生成 ---
 export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
-  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.clash, 'clash', FALLBACK_CLASH_RULES, env, forceRefresh);
+  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.clash, 'clash_v7', FALLBACK_CLASH_RULES, env, forceRefresh);
   const config = yaml.load(text) as Record<string, unknown>;
   
   const proxies = nodes.map(n => {

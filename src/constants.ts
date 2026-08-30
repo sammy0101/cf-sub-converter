@@ -4,7 +4,7 @@ export const REMOTE_CONFIG = {
   clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML'
 };
 
-// 方案 B1 內嵌緊急降級模板 (Sing-Box 1.14+ 規範，含 http_clients 與 default_http_client)
+// 方案 B1 內嵌緊急降級模板 (Sing-Box 1.14+ 規範)
 export const FALLBACK_SINGBOX_RULES = JSON.stringify({
   log: { level: "info" },
   http_clients: [
@@ -246,11 +246,24 @@ export const HTML_PAGE = `
           <div class="result-input-wrapper"><input type="text" id="adaptiveUrl" readonly></div>
           <div class="result-actions">
             <button class="btn-icon" onclick="copyResult('adaptiveUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('adaptiveUrl')" title="顯示 QR Code"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('adaptiveUrl', 'auto')" title="顯示專屬 QR Code / 一鍵喚醒"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
           </div>
         </div>
 
-        <!-- 2. Clash Meta -->
+        <!-- 2. Sing-Box (💥 專屬 Scheme QR Code) -->
+        <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+          </div>
+          <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · 支援掃碼自動填入</div></div>
+          <div class="result-input-wrapper"><input type="text" id="singboxUrl" readonly></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('singboxUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('singboxUrl', 'singbox')" title="顯示 Sing-Box 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
+        </div>
+
+        <!-- 3. Clash Meta -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"></path><line x1="16" y1="8" x2="2" y2="22"></line><line x1="17.5" y1="15" x2="9" y2="6.5"></line></svg>
@@ -259,20 +272,7 @@ export const HTML_PAGE = `
           <div class="result-input-wrapper"><input type="text" id="clashUrl" readonly></div>
           <div class="result-actions">
             <button class="btn-icon" onclick="copyResult('clashUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('clashUrl')" title="顯示 QR Code"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
-          </div>
-        </div>
-
-        <!-- 3. Sing-Box -->
-        <div class="result-item">
-          <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
-          </div>
-          <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · Mixed TUN / 智慧路由</div></div>
-          <div class="result-input-wrapper"><input type="text" id="singboxUrl" readonly></div>
-          <div class="result-actions">
-            <button class="btn-icon" onclick="copyResult('singboxUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('singboxUrl')" title="顯示 QR Code"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('clashUrl', 'clash')" title="顯示 Clash 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
           </div>
         </div>
 
@@ -285,7 +285,7 @@ export const HTML_PAGE = `
           <div class="result-input-wrapper"><input type="text" id="surgeUrl" readonly></div>
           <div class="result-actions">
             <button class="btn-icon" onclick="copyResult('surgeUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('surgeUrl')" title="顯示 QR Code"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('surgeUrl', 'surge')" title="顯示 Surge 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
           </div>
         </div>
 
@@ -298,7 +298,7 @@ export const HTML_PAGE = `
           <div class="result-input-wrapper"><input type="text" id="quanxUrl" readonly></div>
           <div class="result-actions">
             <button class="btn-icon" onclick="copyResult('quanxUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('quanxUrl')" title="顯示 QR Code"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('quanxUrl', 'quanx')" title="顯示 Quantumult X 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
           </div>
         </div>
 
@@ -311,7 +311,7 @@ export const HTML_PAGE = `
           <div class="result-input-wrapper"><input type="text" id="loonUrl" readonly></div>
           <div class="result-actions">
             <button class="btn-icon" onclick="copyResult('loonUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('loonUrl')" title="顯示 QR Code"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('loonUrl', 'loon')" title="顯示 Loon 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
           </div>
         </div>
 
@@ -320,11 +320,11 @@ export const HTML_PAGE = `
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
           </div>
-          <div class="result-info"><div class="result-name">Base64</div><div class="result-desc">通用明文 / v2rayNG / PassWall</div></div>
+          <div class="result-info"><div class="result-name">Base64 / 通用</div><div class="result-desc">通用明文 / v2rayNG / Shadowrocket</div></div>
           <div class="result-input-wrapper"><input type="text" id="base64Url" readonly></div>
           <div class="result-actions">
             <button class="btn-icon" onclick="copyResult('base64Url')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('base64Url')" title="顯示 QR Code"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('base64Url', 'shadowrocket')" title="顯示通用掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
           </div>
         </div>
       </div>
@@ -581,27 +581,80 @@ export const HTML_PAGE = `
       showToast('全客戶端連結生成完畢！');
     }
 
-    function showQr(id) {
-      const url = document.getElementById(id).value;
-      if (!url) return;
-      const win = window.open('', '_blank', 'width=420,height=480');
+    // 💥 智慧 QR Code 與一鍵喚醒 App 導入
+    function showQr(id, clientType = 'auto') {
+      const rawUrl = document.getElementById(id).value;
+      if (!rawUrl) return;
+
+      const profileName = (document.getElementById('shortCode').value.trim() || 'SubConverter');
+      let deepLink = rawUrl;
+      let displayTitle = '掃碼導入配置';
+      let clientName = '客戶端';
+
+      // 構建官方專屬客戶端協議 Scheme (解決掃碼空白問題)
+      if (clientType === 'singbox') {
+        deepLink = \`sing-box://import-remote-profile?url=\${encodeURIComponent(rawUrl)}#\${encodeURIComponent(profileName)}\`;
+        displayTitle = 'Sing-Box 專屬掃碼導入';
+        clientName = 'Sing-Box';
+      } else if (clientType === 'clash') {
+        deepLink = \`clash://install-config?url=\${encodeURIComponent(rawUrl)}&name=\${encodeURIComponent(profileName)}\`;
+        displayTitle = 'Clash / Mihomo 專屬導入';
+        clientName = 'Clash';
+      } else if (clientType === 'surge') {
+        deepLink = \`surge:///install-config?url=\${encodeURIComponent(rawUrl)}\`;
+        displayTitle = 'Surge 5 專屬導入';
+        clientName = 'Surge';
+      } else if (clientType === 'quanx') {
+        deepLink = \`quantumult-x:///add-resource?remote-resource=\${encodeURIComponent(JSON.stringify({ server_remote: [\`\${rawUrl}, tag=\${profileName}\`] }))}\`;
+        displayTitle = 'Quantumult X 專屬導入';
+        clientName = 'Quantumult X';
+      } else if (clientType === 'loon') {
+        deepLink = \`loon://import?type=config&url=\${encodeURIComponent(rawUrl)}\`;
+        displayTitle = 'Loon 專屬導入';
+        clientName = 'Loon';
+      } else if (clientType === 'shadowrocket') {
+        deepLink = \`shadowrocket://add/sub://\${btoa(rawUrl)}?title=\${encodeURIComponent(profileName)}\`;
+        displayTitle = 'Shadowrocket 專屬導入';
+        clientName = 'Shadowrocket';
+      }
+
+      const win = window.open('', '_blank', 'width=440,height=560');
       if (!win) return showToast('請允許瀏覽器開啟彈出視窗', false);
+
       win.document.write(\`
-        <!DOCTYPE html><html><head><meta charset="utf-8"><title>掃碼訂閱</title>
+        <!DOCTYPE html><html><head><meta charset="utf-8"><title>\${displayTitle}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-          body { margin:0; background:#0f172a; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; font-family:sans-serif; }
-          .qr-container { padding:24px; background:#ffffff; border-radius:16px; box-shadow:0 10px 25px rgba(0,0,0,0.5); }
-          .title { margin-top:24px; font-size:16px; color:#f8fafc; font-weight:600; letter-spacing:0.5px; }
-          .subtitle { margin-top:8px; font-size:13px; color:#94a3b8; text-align:center; max-width:280px; word-break:break-all;}
+          body { margin:0; background:#0f172a; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; font-family:-apple-system,BlinkMacSystemFont,sans-serif; color:#f8fafc; padding:20px; box-sizing:border-box; text-align:center;}
+          .qr-container { padding:20px; background:#ffffff; border-radius:16px; box-shadow:0 10px 25px rgba(0,0,0,0.5); display:inline-block; }
+          .title { margin-top:20px; font-size:18px; font-weight:700; color:#38bdf8; letter-spacing:0.5px; }
+          .subtitle { margin-top:6px; font-size:12px; color:#94a3b8; max-width:320px; word-break:break-all; font-family:monospace; line-height:1.4; }
+          .btn-open { margin-top:20px; display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:12px 28px; background:#3b82f6; color:#fff; text-decoration:none; border-radius:10px; font-weight:600; font-size:15px; box-shadow:0 4px 14px rgba(59,130,246,0.4); transition:transform 0.2s;}
+          .btn-open:hover { transform:translateY(-1px); background:#2563eb; }
+          .hint-box { margin-top:14px; font-size:12px; color:#10b981; background:rgba(16,185,129,0.1); padding:8px 14px; border-radius:8px; border:1px solid rgba(16,185,129,0.2); max-width:320px; }
         </style>
         </head><body>
         <div class="qr-container"><div id="qr"></div></div>
-        <div class="title">使用客戶端掃描行動條碼</div>
-        <div class="subtitle\">\${url}</div>
+        <div class="title">\${displayTitle}</div>
+        <div class="subtitle">\${rawUrl}</div>
+        
+        <a class="btn-open" href="\${deepLink}">🚀 一鍵打開並導入 \${clientName}</a>
+        
+        <div class="hint-box">
+          ✨ 手機相機或 \${clientName} App 掃描此二維碼，即可全自動填入名稱與網址！
+        </div>
+
         <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\\/script>
         <script>
           setTimeout(() => {
-            new QRCode(document.getElementById('qr'), { text: "\${url}", width: 260, height: 260, colorDark: "#0f172a", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.L });
+            new QRCode(document.getElementById('qr'), { 
+              text: "\${deepLink}", 
+              width: 240, 
+              height: 240, 
+              colorDark: "#0f172a", 
+              colorLight: "#ffffff", 
+              correctLevel: QRCode.CorrectLevel.L 
+            });
           }, 100);
         <\\/script>
         </body></html>

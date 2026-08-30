@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Aug 30 19:35:15 UTC 2026
+Generated on: Sun Aug 30 19:35:42 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -2759,7 +2759,6 @@ async function fetchTemplateWithSWR(
     try {
       const cached = await env.SUB_CACHE.get(dynamicKey);
       if (cached) {
-        // 非同步背景檢查更新
         fetch(`${url}?t=${Date.now()}`, {
           headers: { 'User-Agent': 'v2rayNG/1.8.5' }
         }).then(async res => {
@@ -2773,7 +2772,6 @@ async function fetchTemplateWithSWR(
     } catch {}
   }
 
-  // 強制刷新或快取不存在時直接從 GitHub 即時獲取
   try {
     const resp = await fetch(`${url}?t=${Date.now()}`, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
@@ -2790,9 +2788,9 @@ async function fetchTemplateWithSWR(
   return fallbackJsonStr;
 }
 
-// --- Sing-Box 配置生成 (更新至 v7 快取鍵以確保 final: local-dns 消除死鎖) ---
+// --- Sing-Box 配置生成 (更新至 v8 快取鍵以確保完全符合 1.14+ 規範) ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
-  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox_v7', FALLBACK_SINGBOX_RULES, env, forceRefresh);
+  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox_v8', FALLBACK_SINGBOX_RULES, env, forceRefresh);
   const config = JSON.parse(text);
   
   const outbounds = nodes.map(n => JSON.parse(JSON.stringify(n.singboxObj)));
@@ -2836,7 +2834,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
 
 // --- Clash Meta 配置生成 ---
 export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
-  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.clash, 'clash_v7', FALLBACK_CLASH_RULES, env, forceRefresh);
+  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.clash, 'clash_v8', FALLBACK_CLASH_RULES, env, forceRefresh);
   const config = yaml.load(text) as Record<string, unknown>;
   
   const proxies = nodes.map(n => {

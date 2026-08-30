@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Aug 30 19:38:10 UTC 2026
+Generated on: Sun Aug 30 19:46:20 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -2745,7 +2745,7 @@ export function toBase64(nodes: ProxyNode[]): string {
   return utf8ToBase64(rawLinks);
 }
 
-// --- 真正一勞永逸的動態 SWR 模板拉取機制 ---
+// --- 動態 SWR 模板拉取機制 ---
 async function fetchTemplateWithSWR(
   url: string,
   cacheType: 'singbox' | 'clash',
@@ -2753,14 +2753,12 @@ async function fetchTemplateWithSWR(
   env?: Env,
   forceRefresh = false
 ): Promise<string> {
-  // 自動綁定版本號，無需手動改字串
   const dynamicKey = `tpl:${cacheType}:${version}`;
 
   if (!forceRefresh && env?.SUB_CACHE) {
     try {
       const cached = await env.SUB_CACHE.get(dynamicKey);
       if (cached) {
-        // 背景非同步檢查 GitHub 更新（每 10 分鐘過期自動拉新）
         fetch(`${url}?t=${Date.now()}`, {
           headers: { 'User-Agent': 'v2rayNG/1.8.5' }
         }).then(async res => {
@@ -2774,7 +2772,6 @@ async function fetchTemplateWithSWR(
     } catch {}
   }
 
-  // 強制刷新或無快取時，直接拉取遠端最新內容
   try {
     const resp = await fetch(`${url}?t=${Date.now()}`, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
@@ -2788,15 +2785,47 @@ async function fetchTemplateWithSWR(
     }
   } catch {}
 
-  // 網路故障時自動回退至應急模板
   return fallbackJsonStr;
 }
 
-// --- Sing-Box 配置生成 (固定標識，再無手動版本號) ---
+// --- Sing-Box 配置生成 (含自動語法淨化與規範修正) ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
   const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox', FALLBACK_SINGBOX_RULES, env, forceRefresh);
   const config = JSON.parse(text);
   
+  // 💥 1. 自動淨化 DNS 規範
+  if (config.dns) {
+    config.dns.final = 'local-dns';
+    if (Array.isArray(config.dns.servers)) {
+      config.dns.servers = config.dns.servers.filter((s: Record<string, unknown>) => s.type !== 'rcode');
+      config.dns.servers.forEach((s: Record<string, unknown>) => {
+        if (s.detour === 'direct') delete s.detour;
+      });
+    }
+    // 徹底移除已廢棄的 outbound DNS rule
+    if (Array.isArray(config.dns.rules)) {
+      config.dns.rules = config.dns.rules.filter((r: Record<string, unknown>) => !('outbound' in r));
+    }
+  }
+
+  // 💥 2. 自動補充 route.default_domain_resolver 並清理 download_detour
+  if (!config.route) config.route = {};
+  config.route.default_domain_resolver = 'local-dns';
+  
+  if (Array.isArray(config.route.rule_set)) {
+    config.route.rule_set.forEach((rs: Record<string, unknown>) => {
+      delete rs.download_detour;
+    });
+  }
+
+  // 💥 3. 自動清理 inbounds 的舊嗅探欄位
+  if (Array.isArray(config.inbounds)) {
+    config.inbounds.forEach((ib: Record<string, unknown>) => {
+      delete ib.sniff;
+      delete ib.sniff_override_destination;
+    });
+  }
+
   const outbounds = nodes.map(n => JSON.parse(JSON.stringify(n.singboxObj)));
   const nodeTags = outbounds.map((o: Record<string, unknown>) => o.tag as string);
   
@@ -2836,7 +2865,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
   return JSON.stringify(config, null, 2);
 }
 
-// --- Clash Meta 配置生成 (固定標識，再無手動版本號) ---
+// --- Clash Meta 配置生成 ---
 export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
   const text = await fetchTemplateWithSWR(REMOTE_CONFIG.clash, 'clash', FALLBACK_CLASH_RULES, env, forceRefresh);
   const config = yaml.load(text) as Record<string, unknown>;

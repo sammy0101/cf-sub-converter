@@ -23,11 +23,6 @@
         "detour": "direct"
       },
       {
-        "tag": "block-dns",
-        "type": "rcode",
-        "code": "success"
-      },
-      {
         "tag": "fakeip-dns",
         "type": "fakeip",
         "inet4_range": "198.18.0.0/15",
@@ -38,7 +33,7 @@
       { "outbound": "any", "server": "system-dns" },
       { "clash_mode": "Direct", "server": "system-dns" },
       { "clash_mode": "Global", "server": "remote-dns" },
-      { "rule_set": "rs-ads", "server": "block-dns" },
+      { "rule_set": "rs-ads", "action": "reject" },
       {
         "domain": [
           "github.com",

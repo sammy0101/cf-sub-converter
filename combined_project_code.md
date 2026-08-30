@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sat Aug 22 18:31:39 UTC 2026
+Generated on: Sun Aug 30 18:21:48 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -474,23 +474,31 @@ rules:
     "servers": [
       {
         "tag": "remote-dns",
-        "address": "https://dns.google/dns-query",
-        "address_resolver": "local-dns",
+        "type": "https",
+        "server": "8.8.8.8",
         "detour": "🚀 節點選擇"
       },
       {
         "tag": "local-dns",
-        "address": "223.5.5.5",
+        "type": "udp",
+        "server": "223.5.5.5",
         "detour": "direct"
       },
       {
         "tag": "system-dns",
-        "address": "local",
+        "type": "local",
         "detour": "direct"
       },
       {
         "tag": "block-dns",
-        "address": "rcode://success"
+        "type": "rcode",
+        "code": "success"
+      },
+      {
+        "tag": "fakeip-dns",
+        "type": "fakeip",
+        "inet4_range": "198.18.0.0/15",
+        "inet6_range": "fc00::/18"
       }
     ],
     "rules": [
@@ -523,12 +531,6 @@ rules:
         "disable_cache": true
       }
     ],
-    "fakeip": {
-      "enabled": true,
-      "inet4_range": "198.18.0.0/15",
-      "inet6_range": "fc00::/18"
-    },
-    "independent_cache": true,
     "final": "remote-dns",
     "strategy": "ipv4_only"
   },
@@ -600,20 +602,19 @@ rules:
     ],
     "auto_detect_interface": true
   },
+  "cache_file": {
+    "enabled": true,
+    "store_fakeip": true
+  },
   "experimental": {
     "clash_api": {
       "external_controller": "127.0.0.1:9090",
       "external_ui": "ui",
       "secret": "",
       "default_mode": "rule"
-    },
-    "cache_file": {
-      "enabled": true,
-      "store_fakeip": true
     }
   }
 }
-
 ````
 
 ## File: src/index.ts

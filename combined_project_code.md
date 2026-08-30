@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Aug 30 19:46:20 UTC 2026
+Generated on: Sun Aug 30 19:51:17 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -470,6 +470,12 @@ rules:
     "level": "info",
     "timestamp": true
   },
+  "http_clients": [
+    {
+      "tag": "default",
+      "detour": "direct"
+    }
+  ],
   "dns": {
     "servers": [
       {
@@ -567,6 +573,7 @@ rules:
   ],
   "route": {
     "default_domain_resolver": "local-dns",
+    "default_http_client": "default",
     "rule_set": [
       { "type": "remote", "tag": "rs-ai", "format": "binary", "url": "https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.srs" },
       { "type": "remote", "tag": "rs-apple", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/apple.srs" },

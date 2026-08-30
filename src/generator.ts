@@ -145,9 +145,9 @@ async function fetchTemplateWithSWR(url: string, cacheKey: string, fallbackJsonS
   return fallbackJsonStr;
 }
 
-// --- Sing-Box 配置生成 (更新至 v5 快取鍵以確保正確 experimental.cache_file 結構) ---
+// --- Sing-Box 配置生成 (更新至 v6 快取鍵以確保正確 route 嗅探結構) ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env): Promise<string> {
-  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox_v5', FALLBACK_SINGBOX_RULES, env);
+  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox_v6', FALLBACK_SINGBOX_RULES, env);
   const config = JSON.parse(text);
   
   const outbounds = nodes.map(n => JSON.parse(JSON.stringify(n.singboxObj)));
@@ -191,7 +191,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env): Prom
 
 // --- Clash Meta 配置生成 ---
 export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env): Promise<string> {
-  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.clash, 'clash_v5', FALLBACK_CLASH_RULES, env);
+  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.clash, 'clash_v6', FALLBACK_CLASH_RULES, env);
   const config = yaml.load(text) as Record<string, unknown>;
   
   const proxies = nodes.map(n => {

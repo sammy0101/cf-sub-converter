@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Aug 30 19:20:15 UTC 2026
+Generated on: Sun Aug 30 19:25:56 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -495,8 +495,8 @@ rules:
       }
     ],
     "rules": [
-      { "outbound": "any", "server": "system-dns" },
-      { "clash_mode": "Direct", "server": "system-dns" },
+      { "outbound": "any", "server": "local-dns" },
+      { "clash_mode": "Direct", "server": "local-dns" },
       { "clash_mode": "Global", "server": "remote-dns" },
       { "rule_set": "rs-ads", "action": "reject" },
       {
@@ -520,11 +520,18 @@ rules:
         "rule_set": [
           "rs-apple"
         ],
-        "server": "system-dns",
+        "server": "local-dns",
         "disable_cache": true
+      },
+      {
+        "rule_set": [
+          "rs-geolocation-!cn",
+          "rs-ai"
+        ],
+        "server": "remote-dns"
       }
     ],
-    "final": "remote-dns",
+    "final": "local-dns",
     "strategy": "ipv4_only"
   },
   "inbounds": [

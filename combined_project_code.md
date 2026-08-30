@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Aug 30 18:30:35 UTC 2026
+Generated on: Sun Aug 30 18:36:06 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -561,8 +561,7 @@ rules:
     { "type": "direct", "tag": "direct" },
     { "type": "direct", "tag": "DIRECT" },
     { "type": "block", "tag": "block" },
-    { "type": "block", "tag": "REJECT" },
-    { "type": "dns", "tag": "dns-out" }
+    { "type": "block", "tag": "REJECT" }
   ],
   "route": {
     "rule_set": [
@@ -582,7 +581,7 @@ rules:
       { "type": "remote", "tag": "ip-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs", "download_detour": "direct" }
     ],
     "rules": [
-      { "protocol": "dns", "outbound": "dns-out" },
+      { "protocol": "dns", "action": "hijack-dns" },
       { "clash_mode": "Direct", "outbound": "direct" },
       { "clash_mode": "Global", "outbound": "🚀 節點選擇" },
       { "rule_set": "rs-ads", "outbound": "block" },

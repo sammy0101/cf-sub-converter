@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Aug 30 18:37:16 UTC 2026
+Generated on: Sun Aug 30 18:41:35 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -596,11 +596,11 @@ rules:
     ],
     "auto_detect_interface": true
   },
-  "cache_file": {
-    "enabled": true,
-    "store_fakeip": true
-  },
   "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "store_fakeip": true
+    },
     "clash_api": {
       "external_controller": "127.0.0.1:9090",
       "external_ui": "ui",

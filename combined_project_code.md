@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Aug 30 19:51:17 UTC 2026
+Generated on: Sun Aug 30 19:52:09 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -1235,9 +1235,12 @@ export const REMOTE_CONFIG = {
   clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML'
 };
 
-// 方案 B1 內嵌緊急降級模板 (Sing-Box 1.14+ 現代規範無警告版本)
+// 方案 B1 內嵌緊急降級模板 (Sing-Box 1.14+ 規範，含 http_clients 與 default_http_client)
 export const FALLBACK_SINGBOX_RULES = JSON.stringify({
   log: { level: "info" },
+  http_clients: [
+    { tag: "default", detour: "direct" }
+  ],
   dns: {
     servers: [
       { tag: "remote-dns", type: "https", server: "8.8.8.8", detour: "🚀 節點選擇" },
@@ -1260,6 +1263,7 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
   ],
   route: {
     default_domain_resolver: "local-dns",
+    default_http_client: "default",
     rules: [
       { action: "sniff" },
       { protocol: "dns", action: "hijack-dns" }
@@ -1467,7 +1471,7 @@ export const HTML_PAGE = `
         <!-- 1. 自適應 -->
         <div class="result-item">
           <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1 4-10z"></path></svg>
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
           </div>
           <div class="result-info"><div class="result-name">自適應 (Auto)</div><div class="result-desc">自動識別客戶端協議</div></div>
           <div class="result-input-wrapper"><input type="text" id="adaptiveUrl" readonly></div>

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Aug 30 18:21:48 UTC 2026
+Generated on: Sun Aug 30 18:22:37 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -1227,23 +1227,32 @@ export const REMOTE_CONFIG = {
   clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML'
 };
 
-// 方案 B1 內嵌緊急降級模板
+// 方案 B1 內嵌緊急降級模板 (Sing-Box 1.14+ 規範)
 export const FALLBACK_SINGBOX_RULES = JSON.stringify({
   log: { level: "info" },
   dns: {
     servers: [
-      { tag: "remote-dns", address: "https://1.1.1.1/dns-query", detour: "🚀 節點選擇" },
-      { tag: "local-dns", address: "223.5.5.5", detour: "direct" }
+      { tag: "remote-dns", type: "https", server: "8.8.8.8", detour: "🚀 節點選擇" },
+      { tag: "local-dns", type: "udp", server: "223.5.5.5", detour: "direct" },
+      { tag: "system-dns", type: "local", detour: "direct" },
+      { tag: "block-dns", type: "rcode", code: "success" },
+      { tag: "fakeip-dns", type: "fakeip", inet4_range: "198.18.0.0/15", inet6_range: "fc00::/18" }
     ],
-    rules: [{ outbound: "any", server: "local-dns" }]
+    rules: [
+      { outbound: "any", server: "system-dns" },
+      { rule_set: "rs-ads", server: "block-dns" }
+    ],
+    final: "remote-dns",
+    strategy: "ipv4_only"
   },
-  inbounds: [{ type: "tun", tag: "tun-in", interface_name: "tun0", auto_route: true }],
+  inbounds: [{ type: "tun", tag: "tun-in", interface_name: "tun0", auto_route: true, stack: "mixed" }],
   outbounds: [
     { type: "selector", tag: "🚀 節點選擇", outbounds: ["⚡ 自動選擇", "direct"] },
     { type: "urltest", tag: "⚡ 自動選擇", outbounds: [], url: "https://www.gstatic.com/generate_204", interval: "3m" },
     { type: "direct", tag: "direct" },
     { type: "block", tag: "block" }
-  ]
+  ],
+  cache_file: { enabled: true, store_fakeip: true }
 });
 
 export const FALLBACK_CLASH_RULES = `
@@ -1504,7 +1513,7 @@ export const HTML_PAGE = `
           </div>
         </div>
 
-        <!-- 6. Loon (💥 順序已修正，圖標置於左側) -->
+        <!-- 6. Loon -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
@@ -1799,7 +1808,7 @@ export const HTML_PAGE = `
         </head><body>
         <div class="qr-container"><div id="qr"></div></div>
         <div class="title">使用客戶端掃描行動條碼</div>
-        <div class="subtitle">\${url}</div>
+        <div class="subtitle\">\${url}</div>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\\/script>
         <script>
           setTimeout(() => {
@@ -1885,7 +1894,6 @@ export const HTML_PAGE = `
 </body>
 </html>
 `;
-
 ````
 
 ## File: src/parser.ts

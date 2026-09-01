@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Aug 30 20:04:41 UTC 2026
+Generated on: Tue Sep  1 07:25:44 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -1976,6 +1976,41 @@ export const HTML_PAGE = `
 import { ProxyNode, WireGuardConfig } from "./types";
 import { safeBase64Decode, tryDecodeURIComponent } from "./utils";
 
+// --- 安全的通用代理 URI 正則解析器 ---
+interface ParsedUri {
+  protocol: string;
+  username: string;
+  password?: string;
+  hostname: string;
+  port: number;
+  params: URLSearchParams;
+  hash: string;
+}
+
+function parseProxyUri(urlStr: string, defaultPort = 443): ParsedUri | null {
+  try {
+    const trimmed = urlStr.trim();
+    const match = trimmed.match(/^([a-zA-Z0-9_-]+):\/\/(?:([^:@/?#]+)(?::([^@/?#]*))?@)?(\[[a-fA-F0-9:]+\]|[^:/?#]+)(?::([0-9]+))?(?:\?([^#]*))?(?:#(.*))?$/);
+    if (!match) return null;
+
+    const protocol = match[1].toLowerCase();
+    const username = match[2] ? decodeURIComponent(match[2]) : '';
+    const password = match[3] ? decodeURIComponent(match[3]) : undefined;
+    let hostname = match[4];
+    if (hostname.startsWith('[') && hostname.endsWith(']')) {
+      hostname = hostname.slice(1, -1);
+    }
+    const port = match[5] ? parseInt(match[5], 10) : defaultPort;
+    const query = match[6] || '';
+    const hash = match[7] ? tryDecodeURIComponent(match[7]) : '';
+
+    const params = new URLSearchParams(query);
+    return { protocol, username, password, hostname, port, params, hash };
+  } catch {
+    return null;
+  }
+}
+
 function parsePluginParams(str: string): Record<string, string> {
   const params: Record<string, string> = {};
   str.split(';').forEach(p => {
@@ -1985,7 +2020,7 @@ function parsePluginParams(str: string): Record<string, string> {
   return params;
 }
 
-// --- 解析 Shadowsocks (含 Shadowsocks-2022 深度解析) ---
+// --- 解析 Shadowsocks ---
 function parseShadowsocks(urlStr: string): ProxyNode | null {
   try {
     const getParam = (str: string, key: string): string => {
@@ -2052,7 +2087,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     }
 
     if (!server || !portStr || !method || !password) return null;
-    const port = parseInt(portStr);
+    const port = parseInt(portStr, 10);
     if (isNaN(port)) return null;
 
     const pluginStr = getParam(urlStr, 'plugin');
@@ -2060,11 +2095,9 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     const sni = getParam(urlStr, 'sni') || getParam(urlStr, 'host') || server;
     const alpnStr = getParam(urlStr, 'alpn');
     const fp = getParam(urlStr, 'fp') || 'chrome';
-    const echStr = getParam(urlStr, 'ech');
 
-    const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0) || (echStr && echStr.length > 0);
+    const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0);
     const alpn = alpnStr ? alpnStr.split(',') : undefined;
-
     const isSs2022 = method.toLowerCase().includes('2022');
 
     const node: ProxyNode = {
@@ -2107,35 +2140,51 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
   }
 }
 
-// --- 解析 VLESS (含 xhttp / SplitHTTP 與 Reality / Vision) ---
+// --- 解析 VLESS (強制鎖定 WS ALPN 為 http/1.1，解決 Cloudflare h2 斷流問題) ---
 function parseVless(urlStr: string): ProxyNode | null {
   try {
-    const fakeUrlStr = urlStr.replace(/^[^:]+:\/\//i, 'http://');
-    const url = new URL(fakeUrlStr); 
-    const params = url.searchParams; 
-    const name = tryDecodeURIComponent(url.hash.slice(1)) || 'VLESS';
+    const parsed = parseProxyUri(urlStr, 443);
+    if (!parsed) return null;
+
+    const params = parsed.params;
+    const name = parsed.hash || 'VLESS';
     
-    let wsPath = params.get('path') || '/';
-    if (!wsPath.startsWith('/')) wsPath = '/' + wsPath;
+    let rawPath = params.get('path') || '/';
+    if (!rawPath.startsWith('/')) rawPath = '/' + rawPath;
+
+    // 提取 Early Data (如 ?ed=2560 或 &ed=2048)
+    let earlyDataLength: number | undefined = undefined;
+    const edMatch = rawPath.match(/[?&]ed=([0-9]+)/) || (params.get('ed') ? [null, params.get('ed')] : null);
+    if (edMatch && edMatch[1]) {
+      earlyDataLength = parseInt(edMatch[1], 10);
+    }
 
     const netType = params.get('type') || 'tcp';
     const isXhttp = netType === 'xhttp' || netType === 'splithttp';
+    const isGrpc = netType === 'grpc';
+    const security = params.get('security') || (parsed.port === 443 ? 'tls' : 'none');
+    const isTls = security === 'tls' || security === 'reality';
+    const hostHeader = params.get('host') || params.get('sni') || parsed.hostname;
+
+    // 解析用戶自訂 ALPN，若未指定且為 WebSocket，鎖定為 ['http/1.1']
+    const customAlpn = params.get('alpn') ? params.get('alpn')!.split(',') : (netType === 'ws' ? ['http/1.1'] : undefined);
 
     const node: ProxyNode = {
       type: 'vless',
       name,
-      server: url.hostname,
-      port: parseInt(url.port) || 443,
-      uuid: url.username,
-      tls: params.get('security') === 'tls' || params.get('security') === 'reality',
+      server: parsed.hostname,
+      port: parsed.port,
+      uuid: parsed.username,
+      tls: isTls,
       flow: params.get('flow') || undefined,
       network: netType,
       sni: params.get('sni') || params.get('host') || undefined,
+      alpn: customAlpn,
       fingerprint: params.get('fp') || 'chrome',
-      skipCertVerify: params.get('allowInsecure') === '1'
+      skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1'
     };
 
-    if (params.get('security') === 'reality') {
+    if (security === 'reality') {
       node.reality = {
         publicKey: params.get('pbk') || '',
         shortId: params.get('sid') || ''
@@ -2144,42 +2193,58 @@ function parseVless(urlStr: string): ProxyNode | null {
     }
 
     if (node.network === 'ws') {
-      node.wsPath = wsPath;
-      node.wsHeaders = { Host: params.get('host') || node.server };
+      node.wsPath = rawPath;
+      node.wsHeaders = { Host: hostHeader };
     }
 
-    // 支援 xhttp / SplitHTTP
     if (isXhttp) {
-      node.xhttpPath = params.get('path') || '/';
-      node.xhttpHost = params.get('host') || params.get('sni') || node.server;
+      node.xhttpPath = rawPath;
+      node.xhttpHost = hostHeader;
       node.xhttpMode = params.get('mode') || 'auto';
     }
     
-    // Sing-Box Outbound
+    // Sing-Box Outbound 構建
     const sb: Record<string, unknown> = {
       tag: name,
       type: 'vless',
       server: node.server,
       server_port: node.port,
       uuid: node.uuid,
-      packet_encoding: 'xudp',
-      tls: {
-        enabled: node.tls,
+      packet_encoding: 'xudp'
+    };
+
+    if (node.tls) {
+      const tlsObj: Record<string, unknown> = {
+        enabled: true,
         server_name: node.sni || node.server,
+        // 💥 核心修正：WebSocket 必須強制 ALPN 為 http/1.1，防止 Cloudflare 協商 HTTP/2 造成連線被強制中斷
+        alpn: node.alpn || (node.network === 'ws' ? ['http/1.1'] : undefined),
         insecure: node.skipCertVerify,
         utls: { enabled: true, fingerprint: node.fingerprint }
-      }
-    };
-    if (node.flow) sb.flow = node.flow;
-    if (node.reality) {
-      (sb.tls as Record<string, unknown>).reality = {
-        enabled: true,
-        public_key: node.reality.publicKey,
-        short_id: node.reality.shortId
       };
+      if (node.reality) {
+        tlsObj.reality = {
+          enabled: true,
+          public_key: node.reality.publicKey,
+          short_id: node.reality.shortId
+        };
+      }
+      sb.tls = tlsObj;
     }
+
+    if (node.flow) sb.flow = node.flow;
+
     if (node.network === 'ws') {
-      sb.transport = { type: 'ws', path: node.wsPath, headers: node.wsHeaders };
+      const wsTransport: Record<string, unknown> = {
+        type: 'ws',
+        path: node.wsPath,
+        headers: node.wsHeaders
+      };
+      if (earlyDataLength) {
+        wsTransport.max_early_data = earlyDataLength;
+        wsTransport.early_data_header_name = 'Sec-WebSocket-Protocol';
+      }
+      sb.transport = wsTransport;
     } else if (isXhttp) {
       sb.transport = {
         type: 'splithttp',
@@ -2187,10 +2252,15 @@ function parseVless(urlStr: string): ProxyNode | null {
         headers: { Host: node.xhttpHost },
         mode: node.xhttpMode
       };
+    } else if (isGrpc) {
+      sb.transport = {
+        type: 'grpc',
+        service_name: params.get('serviceName') || ''
+      };
     }
     node.singboxObj = sb;
     
-    // Clash Meta Outbound
+    // Clash Meta Outbound 構建
     const cl: Record<string, unknown> = {
       name,
       type: 'vless',
@@ -2200,6 +2270,7 @@ function parseVless(urlStr: string): ProxyNode | null {
       udp: true,
       tls: node.tls,
       servername: node.sni || node.server,
+      alpn: node.alpn,
       'skip-cert-verify': node.skipCertVerify,
       'client-fingerprint': node.fingerprint
     };
@@ -2210,10 +2281,18 @@ function parseVless(urlStr: string): ProxyNode | null {
     }
     if (node.network === 'ws') {
       cl.network = 'ws';
-      cl['ws-opts'] = { path: node.wsPath, headers: node.wsHeaders };
+      cl['ws-opts'] = {
+        path: node.wsPath,
+        headers: node.wsHeaders,
+        'max-early-data': earlyDataLength,
+        'early-data-header-name': earlyDataLength ? 'Sec-WebSocket-Protocol' : undefined
+      };
     } else if (isXhttp) {
       cl.network = 'xhttp';
       cl['xhttp-opts'] = { path: node.xhttpPath, host: node.xhttpHost, mode: node.xhttpMode };
+    } else if (isGrpc) {
+      cl.network = 'grpc';
+      cl['grpc-opts'] = { 'grpc-service-name': params.get('serviceName') || '' };
     }
     node.clashObj = cl;
 
@@ -2226,12 +2305,13 @@ function parseVless(urlStr: string): ProxyNode | null {
 // --- 解析 WireGuard / WARP ---
 function parseWireGuard(urlStr: string): ProxyNode | null {
   try {
-    const fakeUrlStr = urlStr.replace(/^(wireguard|warp):\/\//i, 'http://');
-    const url = new URL(fakeUrlStr);
-    const params = url.searchParams;
-    const name = tryDecodeURIComponent(url.hash.slice(1)) || 'WireGuard';
+    const parsed = parseProxyUri(urlStr, 2408);
+    if (!parsed) return null;
 
-    const privateKey = decodeURIComponent(url.username);
+    const params = parsed.params;
+    const name = parsed.hash || 'WireGuard';
+
+    const privateKey = parsed.username;
     const localIps = (params.get('ip') || params.get('address') || '172.16.0.2/32,fd00::2/128').split(',');
     const publicKey = params.get('public_key') || params.get('pk') || '';
     const presharedKey = params.get('preshared_key') || params.get('psk') || undefined;
@@ -2250,13 +2330,12 @@ function parseWireGuard(urlStr: string): ProxyNode | null {
     const node: ProxyNode = {
       type: 'wireguard',
       name,
-      server: url.hostname,
-      port: parseInt(url.port, 10) || 2408,
+      server: parsed.hostname,
+      port: parsed.port,
       udp: true,
       wireguard: wgConfig
     };
 
-    // Sing-box
     node.singboxObj = {
       tag: name,
       type: 'wireguard',
@@ -2268,11 +2347,10 @@ function parseWireGuard(urlStr: string): ProxyNode | null {
       private_key: privateKey,
       peer_public_key: publicKey,
       pre_shared_key: presharedKey,
-      reserved: reserved,
-      mtu: mtu
+      reserved,
+      mtu
     };
 
-    // Clash Meta
     node.clashObj = {
       name,
       type: 'wireguard',
@@ -2283,8 +2361,8 @@ function parseWireGuard(urlStr: string): ProxyNode | null {
       'public-key': publicKey,
       'private-key': privateKey,
       'preshared-key': presharedKey,
-      reserved: reserved,
-      mtu: mtu,
+      reserved,
+      mtu,
       udp: true
     };
 
@@ -2297,20 +2375,21 @@ function parseWireGuard(urlStr: string): ProxyNode | null {
 // --- 解析 Hysteria2 ---
 function parseHysteria2(urlStr: string): ProxyNode | null {
   try {
-    const fakeUrlStr = urlStr.replace(/^[^:]+:\/\//i, 'http://');
-    const url = new URL(fakeUrlStr); 
-    const params = url.searchParams; 
-    const name = tryDecodeURIComponent(url.hash.slice(1)) || 'Hy2';
+    const parsed = parseProxyUri(urlStr, 443);
+    if (!parsed) return null;
+
+    const params = parsed.params;
+    const name = parsed.hash || 'Hy2';
     
     const node: ProxyNode = {
       type: 'hysteria2',
       name,
-      server: url.hostname,
-      port: parseInt(url.port) || 443,
-      password: url.username,
+      server: parsed.hostname,
+      port: parsed.port,
+      password: parsed.username,
       tls: true,
-      sni: params.get('sni') || url.hostname,
-      skipCertVerify: params.get('insecure') === '1',
+      sni: params.get('sni') || parsed.hostname,
+      skipCertVerify: params.get('insecure') === '1' || params.get('allowInsecure') === '1',
       obfs: params.get('obfs') || undefined,
       obfsPassword: params.get('obfs-password') || undefined
     };
@@ -2352,10 +2431,11 @@ function parseHysteria2(urlStr: string): ProxyNode | null {
 // --- 解析 TUIC ---
 function parseTuic(urlStr: string): ProxyNode | null {
   try {
-    const fakeUrlStr = urlStr.replace(/^[^:]+:\/\//i, 'http://');
-    const url = new URL(fakeUrlStr);
-    const params = url.searchParams;
-    const name = tryDecodeURIComponent(url.hash.slice(1)) || 'TUIC';
+    const parsed = parseProxyUri(urlStr, 443);
+    if (!parsed) return null;
+
+    const params = parsed.params;
+    const name = parsed.hash || 'TUIC';
 
     const congestion_control = params.get('congestion_control') || 'bbr';
     const udp_relay_mode = params.get('udp_relay_mode') || 'native';
@@ -2365,12 +2445,12 @@ function parseTuic(urlStr: string): ProxyNode | null {
     const node: ProxyNode = {
       type: 'tuic',
       name,
-      server: url.hostname,
-      port: parseInt(url.port) || 443,
-      uuid: url.username,
-      password: url.password,
+      server: parsed.hostname,
+      port: parsed.port,
+      uuid: parsed.username,
+      password: parsed.password || '',
       tls: true,
-      sni: params.get('sni') || url.hostname,
+      sni: params.get('sni') || parsed.hostname,
       alpn: alpnStr ? alpnStr.split(',') : ['h3'],
       skipCertVerify,
       congestion_control,
@@ -2412,30 +2492,30 @@ function parseTuic(urlStr: string): ProxyNode | null {
 // --- 解析 AnyTLS ---
 function parseAnytls(urlStr: string): ProxyNode | null {
   try {
-    const fakeUrlStr = urlStr.replace(/^[^:]+:\/\//i, 'http://');
-    const url = new URL(fakeUrlStr);
-    const params = url.searchParams;
-    const name = tryDecodeURIComponent(url.hash.slice(1)) || 'AnyTLS';
-    
-    const uuid = url.username; 
+    const parsed = parseProxyUri(urlStr, 443);
+    if (!parsed) return null;
+
+    const params = parsed.params;
+    const name = parsed.hash || 'AnyTLS';
+    const uuid = parsed.username;
     const skipCertVerify = params.get('allowInsecure') === '1' || params.get('insecure') === '1';
     const alpnStr = params.get('alpn');
 
     const node: ProxyNode = {
       type: 'anytls',
       name,
-      server: url.hostname,
-      port: parseInt(url.port) || 443,
+      server: parsed.hostname,
+      port: parsed.port,
       uuid,
       password: uuid,
       tls: true,
-      sni: params.get('sni') || url.hostname,
+      sni: params.get('sni') || parsed.hostname,
       fingerprint: params.get('fp') || 'chrome',
       skipCertVerify,
       alpn: alpnStr ? alpnStr.split(',') : undefined
     };
 
-    const sb: Record<string, unknown> = { 
+    node.singboxObj = { 
       tag: name, 
       type: 'anytls', 
       server: node.server, 
@@ -2448,10 +2528,9 @@ function parseAnytls(urlStr: string): ProxyNode | null {
         utls: { enabled: true, fingerprint: node.fingerprint } 
       } 
     };
-    if (node.alpn) (sb.tls as Record<string, unknown>).alpn = node.alpn;
-    node.singboxObj = sb;
+    if (node.alpn) (node.singboxObj.tls as Record<string, unknown>).alpn = node.alpn;
 
-    const cl: Record<string, unknown> = {
+    node.clashObj = {
       name,
       type: 'anytls',
       server: node.server,
@@ -2462,8 +2541,7 @@ function parseAnytls(urlStr: string): ProxyNode | null {
       'client-fingerprint': node.fingerprint,
       udp: true
     };
-    if (node.alpn) cl.alpn = node.alpn;
-    node.clashObj = cl;
+    if (node.alpn) node.clashObj.alpn = node.alpn;
 
     return node;
   } catch {
@@ -2481,32 +2559,46 @@ function parseVmess(vmessUrl: string): ProxyNode | null {
     let wsPath = config.path || '/';
     if (!wsPath.startsWith('/')) wsPath = '/' + wsPath;
 
+    const isTls = config.tls === 'tls';
+    const netType = config.net || 'tcp';
+
     const node: ProxyNode = {
       type: 'vmess',
       name,
       server: config.add,
-      port: parseInt(config.port) || 443,
+      port: parseInt(config.port, 10) || (isTls ? 443 : 80),
       uuid: config.id,
       cipher: 'auto',
-      tls: config.tls === 'tls',
+      tls: isTls,
       sni: config.sni || config.host,
-      network: config.net || 'tcp',
+      network: netType,
       wsPath,
       wsHeaders: config.host ? { Host: config.host } : undefined,
       skipCertVerify: true
     };
     
-    node.singboxObj = {
+    const sb: Record<string, unknown> = {
       tag: name,
       type: 'vmess',
       server: node.server,
       server_port: node.port,
       uuid: node.uuid,
       security: 'auto',
-      packet_encoding: 'xudp',
-      tls: { enabled: node.tls, server_name: node.sni || node.server, insecure: true },
-      transport: node.network === 'ws' ? { type: 'ws', path: node.wsPath, headers: node.wsHeaders } : undefined
+      packet_encoding: 'xudp'
     };
+
+    if (node.tls) {
+      sb.tls = {
+        enabled: true,
+        server_name: node.sni || node.server,
+        alpn: netType === 'ws' ? ['http/1.1'] : undefined,
+        insecure: true
+      };
+    }
+    if (node.network === 'ws') {
+      sb.transport = { type: 'ws', path: node.wsPath, headers: node.wsHeaders };
+    }
+    node.singboxObj = sb;
     
     const cl: Record<string, unknown> = {
       name,
@@ -2514,7 +2606,7 @@ function parseVmess(vmessUrl: string): ProxyNode | null {
       server: node.server,
       port: node.port,
       uuid: node.uuid,
-      alterId: parseInt(config.aid) || 0,
+      alterId: parseInt(config.aid, 10) || 0,
       cipher: config.scy || 'auto',
       udp: true,
       tls: node.tls,
@@ -2533,19 +2625,20 @@ function parseVmess(vmessUrl: string): ProxyNode | null {
 // --- 解析 Trojan ---
 function parseTrojan(urlStr: string): ProxyNode | null {
   try {
-    const fakeUrlStr = urlStr.replace(/^[^:]+:\/\//i, 'http://');
-    const url = new URL(fakeUrlStr); 
-    const params = url.searchParams; 
-    const name = tryDecodeURIComponent(url.hash.slice(1)) || 'Trojan';
+    const parsed = parseProxyUri(urlStr, 443);
+    if (!parsed) return null;
+
+    const params = parsed.params;
+    const name = parsed.hash || 'Trojan';
 
     const node: ProxyNode = {
       type: 'trojan',
       name,
-      server: url.hostname,
-      port: parseInt(url.port) || 443,
-      password: url.username,
+      server: parsed.hostname,
+      port: parsed.port,
+      password: parsed.username,
       tls: true,
-      sni: params.get('sni') || params.get('peer') || url.hostname,
+      sni: params.get('sni') || params.get('peer') || parsed.hostname,
       skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1'
     };
 
@@ -2630,7 +2723,6 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
   
   return nodes;
 }
-
 ````
 
 ## File: src/types.ts

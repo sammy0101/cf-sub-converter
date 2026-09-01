@@ -121,14 +121,15 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     const sni = getParam(urlStr, 'sni') || getParam(urlStr, 'host') || server;
     const alpnStr = getParam(urlStr, 'alpn');
     const fp = getParam(urlStr, 'fp') || 'chrome';
+    const isEch = Boolean(getParam(urlStr, 'ech'));
 
-    const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0);
+    const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0) || isEch;
     const alpn = alpnStr ? alpnStr.split(',') : undefined;
     const isSs2022 = method.toLowerCase().includes('2022');
 
     const node: ProxyNode = {
       type: 'shadowsocks', name, server, port, cipher: method, password, udp: true,
-      tls: isTls, sni, alpn, fingerprint: fp
+      tls: isTls, sni, alpn, fingerprint: fp, ech: isEch
     };
 
     const sb: Record<string, unknown> = {
@@ -158,6 +159,9 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     if (isTls) {
       cl.smux = { enabled: true };
     }
+    if (isEch) {
+      cl['ech-opts'] = { enable: true };
+    }
     node.clashObj = cl;
 
     return node;
@@ -166,7 +170,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
   }
 }
 
-// --- 解析 VLESS (全參數名相容：type/net/network/transport/path 智慧識別 WebSocket) ---
+// --- 解析 VLESS (完整支援 ECH 加密 ClientHello 與路徑淨化) ---
 function parseVless(urlStr: string): ProxyNode | null {
   try {
     const parsed = parseProxyUri(urlStr, 443);
@@ -177,7 +181,7 @@ function parseVless(urlStr: string): ProxyNode | null {
     
     let rawPath = params.get('path') || '';
     
-    // 💥 1. 智慧傳輸協定偵測 (相容 type / net / network / transport，或有 path 即視為 ws)
+    // 智慧傳輸協定偵測
     const explicitNet = (params.get('type') || params.get('net') || params.get('network') || params.get('transport') || '').toLowerCase();
     let netType = explicitNet;
     if (!netType) {
@@ -195,23 +199,27 @@ function parseVless(urlStr: string): ProxyNode | null {
       rawPath = '/' + rawPath;
     }
 
-    // 💥 2. 提取 Early Data 長度 (如 ?ed=2560 或 &ed=2048)
+    // 提取 Early Data 長度 (如 ?ed=2560 或 &ed=2048)
     let earlyDataLength: number | undefined = undefined;
     const edMatch = rawPath.match(/[?&]ed=([0-9]+)/) || (params.get('ed') ? [null, params.get('ed')] : null);
     if (edMatch && edMatch[1]) {
       earlyDataLength = parseInt(edMatch[1], 10);
     }
 
-    // 💥 3. 淨化路徑（移除 ?ed=2560，避免 Worker 端解析衝突）
+    // 淨化路徑（移除 ?ed=2560）
     const cleanPath = rawPath ? (rawPath.replace(/[?&]ed=[0-9]+/g, '').replace(/\?$/, '') || '/') : '/';
 
     const isXhttp = netType === 'xhttp' || netType === 'splithttp';
     const isGrpc = netType === 'grpc';
-    const security = params.get('security') || (params.get('tls') === '1' || params.get('tls') === 'tls' ? 'tls' : (parsed.port === 443 ? 'tls' : 'none'));
-    const isTls = security === 'tls' || security === 'reality';
+    
+    // 💥 提取 ECH 參數 (如 ech=https://cloudflare-dns.com/dns-query 或 ech=1)
+    const isEch = Boolean(params.get('ech'));
+
+    const security = params.get('security') || (params.get('tls') === '1' || params.get('tls') === 'tls' || isEch ? 'tls' : (parsed.port === 443 ? 'tls' : 'none'));
+    const isTls = security === 'tls' || security === 'reality' || isEch;
     const hostHeader = params.get('host') || params.get('sni') || parsed.hostname;
 
-    // 若為 WebSocket，強制鎖定 ALPN 為 http/1.1 (防止 Cloudflare h2 斷流)
+    // 若為 WebSocket，強制鎖定 ALPN 為 http/1.1
     const customAlpn = params.get('alpn') ? params.get('alpn')!.split(',') : (netType === 'ws' ? ['http/1.1'] : undefined);
 
     const node: ProxyNode = {
@@ -226,7 +234,8 @@ function parseVless(urlStr: string): ProxyNode | null {
       sni: params.get('sni') || params.get('host') || undefined,
       alpn: customAlpn,
       fingerprint: params.get('fp') || 'chrome',
-      skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1'
+      skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1',
+      ech: isEch
     };
 
     if (security === 'reality') {
@@ -266,6 +275,10 @@ function parseVless(urlStr: string): ProxyNode | null {
         insecure: node.skipCertVerify,
         utls: { enabled: true, fingerprint: node.fingerprint }
       };
+      // 💥 關鍵修復：啟用 Sing-Box 原生 ECH (Encrypted Client Hello)
+      if (node.ech) {
+        tlsObj.ech = { enabled: true };
+      }
       if (node.reality) {
         tlsObj.reality = {
           enabled: true,
@@ -278,7 +291,6 @@ function parseVless(urlStr: string): ProxyNode | null {
 
     if (node.flow) sb.flow = node.flow;
 
-    // 💥 確保 WebSocket 出站生成正確的 transport 區塊
     if (node.network === 'ws') {
       const wsTransport: Record<string, unknown> = {
         type: 'ws',
@@ -319,6 +331,9 @@ function parseVless(urlStr: string): ProxyNode | null {
       'skip-cert-verify': node.skipCertVerify,
       'client-fingerprint': node.fingerprint
     };
+    if (node.ech) {
+      cl['ech-opts'] = { enable: true };
+    }
     if (node.flow) cl.flow = node.flow; 
     if (node.reality) {
       cl.reality = true;
@@ -701,6 +716,7 @@ function parseTrojan(urlStr: string): ProxyNode | null {
 
     const params = parsed.params;
     const name = parsed.hash || 'Trojan';
+    const isEch = Boolean(params.get('ech'));
 
     const node: ProxyNode = {
       type: 'trojan',
@@ -710,8 +726,18 @@ function parseTrojan(urlStr: string): ProxyNode | null {
       password: parsed.username,
       tls: true,
       sni: params.get('sni') || params.get('peer') || parsed.hostname,
-      skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1'
+      skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1',
+      ech: isEch
     };
+
+    const tlsObj: Record<string, unknown> = {
+      enabled: true,
+      server_name: node.sni,
+      insecure: node.skipCertVerify
+    };
+    if (node.ech) {
+      tlsObj.ech = { enabled: true };
+    }
 
     node.singboxObj = {
       tag: name,
@@ -719,10 +745,10 @@ function parseTrojan(urlStr: string): ProxyNode | null {
       server: node.server,
       server_port: node.port,
       password: node.password,
-      tls: { enabled: true, server_name: node.sni, insecure: node.skipCertVerify }
+      tls: tlsObj
     };
 
-    node.clashObj = {
+    const cl: Record<string, unknown> = {
       name,
       type: 'trojan',
       server: node.server,
@@ -732,6 +758,10 @@ function parseTrojan(urlStr: string): ProxyNode | null {
       'skip-cert-verify': node.skipCertVerify,
       udp: true
     };
+    if (node.ech) {
+      cl['ech-opts'] = { enable: true };
+    }
+    node.clashObj = cl;
 
     return node;
   } catch {

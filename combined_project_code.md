@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Tue Sep  1 08:33:29 UTC 2026
+Generated on: Tue Sep  1 08:34:06 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -1234,7 +1234,7 @@ export const REMOTE_CONFIG = {
   clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML'
 };
 
-// 方案 B1 內嵌緊急降級模板 (Sing-Box 1.14+ 規範)
+// 方案 B1 內嵌緊急降級模板 (Sing-Box 1.14+ 規範，海外全面對接 fakeip-dns)
 export const FALLBACK_SINGBOX_RULES = JSON.stringify({
   log: { level: "info" },
   http_clients: [
@@ -1248,7 +1248,21 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
       { tag: "fakeip-dns", type: "fakeip", inet4_range: "198.18.0.0/15", inet6_range: "fc00::/18" }
     ],
     rules: [
-      { rule_set: "rs-ads", action: "reject" }
+      { rule_set: "rs-ads", action: "reject" },
+      {
+        rule_set: [
+          "rs-cn",
+          "rs-private"
+        ],
+        "server": "local-dns"
+      },
+      {
+        rule_set: [
+          "rs-geolocation-!cn",
+          "rs-ai"
+        ],
+        "server": "fakeip-dns"
+      }
     ],
     final: "local-dns",
     strategy: "ipv4_only"
@@ -1480,7 +1494,7 @@ export const HTML_PAGE = `
           </div>
         </div>
 
-        <!-- 2. Sing-Box (💥 專屬 Scheme QR Code) -->
+        <!-- 2. Sing-Box -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
@@ -1811,7 +1825,6 @@ export const HTML_PAGE = `
       showToast('全客戶端連結生成完畢！');
     }
 
-    // 💥 智慧 QR Code 與一鍵喚醒 App 導入
     function showQr(id, clientType = 'auto') {
       const rawUrl = document.getElementById(id).value;
       if (!rawUrl) return;
@@ -1821,7 +1834,6 @@ export const HTML_PAGE = `
       let displayTitle = '掃碼導入配置';
       let clientName = '客戶端';
 
-      // 構建官方專屬客戶端協議 Scheme (解決掃碼空白問題)
       if (clientType === 'singbox') {
         deepLink = \`sing-box://import-remote-profile?url=\${encodeURIComponent(rawUrl)}#\${encodeURIComponent(profileName)}\`;
         displayTitle = 'Sing-Box 專屬掃碼導入';
@@ -1966,7 +1978,6 @@ export const HTML_PAGE = `
 </body>
 </html>
 `;
-
 ````
 
 ## File: src/parser.ts

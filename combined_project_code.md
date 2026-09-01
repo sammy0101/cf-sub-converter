@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Tue Sep  1 07:56:28 UTC 2026
+Generated on: Tue Sep  1 07:59:41 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -2883,7 +2883,7 @@ import { utf8ToBase64 } from './utils';
 
 const version = packageJson.version || '3.5.0';
 
-// --- 明文 URI 格式導出 ---
+// --- 明文 URI 格式導出 (含 ECH 參數回填) ---
 export function toRawLinks(nodes: ProxyNode[]): string {
   const links = nodes.map(node => {
     try {
@@ -2894,6 +2894,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (node.flow) params.set('flow', node.flow);
         if (node.sni) params.set('sni', node.sni);
         if (node.fingerprint) params.set('fp', node.fingerprint);
+        // 💥 保留 ECH 參數
         if (node.ech) params.set('ech', 'https://cloudflare-dns.com/dns-query');
         if (node.reality) { params.set('pbk', node.reality.publicKey); params.set('sid', node.reality.shortId); }
         if (node.network === 'ws') { if (node.wsPath) params.set('path', node.wsPath); if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host); }
@@ -3078,7 +3079,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 5. 確保所有出站節點的 WebSocket ALPN 正確對齊
+  // 5. 確保出站節點的 WebSocket ALPN 與 ECH 正確保留
   const outbounds = nodes.map(n => {
     const obj = JSON.parse(JSON.stringify(n.singboxObj));
     if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {

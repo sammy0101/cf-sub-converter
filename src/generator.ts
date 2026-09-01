@@ -157,17 +157,17 @@ async function fetchTemplateWithSWR(
   return fallbackJsonStr;
 }
 
-// --- Sing-Box 配置生成 (含自動語法淨化與規範修正) ---
+// --- Sing-Box 配置生成 ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
   const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox', FALLBACK_SINGBOX_RULES, env, forceRefresh);
   const config = JSON.parse(text);
   
-  // 💥 1. 自動補全 Sing-Box 1.14+ 規範之 http_clients (解決 remote rule-set 隱式客戶端棄用警告)
+  // 1. 自動補全 Sing-Box 1.14+ 規範之 http_clients
   if (!config.http_clients || !Array.isArray(config.http_clients) || config.http_clients.length === 0) {
     config.http_clients = [{ tag: 'default', detour: 'direct' }];
   }
 
-  // 💥 2. 自動淨化 DNS 規範 (杜絕 deadloop 死循環與 rcode 棄用)
+  // 2. 自動淨化 DNS 規範
   if (config.dns) {
     config.dns.final = 'local-dns';
     if (Array.isArray(config.dns.servers)) {
@@ -176,13 +176,12 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
         if (s.detour === 'direct') delete s.detour;
       });
     }
-    // 徹底移除已廢棄的 outbound DNS rule
     if (Array.isArray(config.dns.rules)) {
       config.dns.rules = config.dns.rules.filter((r: Record<string, unknown>) => !('outbound' in r));
     }
   }
 
-  // 💥 3. 自動補充 route.default_domain_resolver 與 default_http_client 並清理 download_detour
+  // 3. 自動補充 route.default_domain_resolver 與 default_http_client
   if (!config.route) config.route = {};
   config.route.default_domain_resolver = 'local-dns';
   config.route.default_http_client = 'default';
@@ -193,7 +192,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 💥 4. 自動清理 inbounds 的舊嗅探欄位
+  // 4. 自動清理 inbounds
   if (Array.isArray(config.inbounds)) {
     config.inbounds.forEach((ib: Record<string, unknown>) => {
       delete ib.sniff;
@@ -201,7 +200,16 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  const outbounds = nodes.map(n => JSON.parse(JSON.stringify(n.singboxObj)));
+  // 5. 確保所有出站節點的 WebSocket ALPN 正確對齊
+  const outbounds = nodes.map(n => {
+    const obj = JSON.parse(JSON.stringify(n.singboxObj));
+    // 確保所有 WS+TLS 出站都強制具有 http/1.1 ALPN
+    if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {
+      obj.tls.alpn = ['http/1.1'];
+    }
+    return obj;
+  });
+
   const nodeTags = outbounds.map((o: Record<string, unknown>) => o.tag as string);
   
   if (!Array.isArray(config.outbounds)) config.outbounds = [];

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Tue Sep  1 07:39:40 UTC 2026
+Generated on: Tue Sep  1 07:48:14 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -2816,7 +2816,9 @@ export interface ProxyNode {
   xhttpMode?: string;
   // WireGuard / WARP
   wireguard?: WireGuardConfig;
-  // 標籤特徵 (B2 方案)
+  // ECH (Encrypted Client Hello)
+  ech?: boolean;
+  // 標籤特徵
   multiplier?: number;
   isIplc?: boolean;
 }
@@ -2825,7 +2827,6 @@ export interface CachedTemplate {
   content: string;
   updatedAt: number;
 }
-
 ````
 
 ## File: src/generator.ts

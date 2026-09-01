@@ -19,6 +19,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (node.flow) params.set('flow', node.flow);
         if (node.sni) params.set('sni', node.sni);
         if (node.fingerprint) params.set('fp', node.fingerprint);
+        if (node.ech) params.set('ech', 'https://cloudflare-dns.com/dns-query');
         if (node.reality) { params.set('pbk', node.reality.publicKey); params.set('sid', node.reality.shortId); }
         if (node.network === 'ws') { if (node.wsPath) params.set('path', node.wsPath); if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host); }
         if (node.network === 'xhttp' || node.network === 'splithttp') {
@@ -53,6 +54,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
           if (node.sni) params.set('sni', node.sni);
           if (node.alpn) params.set('alpn', node.alpn.join(','));
           if (node.fingerprint) params.set('fp', node.fingerprint);
+          if (node.ech) params.set('ech', '1');
           params.set('type', node.network || 'tcp');
         }
         const clashPlugin = (node.clashObj as Record<string, unknown>)?.plugin as string | undefined;
@@ -87,6 +89,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         const params = new URLSearchParams();
         if (node.sni) params.set('sni', node.sni);
         if (node.skipCertVerify) params.set('allowInsecure', '1');
+        if (node.ech) params.set('ech', '1');
         return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
       if (node.type === 'wireguard' && node.wireguard) {
@@ -203,7 +206,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
   // 5. 確保所有出站節點的 WebSocket ALPN 正確對齊
   const outbounds = nodes.map(n => {
     const obj = JSON.parse(JSON.stringify(n.singboxObj));
-    // 確保所有 WS+TLS 出站都強制具有 http/1.1 ALPN
     if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {
       obj.tls.alpn = ['http/1.1'];
     }

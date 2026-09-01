@@ -166,7 +166,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
   }
 }
 
-// --- 解析 VLESS (強制鎖定 WS ALPN 為 http/1.1，解決 Cloudflare h2 斷流問題) ---
+// --- 解析 VLESS (路徑淨化 + 完美相容 EdgeTunnel / Early Data) ---
 function parseVless(urlStr: string): ProxyNode | null {
   try {
     const parsed = parseProxyUri(urlStr, 443);
@@ -178,12 +178,15 @@ function parseVless(urlStr: string): ProxyNode | null {
     let rawPath = params.get('path') || '/';
     if (!rawPath.startsWith('/')) rawPath = '/' + rawPath;
 
-    // 提取 Early Data (如 ?ed=2560 或 &ed=2048)
+    // 💥 1. 提取 Early Data 長度 (如 ?ed=2560 或 &ed=2048)
     let earlyDataLength: number | undefined = undefined;
     const edMatch = rawPath.match(/[?&]ed=([0-9]+)/) || (params.get('ed') ? [null, params.get('ed')] : null);
     if (edMatch && edMatch[1]) {
       earlyDataLength = parseInt(edMatch[1], 10);
     }
+
+    // 💥 2. 核心修復：徹底淨化路徑（移除 ?ed=2560，避免 Worker 端解碼衝突）
+    const cleanPath = rawPath.replace(/[?&]ed=[0-9]+/g, '').replace(/\?$/, '') || '/';
 
     const netType = params.get('type') || 'tcp';
     const isXhttp = netType === 'xhttp' || netType === 'splithttp';
@@ -192,7 +195,7 @@ function parseVless(urlStr: string): ProxyNode | null {
     const isTls = security === 'tls' || security === 'reality';
     const hostHeader = params.get('host') || params.get('sni') || parsed.hostname;
 
-    // 解析用戶自訂 ALPN，若未指定且為 WebSocket，鎖定為 ['http/1.1']
+    // 若為 WebSocket，強制鎖定 ALPN 為 http/1.1
     const customAlpn = params.get('alpn') ? params.get('alpn')!.split(',') : (netType === 'ws' ? ['http/1.1'] : undefined);
 
     const node: ProxyNode = {
@@ -219,12 +222,12 @@ function parseVless(urlStr: string): ProxyNode | null {
     }
 
     if (node.network === 'ws') {
-      node.wsPath = rawPath;
+      node.wsPath = cleanPath;
       node.wsHeaders = { Host: hostHeader };
     }
 
     if (isXhttp) {
-      node.xhttpPath = rawPath;
+      node.xhttpPath = cleanPath;
       node.xhttpHost = hostHeader;
       node.xhttpMode = params.get('mode') || 'auto';
     }
@@ -243,7 +246,6 @@ function parseVless(urlStr: string): ProxyNode | null {
       const tlsObj: Record<string, unknown> = {
         enabled: true,
         server_name: node.sni || node.server,
-        // 💥 核心修正：WebSocket 必須強制 ALPN 為 http/1.1，防止 Cloudflare 協商 HTTP/2 造成連線被強制中斷
         alpn: node.alpn || (node.network === 'ws' ? ['http/1.1'] : undefined),
         insecure: node.skipCertVerify,
         utls: { enabled: true, fingerprint: node.fingerprint }
@@ -263,7 +265,7 @@ function parseVless(urlStr: string): ProxyNode | null {
     if (node.network === 'ws') {
       const wsTransport: Record<string, unknown> = {
         type: 'ws',
-        path: node.wsPath,
+        path: cleanPath,
         headers: node.wsHeaders
       };
       if (earlyDataLength) {
@@ -274,7 +276,7 @@ function parseVless(urlStr: string): ProxyNode | null {
     } else if (isXhttp) {
       sb.transport = {
         type: 'splithttp',
-        path: node.xhttpPath,
+        path: cleanPath,
         headers: { Host: node.xhttpHost },
         mode: node.xhttpMode
       };
@@ -308,14 +310,14 @@ function parseVless(urlStr: string): ProxyNode | null {
     if (node.network === 'ws') {
       cl.network = 'ws';
       cl['ws-opts'] = {
-        path: node.wsPath,
+        path: cleanPath,
         headers: node.wsHeaders,
         'max-early-data': earlyDataLength,
         'early-data-header-name': earlyDataLength ? 'Sec-WebSocket-Protocol' : undefined
       };
     } else if (isXhttp) {
       cl.network = 'xhttp';
-      cl['xhttp-opts'] = { path: node.xhttpPath, host: node.xhttpHost, mode: node.xhttpMode };
+      cl['xhttp-opts'] = { path: cleanPath, host: node.xhttpHost, mode: node.xhttpMode };
     } else if (isGrpc) {
       cl.network = 'grpc';
       cl['grpc-opts'] = { 'grpc-service-name': params.get('serviceName') || '' };
@@ -582,8 +584,16 @@ function parseVmess(vmessUrl: string): ProxyNode | null {
     const jsonStr = safeBase64Decode(b64);
     const config = JSON.parse(jsonStr);
     const name = config.ps || 'VMess';
-    let wsPath = config.path || '/';
-    if (!wsPath.startsWith('/')) wsPath = '/' + wsPath;
+    let rawPath = config.path || '/';
+    if (!rawPath.startsWith('/')) rawPath = '/' + rawPath;
+
+    // 淨化 VMess 的路徑與 Early Data
+    let earlyDataLength: number | undefined = undefined;
+    const edMatch = rawPath.match(/[?&]ed=([0-9]+)/);
+    if (edMatch && edMatch[1]) {
+      earlyDataLength = parseInt(edMatch[1], 10);
+    }
+    const cleanPath = rawPath.replace(/[?&]ed=[0-9]+/g, '').replace(/\?$/, '') || '/';
 
     const isTls = config.tls === 'tls';
     const netType = config.net || 'tcp';
@@ -598,7 +608,7 @@ function parseVmess(vmessUrl: string): ProxyNode | null {
       tls: isTls,
       sni: config.sni || config.host,
       network: netType,
-      wsPath,
+      wsPath: cleanPath,
       wsHeaders: config.host ? { Host: config.host } : undefined,
       skipCertVerify: true
     };
@@ -622,7 +632,12 @@ function parseVmess(vmessUrl: string): ProxyNode | null {
       };
     }
     if (node.network === 'ws') {
-      sb.transport = { type: 'ws', path: node.wsPath, headers: node.wsHeaders };
+      const wsTransport: Record<string, unknown> = { type: 'ws', path: cleanPath, headers: node.wsHeaders };
+      if (earlyDataLength) {
+        wsTransport.max_early_data = earlyDataLength;
+        wsTransport.early_data_header_name = 'Sec-WebSocket-Protocol';
+      }
+      sb.transport = wsTransport;
     }
     node.singboxObj = sb;
     
@@ -639,7 +654,14 @@ function parseVmess(vmessUrl: string): ProxyNode | null {
       servername: node.sni || config.host || node.server,
       network: node.network
     };
-    if (node.network === 'ws') cl['ws-opts'] = { path: wsPath, headers: node.wsHeaders }; 
+    if (node.network === 'ws') {
+      cl['ws-opts'] = {
+        path: cleanPath,
+        headers: node.wsHeaders,
+        'max-early-data': earlyDataLength,
+        'early-data-header-name': earlyDataLength ? 'Sec-WebSocket-Protocol' : undefined
+      };
+    }
     node.clashObj = cl;
 
     return node;

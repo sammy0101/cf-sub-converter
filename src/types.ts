@@ -42,7 +42,9 @@ export interface ProxyNode {
   xhttpMode?: string;
   // WireGuard / WARP
   wireguard?: WireGuardConfig;
-  // 標籤特徵 (B2 方案)
+  // ECH (Encrypted Client Hello)
+  ech?: boolean;
+  // 標籤特徵
   multiplier?: number;
   isIplc?: boolean;
 }

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Tue Sep  1 08:07:12 UTC 2026
+Generated on: Tue Sep  1 08:33:29 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -502,7 +502,7 @@ rules:
     ],
     "rules": [
       { "clash_mode": "Direct", "server": "system-dns" },
-      { "clash_mode": "Global", "server": "remote-dns" },
+      { "clash_mode": "Global", "server": "fakeip-dns" },
       { "rule_set": "rs-ads", "action": "reject" },
       {
         "domain": [
@@ -533,7 +533,7 @@ rules:
           "rs-geolocation-!cn",
           "rs-ai"
         ],
-        "server": "remote-dns"
+        "server": "fakeip-dns"
       }
     ],
     "final": "local-dns",
@@ -620,7 +620,6 @@ rules:
     }
   }
 }
-
 ````
 
 ## File: src/index.ts

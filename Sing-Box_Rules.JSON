@@ -35,7 +35,7 @@
     ],
     "rules": [
       { "clash_mode": "Direct", "server": "system-dns" },
-      { "clash_mode": "Global", "server": "remote-dns" },
+      { "clash_mode": "Global", "server": "fakeip-dns" },
       { "rule_set": "rs-ads", "action": "reject" },
       {
         "domain": [
@@ -66,7 +66,7 @@
           "rs-geolocation-!cn",
           "rs-ai"
         ],
-        "server": "remote-dns"
+        "server": "fakeip-dns"
       }
     ],
     "final": "local-dns",

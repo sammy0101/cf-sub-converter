@@ -166,7 +166,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
   }
 }
 
-// --- 解析 VLESS (路徑淨化 + 完美相容 EdgeTunnel / Early Data) ---
+// --- 解析 VLESS (全參數名相容：type/net/network/transport/path 智慧識別 WebSocket) ---
 function parseVless(urlStr: string): ProxyNode | null {
   try {
     const parsed = parseProxyUri(urlStr, 443);
@@ -175,27 +175,43 @@ function parseVless(urlStr: string): ProxyNode | null {
     const params = parsed.params;
     const name = parsed.hash || 'VLESS';
     
-    let rawPath = params.get('path') || '/';
-    if (!rawPath.startsWith('/')) rawPath = '/' + rawPath;
+    let rawPath = params.get('path') || '';
+    
+    // 💥 1. 智慧傳輸協定偵測 (相容 type / net / network / transport，或有 path 即視為 ws)
+    const explicitNet = (params.get('type') || params.get('net') || params.get('network') || params.get('transport') || '').toLowerCase();
+    let netType = explicitNet;
+    if (!netType) {
+      if (rawPath || params.has('ed') || params.has('host')) {
+        netType = 'ws';
+      } else {
+        netType = 'tcp';
+      }
+    }
 
-    // 💥 1. 提取 Early Data 長度 (如 ?ed=2560 或 &ed=2048)
+    if (netType === 'ws' && !rawPath) {
+      rawPath = '/';
+    }
+    if (rawPath && !rawPath.startsWith('/')) {
+      rawPath = '/' + rawPath;
+    }
+
+    // 💥 2. 提取 Early Data 長度 (如 ?ed=2560 或 &ed=2048)
     let earlyDataLength: number | undefined = undefined;
     const edMatch = rawPath.match(/[?&]ed=([0-9]+)/) || (params.get('ed') ? [null, params.get('ed')] : null);
     if (edMatch && edMatch[1]) {
       earlyDataLength = parseInt(edMatch[1], 10);
     }
 
-    // 💥 2. 核心修復：徹底淨化路徑（移除 ?ed=2560，避免 Worker 端解碼衝突）
-    const cleanPath = rawPath.replace(/[?&]ed=[0-9]+/g, '').replace(/\?$/, '') || '/';
+    // 💥 3. 淨化路徑（移除 ?ed=2560，避免 Worker 端解析衝突）
+    const cleanPath = rawPath ? (rawPath.replace(/[?&]ed=[0-9]+/g, '').replace(/\?$/, '') || '/') : '/';
 
-    const netType = params.get('type') || 'tcp';
     const isXhttp = netType === 'xhttp' || netType === 'splithttp';
     const isGrpc = netType === 'grpc';
-    const security = params.get('security') || (parsed.port === 443 ? 'tls' : 'none');
+    const security = params.get('security') || (params.get('tls') === '1' || params.get('tls') === 'tls' ? 'tls' : (parsed.port === 443 ? 'tls' : 'none'));
     const isTls = security === 'tls' || security === 'reality';
     const hostHeader = params.get('host') || params.get('sni') || parsed.hostname;
 
-    // 若為 WebSocket，強制鎖定 ALPN 為 http/1.1
+    // 若為 WebSocket，強制鎖定 ALPN 為 http/1.1 (防止 Cloudflare h2 斷流)
     const customAlpn = params.get('alpn') ? params.get('alpn')!.split(',') : (netType === 'ws' ? ['http/1.1'] : undefined);
 
     const node: ProxyNode = {
@@ -262,6 +278,7 @@ function parseVless(urlStr: string): ProxyNode | null {
 
     if (node.flow) sb.flow = node.flow;
 
+    // 💥 確保 WebSocket 出站生成正確的 transport 區塊
     if (node.network === 'ws') {
       const wsTransport: Record<string, unknown> = {
         type: 'ws',
@@ -584,19 +601,25 @@ function parseVmess(vmessUrl: string): ProxyNode | null {
     const jsonStr = safeBase64Decode(b64);
     const config = JSON.parse(jsonStr);
     const name = config.ps || 'VMess';
-    let rawPath = config.path || '/';
-    if (!rawPath.startsWith('/')) rawPath = '/' + rawPath;
+    let rawPath = config.path || '';
 
-    // 淨化 VMess 的路徑與 Early Data
+    const explicitNet = (config.net || '').toLowerCase();
+    let netType = explicitNet;
+    if (!netType) {
+      netType = rawPath ? 'ws' : 'tcp';
+    }
+
+    if (netType === 'ws' && !rawPath) rawPath = '/';
+    if (rawPath && !rawPath.startsWith('/')) rawPath = '/' + rawPath;
+
     let earlyDataLength: number | undefined = undefined;
     const edMatch = rawPath.match(/[?&]ed=([0-9]+)/);
     if (edMatch && edMatch[1]) {
       earlyDataLength = parseInt(edMatch[1], 10);
     }
-    const cleanPath = rawPath.replace(/[?&]ed=[0-9]+/g, '').replace(/\?$/, '') || '/';
+    const cleanPath = rawPath ? (rawPath.replace(/[?&]ed=[0-9]+/g, '').replace(/\?$/, '') || '/') : '/';
 
     const isTls = config.tls === 'tls';
-    const netType = config.net || 'tcp';
 
     const node: ProxyNode = {
       type: 'vmess',

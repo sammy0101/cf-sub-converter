@@ -46,7 +46,6 @@ function parsePluginParams(str: string): Record<string, string> {
   return params;
 }
 
-// 輔助判斷是否為 IPv4 / IPv6
 function isIpAddress(host: string): boolean {
   return /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(host) || /^[a-fA-F0-9:]+$/.test(host);
 }
@@ -175,7 +174,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
   }
 }
 
-// --- 解析 VLESS (修復 IP 節點的 ECH 查詢問題) ---
+// --- 解析 VLESS (修復純 IP 搭配 ECH 在 Sing-Box 的解析死鎖) ---
 function parseVless(urlStr: string): ProxyNode | null {
   try {
     const parsed = parseProxyUri(urlStr, 443);
@@ -186,7 +185,6 @@ function parseVless(urlStr: string): ProxyNode | null {
     
     let rawPath = params.get('path') || '';
     
-    // 智慧傳輸協定偵測
     const explicitNet = (params.get('type') || params.get('net') || params.get('network') || params.get('transport') || '').toLowerCase();
     let netType = explicitNet;
     if (!netType) {
@@ -204,20 +202,16 @@ function parseVless(urlStr: string): ProxyNode | null {
       rawPath = '/' + rawPath;
     }
 
-    // 提取 Early Data 長度 (如 ?ed=2560 或 &ed=2048)
     let earlyDataLength: number | undefined = undefined;
     const edMatch = rawPath.match(/[?&]ed=([0-9]+)/) || (params.get('ed') ? [null, params.get('ed')] : null);
     if (edMatch && edMatch[1]) {
       earlyDataLength = parseInt(edMatch[1], 10);
     }
 
-    // 淨化路徑（移除 ?ed=2560）
     const cleanPath = rawPath ? (rawPath.replace(/[?&]ed=[0-9]+/g, '').replace(/\?$/, '') || '/') : '/';
 
     const isXhttp = netType === 'xhttp' || netType === 'splithttp';
     const isGrpc = netType === 'grpc';
-    
-    // 提取 ECH 參數 (ech=1 或 ech=https://...)
     const isEch = Boolean(params.get('ech'));
 
     const security = params.get('security') || (params.get('tls') === '1' || params.get('tls') === 'tls' || isEch ? 'tls' : (parsed.port === 443 ? 'tls' : 'none'));
@@ -225,8 +219,11 @@ function parseVless(urlStr: string): ProxyNode | null {
     const hostHeader = params.get('host') || params.get('sni') || parsed.hostname;
     const sniHost = params.get('sni') || params.get('host') || parsed.hostname;
 
-    // 若為 WebSocket，強制鎖定 ALPN 為 http/1.1
     const customAlpn = params.get('alpn') ? params.get('alpn')!.split(',') : (netType === 'ws' ? ['http/1.1'] : undefined);
+
+    // 💥 核心智慧修復：在 Sing-Box 中，若啟用了 ECH 且 server 是純 IP，Sing-Box 無法從 IP 查詢 ECH 記錄。
+    // 將 Sing-Box 連線目標的 server 指向 SNI 網域名稱（如 tt.swim.qzz.io），從而解鎖 ECH 查詢！
+    const singboxServer = (isEch && isIpAddress(parsed.hostname) && sniHost) ? sniHost : parsed.hostname;
 
     const node: ProxyNode = {
       type: 'vless',
@@ -267,7 +264,7 @@ function parseVless(urlStr: string): ProxyNode | null {
     const sb: Record<string, unknown> = {
       tag: name,
       type: 'vless',
-      server: node.server,
+      server: singboxServer,
       server_port: node.port,
       uuid: node.uuid,
       packet_encoding: 'xudp'
@@ -282,13 +279,8 @@ function parseVless(urlStr: string): ProxyNode | null {
         utls: { enabled: true, fingerprint: node.fingerprint }
       };
 
-      // 💥 關鍵修復：針對 ECH
       if (node.ech) {
-        // 如果 server 已經是域名，直接開啟 ech: { enabled: true }
-        // 如果 server 是純 IP，Sing-Box 支援直接啟用 ECH 並透過 SNI (server_name) 解析
-        tlsObj.ech = {
-          enabled: true
-        };
+        tlsObj.ech = { enabled: true };
       }
 
       if (node.reality) {

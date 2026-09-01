@@ -46,6 +46,11 @@ function parsePluginParams(str: string): Record<string, string> {
   return params;
 }
 
+// 輔助判斷是否為 IPv4 / IPv6
+function isIpAddress(host: string): boolean {
+  return /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(host) || /^[a-fA-F0-9:]+$/.test(host);
+}
+
 // --- 解析 Shadowsocks ---
 function parseShadowsocks(urlStr: string): ProxyNode | null {
   try {
@@ -170,7 +175,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
   }
 }
 
-// --- 解析 VLESS (完整支援 ECH 加密 ClientHello 與路徑淨化) ---
+// --- 解析 VLESS (修復 IP 節點的 ECH 查詢問題) ---
 function parseVless(urlStr: string): ProxyNode | null {
   try {
     const parsed = parseProxyUri(urlStr, 443);
@@ -212,12 +217,13 @@ function parseVless(urlStr: string): ProxyNode | null {
     const isXhttp = netType === 'xhttp' || netType === 'splithttp';
     const isGrpc = netType === 'grpc';
     
-    // 💥 提取 ECH 參數 (如 ech=https://cloudflare-dns.com/dns-query 或 ech=1)
+    // 提取 ECH 參數 (ech=1 或 ech=https://...)
     const isEch = Boolean(params.get('ech'));
 
     const security = params.get('security') || (params.get('tls') === '1' || params.get('tls') === 'tls' || isEch ? 'tls' : (parsed.port === 443 ? 'tls' : 'none'));
     const isTls = security === 'tls' || security === 'reality' || isEch;
     const hostHeader = params.get('host') || params.get('sni') || parsed.hostname;
+    const sniHost = params.get('sni') || params.get('host') || parsed.hostname;
 
     // 若為 WebSocket，強制鎖定 ALPN 為 http/1.1
     const customAlpn = params.get('alpn') ? params.get('alpn')!.split(',') : (netType === 'ws' ? ['http/1.1'] : undefined);
@@ -231,7 +237,7 @@ function parseVless(urlStr: string): ProxyNode | null {
       tls: isTls,
       flow: params.get('flow') || undefined,
       network: netType,
-      sni: params.get('sni') || params.get('host') || undefined,
+      sni: sniHost,
       alpn: customAlpn,
       fingerprint: params.get('fp') || 'chrome',
       skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1',
@@ -275,10 +281,16 @@ function parseVless(urlStr: string): ProxyNode | null {
         insecure: node.skipCertVerify,
         utls: { enabled: true, fingerprint: node.fingerprint }
       };
-      // 💥 關鍵修復：啟用 Sing-Box 原生 ECH (Encrypted Client Hello)
+
+      // 💥 關鍵修復：針對 ECH
       if (node.ech) {
-        tlsObj.ech = { enabled: true };
+        // 如果 server 已經是域名，直接開啟 ech: { enabled: true }
+        // 如果 server 是純 IP，Sing-Box 支援直接啟用 ECH 並透過 SNI (server_name) 解析
+        tlsObj.ech = {
+          enabled: true
+        };
       }
+
       if (node.reality) {
         tlsObj.reality = {
           enabled: true,

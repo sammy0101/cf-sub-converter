@@ -138,7 +138,7 @@ export const HTML_PAGE = `
     .hint { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.4rem; display: flex; align-items: flex-start; gap: 6px; }
     
     .btn {
-      display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0.75rem 1.25rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.95rem; border: none; cursor: pointer; transition: background-color 0.2s; user-select: none;
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0.75rem 1.25rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.95rem; border: none; cursor: pointer; transition: all 0.2s; user-select: none;
     }
     .btn-primary { background-color: var(--primary); color: white; width: 100%; padding: 1rem; font-size: 1.05rem; }
     .btn-primary:hover { background-color: var(--primary-hover); }
@@ -169,28 +169,77 @@ export const HTML_PAGE = `
     .fav-actions { display: flex; gap: 8px; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); justify-content: flex-end; }
     .empty-state { text-align: center; padding: 2.5rem; color: var(--text-muted); font-size: 0.9rem; border: 1px dashed var(--border); border-radius: var(--radius-md); }
 
-    /* 💥 鎖定區域樣式 */
-    .lock-box {
-      background: var(--bg-input);
-      border: 1px dashed rgba(59, 130, 246, 0.3);
-      border-radius: var(--radius-md);
-      padding: 2rem;
+    /* 💥 鎖定區域旗艦美化樣式 (全居中深色卡片) */
+    .lock-card {
+      background: radial-gradient(circle at top, rgba(59, 130, 246, 0.08) 0%, rgba(15, 23, 42, 0.4) 100%);
+      border: 1px solid rgba(59, 130, 246, 0.25);
+      border-radius: var(--radius-lg);
+      padding: 3rem 1.5rem;
       text-align: center;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 1rem;
+      max-width: 440px;
+      margin: 1rem auto;
+      box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
     }
-    .lock-box svg {
-      width: 2.5rem;
-      height: 2.5rem;
+    .lock-icon-badge {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(37, 99, 235, 0.05));
+      border: 1px solid rgba(59, 130, 246, 0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1.25rem;
       color: var(--primary);
+      box-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
+    }
+    .lock-icon-badge svg {
+      width: 28px;
+      height: 28px;
+    }
+    .lock-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--text-main);
+      margin-bottom: 0.5rem;
+    }
+    .lock-desc {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      max-width: 320px;
+      line-height: 1.5;
+      margin-bottom: 1.75rem;
     }
     .lock-form {
       display: flex;
-      gap: 8px;
-      max-width: 360px;
+      gap: 10px;
       width: 100%;
+      max-width: 340px;
+    }
+    .lock-form input {
+      flex: 1;
+      text-align: center;
+      letter-spacing: 2px;
+      font-size: 1rem;
+      padding: 0.75rem 1rem;
+    }
+    .lock-form .btn {
+      padding: 0 1.5rem;
+      font-size: 0.95rem;
+      flex-shrink: 0;
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      20%, 60% { transform: translateX(-6px); }
+      40%, 80% { transform: translateX(6px); }
+    }
+    .shake {
+      animation: shake 0.4s ease-in-out;
+      border-color: var(--danger) !important;
     }
 
     .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(4px); z-index: 100; display: none; align-items: center; justify-content: center; }
@@ -213,6 +262,7 @@ export const HTML_PAGE = `
       .result-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
       .result-actions .btn-icon { height: 38px; display: flex; justify-content: center; align-items: center; }
       .lock-form { flex-direction: column; }
+      .lock-form .btn { width: 100%; }
     }
   </style>
 </head>
@@ -280,7 +330,7 @@ export const HTML_PAGE = `
         <!-- 自適應 -->
         <div class="result-item">
           <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1 4-10z"></path></svg>
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
           </div>
           <div class="result-info"><div class="result-name">自適應 (Auto)</div><div class="result-desc">自動識別客戶端協議</div></div>
           <div class="result-input-wrapper"><input type="text" id="adaptiveUrl" readonly></div>
@@ -441,9 +491,7 @@ export const HTML_PAGE = `
           <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
           已儲存的配置
         </h2>
-        <div id="favHeaderActions" style="display: flex; gap: 8px;">
-          <!-- 動態渲染操作按鈕 -->
-        </div>
+        <div id="favHeaderActions" style="display: flex; gap: 8px;"></div>
       </div>
       
       <div id="favGrid"></div>
@@ -475,11 +523,11 @@ export const HTML_PAGE = `
     let favs = [];
     let isFavLocked = false;
 
+    // 💥 改用 sessionStorage：關閉分頁或瀏覽器後自動安全上鎖
     function getStoredPwd() {
-      return localStorage.getItem('sub_fav_pwd') || '';
+      return sessionStorage.getItem('sub_fav_pwd') || '';
     }
 
-    // 💥 載入配置（帶 X-Password 認證）
     async function loadFavs() {
       const pwd = getStoredPwd();
       try {
@@ -508,20 +556,26 @@ export const HTML_PAGE = `
       }
     }
 
-    // 💥 渲染鎖定狀態
+    // 💥 旗艦級全居中美化鎖定卡片
     function renderLockScreen() {
       const headerActions = document.getElementById('favHeaderActions');
       headerActions.innerHTML = '';
 
       const grid = document.getElementById('favGrid');
+      grid.className = '';
       grid.innerHTML = \`
-        <div class="lock-box">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-          <div style="font-weight: 600; font-size: 1rem; color: var(--text-main);">此區域已受密碼保護</div>
-          <div style="font-size: 0.85rem; color: var(--text-muted); max-width: 320px;">請輸入管理密碼解鎖以查看、新增或修改私密配置</div>
+        <div class="lock-card" id="lockCardElement">
+          <div class="lock-icon-badge">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+          </div>
+          <div class="lock-title">私密配置已鎖定</div>
+          <div class="lock-desc">此區域受管理密碼保護，請輸入密碼以檢視、新增或編輯私密訂閱與節點</div>
           <div class="lock-form">
-            <input type="password" id="lockPwdInput" placeholder="請輸入管理密碼..." onkeydown="if(event.key==='Enter') unlockFavs()">
-            <button class="btn btn-primary" onclick="unlockFavs()" style="width: auto; padding: 0 1.25rem;">解鎖</button>
+            <input type="password" id="lockPwdInput" placeholder="請輸入密碼..." onkeydown="if(event.key==='Enter') unlockFavs()">
+            <button class="btn btn-primary" onclick="unlockFavs()">解鎖</button>
           </div>
         </div>
       \`;
@@ -532,25 +586,37 @@ export const HTML_PAGE = `
       document.getElementById('favGrid').innerHTML = \`<div class="empty-state">\${msg}</div>\`;
     }
 
-    // 💥 解鎖操作
+    // 💥 解鎖操作 (帶失敗微震動)
     async function unlockFavs() {
       const input = document.getElementById('lockPwdInput');
       const pwd = input ? input.value.trim() : '';
-      if (!pwd) return showToast('請輸入密碼', false);
+      if (!pwd) {
+        triggerShake();
+        return showToast('請輸入管理密碼', false);
+      }
 
-      localStorage.setItem('sub_fav_pwd', pwd);
+      sessionStorage.setItem('sub_fav_pwd', pwd);
       showToast('正在驗證密碼...');
       await loadFavs();
       if (!isFavLocked) {
         showToast('🔓 解鎖成功！已載入私密配置');
       } else {
+        triggerShake();
         showToast('❌ 密碼錯誤，請重新輸入', false);
       }
     }
 
-    // 💥 鎖定操作
+    function triggerShake() {
+      const el = document.getElementById('lockCardElement');
+      if (el) {
+        el.classList.add('shake');
+        setTimeout(() => el.classList.remove('shake'), 400);
+      }
+    }
+
+    // 💥 隨時手動鎖定
     function lockFavs() {
-      localStorage.removeItem('sub_fav_pwd');
+      sessionStorage.removeItem('sub_fav_pwd');
       isFavLocked = true;
       renderLockScreen();
       showToast('🔒 已鎖定配置清單');
@@ -563,7 +629,7 @@ export const HTML_PAGE = `
           <svg viewBox="0 0 24 24" style="width:16px;height:16px"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
           新增配置
         </button>
-        <button class="btn btn-ghost" onclick="lockFavs()" title="重新鎖定">
+        <button class="btn btn-ghost" onclick="lockFavs()" title="鎖定配置清單">
           <svg viewBox="0 0 24 24" style="width:16px;height:16px"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
           鎖定
         </button>
@@ -571,6 +637,7 @@ export const HTML_PAGE = `
 
       const grid = document.getElementById('favGrid');
       if (!favs || favs.length === 0) {
+        grid.className = '';
         grid.innerHTML = '<div class="empty-state">目前尚未儲存配置，請點擊上方按鈕新增</div>';
         return;
       }
@@ -872,15 +939,4 @@ export const HTML_PAGE = `
       document.getElementById('favName').value = '';
       document.getElementById('favUrl').value = '';
       document.getElementById('favInclude').value = '';
-      document.getElementById('favExclude').value = '';
-      document.getElementById('favRename').value = '';
-      delete document.getElementById('modal').dataset.edit;
-      document.getElementById('modal').classList.add('show'); 
-    }
-    function closeModal() { document.getElementById('modal').classList.remove('show'); }
-    
-    loadFavs();
-  </script>
-</body>
-</html>
-`;
+      document.getElementById('favExclud

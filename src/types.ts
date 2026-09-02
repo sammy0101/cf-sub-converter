@@ -1,5 +1,6 @@
 export interface Env {
   SUB_CACHE: KVNamespace;
+  PAGE_PASSWORD?: string;
 }
 
 export interface WireGuardConfig {

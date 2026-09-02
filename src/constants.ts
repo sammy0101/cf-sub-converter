@@ -4,7 +4,7 @@ export const REMOTE_CONFIG = {
   clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML'
 };
 
-// 方案 B1 內嵌緊急降級模板 (Sing-Box 1.14+ 規範，http_clients 無 detour)
+// 方案 B1 內嵌緊急降級模板 (Sing-Box 1.14+ 規範)
 export const FALLBACK_SINGBOX_RULES = JSON.stringify({
   log: { level: "info" },
   http_clients: [
@@ -24,14 +24,14 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
           "rs-cn",
           "rs-private"
         ],
-        "server": "local-dns"
+        server: "local-dns"
       },
       {
         rule_set: [
           "rs-geolocation-!cn",
           "rs-ai"
         ],
-        "server": "fakeip-dns"
+        server: "fakeip-dns"
       }
     ],
     final: "local-dns",
@@ -130,11 +130,11 @@ export const HTML_PAGE = `
     .form-group { margin-bottom: 1.25rem; }
     .form-group:last-child { margin-bottom: 0; }
     label { display: block; font-size: 0.875rem; font-weight: 500; color: var(--text-muted); margin-bottom: 0.5rem; }
-    textarea, input[type="text"] {
+    textarea, input[type="text"], input[type="password"] {
       width: 100%; background-color: var(--bg-input); border: 1px solid var(--border); color: var(--text-main); border-radius: var(--radius-md); padding: 0.875rem 1rem; font-size: 0.95rem; outline: none; transition: border-color 0.2s;
     }
     textarea { font-family: 'JetBrains Mono', monospace; font-size: 0.875rem; min-height: 140px; resize: vertical; }
-    textarea:focus, input[type="text"]:focus { border-color: var(--primary); }
+    textarea:focus, input[type="text"]:focus, input[type="password"]:focus { border-color: var(--primary); }
     .hint { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.4rem; display: flex; align-items: flex-start; gap: 6px; }
     
     .btn {
@@ -167,7 +167,31 @@ export const HTML_PAGE = `
     .fav-title { font-weight: 600; font-size: 0.95rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
     .fav-url { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .fav-actions { display: flex; gap: 8px; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); justify-content: flex-end; }
-    .empty-state { text-align: center; padding: 2rem; color: var(--text-muted); font-size: 0.9rem; border: 1px dashed var(--border); border-radius: var(--radius-md); }
+    .empty-state { text-align: center; padding: 2.5rem; color: var(--text-muted); font-size: 0.9rem; border: 1px dashed var(--border); border-radius: var(--radius-md); }
+
+    /* 💥 鎖定區域樣式 */
+    .lock-box {
+      background: var(--bg-input);
+      border: 1px dashed rgba(59, 130, 246, 0.3);
+      border-radius: var(--radius-md);
+      padding: 2rem;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+    }
+    .lock-box svg {
+      width: 2.5rem;
+      height: 2.5rem;
+      color: var(--primary);
+    }
+    .lock-form {
+      display: flex;
+      gap: 8px;
+      max-width: 360px;
+      width: 100%;
+    }
 
     .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(4px); z-index: 100; display: none; align-items: center; justify-content: center; }
     .modal-overlay.show { display: flex; }
@@ -188,6 +212,7 @@ export const HTML_PAGE = `
       .result-icon-box { display: none; }
       .result-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
       .result-actions .btn-icon { height: 38px; display: flex; justify-content: center; align-items: center; }
+      .lock-form { flex-direction: column; }
     }
   </style>
 </head>
@@ -202,6 +227,7 @@ export const HTML_PAGE = `
   </header>
 
   <div class="container">
+    <!-- 1. 資料來源設定 (公開使用) -->
     <main class="panel">
       <div class="panel-header">
         <h2 class="panel-title">
@@ -241,7 +267,7 @@ export const HTML_PAGE = `
       </button>
     </main>
 
-    <!-- ⚡ 轉換結果面板 -->
+    <!-- 2. 轉換結果面板 (公開使用) -->
     <section class="results-wrapper" id="results">
       <div class="panel">
         <div class="panel-header">
@@ -251,10 +277,10 @@ export const HTML_PAGE = `
           </h2>
         </div>
         
-        <!-- 1. 自適應 -->
+        <!-- 自適應 -->
         <div class="result-item">
           <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1 4-10z"></path></svg>
           </div>
           <div class="result-info"><div class="result-name">自適應 (Auto)</div><div class="result-desc">自動識別客戶端協議</div></div>
           <div class="result-input-wrapper"><input type="text" id="adaptiveUrl" readonly></div>
@@ -264,7 +290,7 @@ export const HTML_PAGE = `
           </div>
         </div>
 
-        <!-- 2. Sing-Box -->
+        <!-- Sing-Box -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
@@ -277,7 +303,7 @@ export const HTML_PAGE = `
           </div>
         </div>
 
-        <!-- 3. Clash Meta -->
+        <!-- Clash Meta -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"></path><line x1="16" y1="8" x2="2" y2="22"></line><line x1="17.5" y1="15" x2="9" y2="6.5"></line></svg>
@@ -290,7 +316,7 @@ export const HTML_PAGE = `
           </div>
         </div>
 
-        <!-- 4. Surge 5 -->
+        <!-- Surge 5 -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
@@ -303,7 +329,7 @@ export const HTML_PAGE = `
           </div>
         </div>
 
-        <!-- 5. Quantumult X -->
+        <!-- Quantumult X -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
@@ -316,7 +342,7 @@ export const HTML_PAGE = `
           </div>
         </div>
 
-        <!-- 6. Loon -->
+        <!-- Loon -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
@@ -329,7 +355,7 @@ export const HTML_PAGE = `
           </div>
         </div>
 
-        <!-- 7. Base64 -->
+        <!-- Base64 -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
@@ -344,7 +370,7 @@ export const HTML_PAGE = `
       </div>
     </section>
 
-    <!-- ⚡ Argo 隧道 2.0 生成器 -->
+    <!-- 3. Argo 隧道 2.0 生成器 (公開使用) -->
     <main class="panel">
       <div class="panel-header">
         <h2 class="panel-title" style="color: var(--primary);">
@@ -389,7 +415,7 @@ export const HTML_PAGE = `
       </div>
     </main>
 
-    <!-- Argo 結果區 -->
+    <!-- Argo 結果區 (公開使用) -->
     <section class="results-wrapper" id="argoResults">
       <div class="panel">
         <div class="panel-header"><h2 class="panel-title" style="color: var(--success);">Argo 部署指令與節點列表</h2></div>
@@ -408,16 +434,23 @@ export const HTML_PAGE = `
       </div>
     </section>
 
-    <!-- 配置收藏 -->
+    <!-- 4. 💥 已儲存的配置 (受密碼保護區域) -->
     <section class="panel">
       <div class="panel-header">
-        <h2 class="panel-title">已儲存的配置</h2>
-        <button class="btn btn-ghost" onclick="openModal()">新增配置</button>
+        <h2 class="panel-title">
+          <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+          已儲存的配置
+        </h2>
+        <div id="favHeaderActions" style="display: flex; gap: 8px;">
+          <!-- 動態渲染操作按鈕 -->
+        </div>
       </div>
-      <div id="favGrid" class="fav-grid"></div>
+      
+      <div id="favGrid"></div>
     </section>
   </div>
 
+  <!-- 新增/編輯配置對話框 -->
   <div class="modal-overlay" id="modal">
     <div class="modal-content">
       <h3 id="modalTitle" style="margin-bottom: 1rem;">新增配置</h3>
@@ -440,23 +473,109 @@ export const HTML_PAGE = `
 
   <script>
     let favs = [];
+    let isFavLocked = false;
 
+    function getStoredPwd() {
+      return localStorage.getItem('sub_fav_pwd') || '';
+    }
+
+    // 💥 載入配置（帶 X-Password 認證）
     async function loadFavs() {
+      const pwd = getStoredPwd();
       try {
-        const resp = await fetch('/favs');
-        if (resp.ok) favs = await resp.json();
-        renderFavs();
+        const resp = await fetch('/favs', {
+          headers: {
+            'X-Password': pwd
+          }
+        });
+
+        if (resp.status === 401) {
+          isFavLocked = true;
+          renderLockScreen();
+          return;
+        }
+
+        if (resp.ok) {
+          favs = await resp.json();
+          isFavLocked = false;
+          renderFavs();
+        } else {
+          renderErrorScreen('載入配置失敗');
+        }
       } catch(e) {
         console.error('載入配置失敗:', e);
+        renderErrorScreen('網路連線失敗');
       }
+    }
+
+    // 💥 渲染鎖定狀態
+    function renderLockScreen() {
+      const headerActions = document.getElementById('favHeaderActions');
+      headerActions.innerHTML = '';
+
+      const grid = document.getElementById('favGrid');
+      grid.innerHTML = \`
+        <div class="lock-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+          <div style="font-weight: 600; font-size: 1rem; color: var(--text-main);">此區域已受密碼保護</div>
+          <div style="font-size: 0.85rem; color: var(--text-muted); max-width: 320px;">請輸入管理密碼解鎖以查看、新增或修改私密配置</div>
+          <div class="lock-form">
+            <input type="password" id="lockPwdInput" placeholder="請輸入管理密碼..." onkeydown="if(event.key==='Enter') unlockFavs()">
+            <button class="btn btn-primary" onclick="unlockFavs()" style="width: auto; padding: 0 1.25rem;">解鎖</button>
+          </div>
+        </div>
+      \`;
+    }
+
+    function renderErrorScreen(msg) {
+      document.getElementById('favHeaderActions').innerHTML = '';
+      document.getElementById('favGrid').innerHTML = \`<div class="empty-state">\${msg}</div>\`;
+    }
+
+    // 💥 解鎖操作
+    async function unlockFavs() {
+      const input = document.getElementById('lockPwdInput');
+      const pwd = input ? input.value.trim() : '';
+      if (!pwd) return showToast('請輸入密碼', false);
+
+      localStorage.setItem('sub_fav_pwd', pwd);
+      showToast('正在驗證密碼...');
+      await loadFavs();
+      if (!isFavLocked) {
+        showToast('🔓 解鎖成功！已載入私密配置');
+      } else {
+        showToast('❌ 密碼錯誤，請重新輸入', false);
+      }
+    }
+
+    // 💥 鎖定操作
+    function lockFavs() {
+      localStorage.removeItem('sub_fav_pwd');
+      isFavLocked = true;
+      renderLockScreen();
+      showToast('🔒 已鎖定配置清單');
     }
     
     function renderFavs() {
+      const headerActions = document.getElementById('favHeaderActions');
+      headerActions.innerHTML = \`
+        <button class="btn btn-ghost" onclick="openModal()">
+          <svg viewBox="0 0 24 24" style="width:16px;height:16px"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          新增配置
+        </button>
+        <button class="btn btn-ghost" onclick="lockFavs()" title="重新鎖定">
+          <svg viewBox="0 0 24 24" style="width:16px;height:16px"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+          鎖定
+        </button>
+      \`;
+
       const grid = document.getElementById('favGrid');
       if (!favs || favs.length === 0) {
-        grid.innerHTML = '<div class="empty-state">目前尚未儲存配置</div>';
+        grid.innerHTML = '<div class="empty-state">目前尚未儲存配置，請點擊上方按鈕新增</div>';
         return;
       }
+
+      grid.className = 'fav-grid';
       grid.innerHTML = favs.map((f, i) => {
         const includeBadge = f.include ? \`<span class="badge" style="background: rgba(16, 185, 129, 0.1); color: var(--success); border-color: rgba(16, 185, 129, 0.2); margin-right: 4px;">保: \${f.include}</span>\` : '';
         const excludeBadge = f.exclude ? \`<span class="badge" style="background: rgba(239, 68, 68, 0.1); color: var(--danger); border-color: rgba(239, 68, 68, 0.2); margin-right: 4px;">排: \${f.exclude}</span>\` : '';
@@ -509,17 +628,21 @@ export const HTML_PAGE = `
 
     async function deleteFav(index) {
       if (!confirm('確定要刪除這筆配置嗎？')) return;
+      const pwd = getStoredPwd();
       try {
         const resp = await fetch('/favs', { 
           method: 'DELETE', 
-          headers: { 'Content-Type': 'application/json' }, 
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-Password': pwd
+          }, 
           body: JSON.stringify({ index }) 
         });
         if (resp.ok) {
           await loadFavs();
           showToast('已成功刪除配置');
         } else {
-          showToast('刪除失敗', false);
+          showToast('刪除失敗：未授權或密碼錯誤', false);
         }
       } catch(e) {
         showToast('刪除失敗: ' + e.message, false);
@@ -535,23 +658,36 @@ export const HTML_PAGE = `
       if (!name || !url) return showToast('請完整填寫名稱與節點內容', false);
 
       const editIndex = document.getElementById('modal').dataset.edit;
+      const pwd = getStoredPwd();
       try {
+        let resp;
         if (editIndex !== '' && editIndex !== undefined) {
-          await fetch('/favs', {
+          resp = await fetch('/favs', {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+              'Content-Type': 'application/json',
+              'X-Password': pwd
+            },
             body: JSON.stringify({ index: parseInt(editIndex, 10), name, url, include, exclude, rename })
           });
         } else {
-          await fetch('/favs', {
+          resp = await fetch('/favs', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+              'Content-Type': 'application/json',
+              'X-Password': pwd
+            },
             body: JSON.stringify({ name, url, include, exclude, rename })
           });
         }
-        closeModal();
-        await loadFavs();
-        showToast('配置儲存成功！');
+
+        if (resp.ok) {
+          closeModal();
+          await loadFavs();
+          showToast('配置儲存成功！');
+        } else {
+          showToast('儲存失敗：密碼錯誤或未授權', false);
+        }
       } catch(e) {
         showToast('儲存失敗，請重試', false);
       }

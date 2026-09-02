@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep  2 14:19:45 UTC 2026
+Generated on: Wed Sep  2 14:26:56 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -1418,76 +1418,76 @@ export const HTML_PAGE = `<!DOCTYPE html>
     .fav-title { font-weight: 600; font-size: 0.95rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
     .fav-url { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .fav-actions { display: flex; gap: 8px; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); justify-content: flex-end; }
-    .empty-state { text-align: center; padding: 2.5rem; color: var(--text-muted); font-size: 0.9rem; border: 1px dashed var(--border); border-radius: var(--radius-md); }
+    .empty-state { text-align: center; padding: 2rem; color: var(--text-muted); font-size: 0.9rem; border: 1px dashed var(--border); border-radius: var(--radius-md); }
 
-    /* 💥 鎖定區域重構：黃金比例垂直卡片設計 */
+    /* 💥 鎖定區域緊湊精緻美化樣式 */
     .lock-card {
-      background: radial-gradient(circle at top, rgba(59, 130, 246, 0.1) 0%, rgba(15, 23, 42, 0.6) 100%);
-      border: 1px solid rgba(59, 130, 246, 0.3);
-      border-radius: var(--radius-lg);
-      padding: 2.5rem 2rem;
+      background: radial-gradient(circle at top, rgba(59, 130, 246, 0.08) 0%, rgba(15, 23, 42, 0.5) 100%);
+      border: 1px solid rgba(59, 130, 246, 0.25);
+      border-radius: var(--radius-md);
+      padding: 1.75rem 1.5rem;
       text-align: center;
       display: flex;
       flex-direction: column;
       align-items: center;
-      max-width: 400px;
+      max-width: 340px;
       width: 100%;
-      margin: 1.25rem auto;
-      box-shadow: 0 12px 36px -8px rgba(0, 0, 0, 0.6);
+      margin: 0.75rem auto;
+      box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.4);
     }
     .lock-icon-badge {
-      width: 58px;
-      height: 58px;
+      width: 46px;
+      height: 46px;
       border-radius: 50%;
-      background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(37, 99, 235, 0.05));
-      border: 1px solid rgba(59, 130, 246, 0.4);
+      background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(37, 99, 235, 0.05));
+      border: 1px solid rgba(59, 130, 246, 0.35);
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-bottom: 1rem;
+      margin-bottom: 0.75rem;
       color: var(--primary);
-      box-shadow: 0 0 20px rgba(59, 130, 246, 0.25);
+      box-shadow: 0 0 16px rgba(59, 130, 246, 0.2);
     }
     .lock-icon-badge svg {
-      width: 26px;
-      height: 26px;
+      width: 22px;
+      height: 22px;
     }
     .lock-title {
-      font-size: 1.15rem;
+      font-size: 1.05rem;
       font-weight: 700;
       color: var(--text-main);
-      margin-bottom: 0.4rem;
-      letter-spacing: 0.5px;
+      margin-bottom: 0.25rem;
     }
     .lock-desc {
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       color: var(--text-muted);
-      max-width: 320px;
-      line-height: 1.5;
-      margin-bottom: 1.5rem;
+      max-width: 280px;
+      line-height: 1.4;
+      margin-bottom: 1.25rem;
     }
     .lock-form {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 10px;
       width: 100%;
+      max-width: 280px;
     }
     .lock-form input {
       width: 100% !important;
       text-align: center;
-      letter-spacing: 3px;
-      font-size: 1rem;
-      padding: 0.85rem 1rem;
+      letter-spacing: 2px;
+      font-size: 0.95rem;
+      padding: 0.7rem 1rem;
       background: var(--bg-app);
       border: 1px solid var(--border);
-      border-radius: var(--radius-md);
+      border-radius: var(--radius-sm);
     }
     .lock-form .btn {
       width: 100% !important;
-      padding: 0.85rem;
-      font-size: 0.95rem;
+      padding: 0.7rem;
+      font-size: 0.92rem;
       font-weight: 600;
-      box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
     }
 
     @keyframes shake {
@@ -1519,7 +1519,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       .result-icon-box { display: none; }
       .result-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
       .result-actions .btn-icon { height: 38px; display: flex; justify-content: center; align-items: center; }
-      .lock-card { padding: 2rem 1.25rem; }
+      .lock-card { padding: 1.5rem 1rem; }
     }
   </style>
 </head>
@@ -1587,7 +1587,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
         <!-- 自適應 -->
         <div class="result-item">
           <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1 4-10z"></path></svg>
           </div>
           <div class="result-info"><div class="result-name">自適應 (Auto)</div><div class="result-desc">自動識別客戶端協議</div></div>
           <div class="result-input-wrapper"><input type="text" id="adaptiveUrl" readonly></div>
@@ -1780,9 +1780,9 @@ export const HTML_PAGE = `<!DOCTYPE html>
     var favs = [];
     var isFavLocked = false;
 
-    // 使用 sessionStorage：關閉分頁或瀏覽器後全自動鎖定
+    // 💥 恢復 localStorage：瀏覽器永久記住登入狀態，重開/刷新網頁均維持解鎖
     function getStoredPwd() {
-      return sessionStorage.getItem('sub_fav_pwd') || '';
+      return localStorage.getItem('sub_fav_pwd') || '';
     }
 
     function loadFavs() {
@@ -1809,6 +1809,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       });
     }
 
+    // 💥 精巧微縮的現代鎖定卡片
     function renderLockScreen() {
       var headerActions = document.getElementById('favHeaderActions');
       headerActions.innerHTML = '';
@@ -1823,11 +1824,11 @@ export const HTML_PAGE = `<!DOCTYPE html>
           '</svg>' +
         '</div>' +
         '<div class="lock-title">私密配置已鎖定</div>' +
-        '<div class="lock-desc">此區域受管理密碼保護，請輸入密碼解鎖以檢視、新增或編輯私密配置</div>' +
+        '<div class="lock-desc">此區域受管理密碼保護，請輸入密碼解鎖</div>' +
         '<div class="lock-form">' +
           '<input type="password" id="lockPwdInput" placeholder="請輸入管理密碼..." onkeydown="if(event.key===\\'Enter\\') unlockFavs()">' +
           '<button class="btn btn-primary" onclick="unlockFavs()">' +
-            '<svg viewBox="0 0 24 24" style="width:18px;height:18px;margin-right:4px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>' +
+            '<svg viewBox="0 0 24 24" style="width:16px;height:16px;margin-right:4px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>' +
             '解鎖配置' +
           '</button>' +
         '</div>' +
@@ -1839,6 +1840,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       document.getElementById('favGrid').innerHTML = '<div class="empty-state">' + msg + '</div>';
     }
 
+    // 💥 解鎖並寫入 localStorage
     function unlockFavs() {
       var input = document.getElementById('lockPwdInput');
       var pwd = input ? input.value.trim() : '';
@@ -1847,18 +1849,18 @@ export const HTML_PAGE = `<!DOCTYPE html>
         return showToast('請輸入管理密碼', false);
       }
 
-      sessionStorage.setItem('sub_fav_pwd', pwd);
       showToast('正在驗證密碼...');
       
       fetch('/favs', {
         headers: { 'X-Password': pwd }
       }).then(function(resp) {
         if (resp.ok) {
+          localStorage.setItem('sub_fav_pwd', pwd);
           resp.json().then(function(data) {
             favs = data;
             isFavLocked = false;
             renderFavs();
-            showToast('🔓 解鎖成功！已載入私密配置');
+            showToast('🔓 解鎖成功！已記住登入狀態');
           });
         } else {
           triggerShake();
@@ -1878,8 +1880,9 @@ export const HTML_PAGE = `<!DOCTYPE html>
       }
     }
 
+    // 💥 手動鎖定並清除 localStorage
     function lockFavs() {
-      sessionStorage.removeItem('sub_fav_pwd');
+      localStorage.removeItem('sub_fav_pwd');
       isFavLocked = true;
       renderLockScreen();
       showToast('🔒 已鎖定配置清單');
@@ -2175,7 +2178,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       fetch('/api/argo-generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: raw, indices: indices, port: port, cleanIp: cleanIp, token: token, domain: domain })
+        body: JSON.stringify({ url: raw, indices, port, cleanIp, token, domain })
       }).then(function(resp) {
         return resp.json();
       }).then(function(res) {

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep  2 14:12:55 UTC 2026
+Generated on: Wed Sep  2 14:15:55 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -1332,8 +1332,7 @@ rules:
   - MATCH,🚀 節點選擇
 `;
 
-export const HTML_PAGE = `
-<!DOCTYPE html>
+export const HTML_PAGE = `<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
@@ -1421,7 +1420,7 @@ export const HTML_PAGE = `
     .fav-actions { display: flex; gap: 8px; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); justify-content: flex-end; }
     .empty-state { text-align: center; padding: 2.5rem; color: var(--text-muted); font-size: 0.9rem; border: 1px dashed var(--border); border-radius: var(--radius-md); }
 
-    /* 💥 鎖定區域旗艦美化樣式 (全居中深色卡片) */
+    /* 鎖定區域樣式 */
     .lock-card {
       background: radial-gradient(circle at top, rgba(59, 130, 246, 0.08) 0%, rgba(15, 23, 42, 0.4) 100%);
       border: 1px solid rgba(59, 130, 246, 0.25);
@@ -1582,7 +1581,7 @@ export const HTML_PAGE = `
         <!-- 自適應 -->
         <div class="result-item">
           <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1 4-10z"></path></svg>
           </div>
           <div class="result-info"><div class="result-name">自適應 (Auto)</div><div class="result-desc">自動識別客戶端協議</div></div>
           <div class="result-input-wrapper"><input type="text" id="adaptiveUrl" readonly></div>
@@ -1736,7 +1735,7 @@ export const HTML_PAGE = `
       </div>
     </section>
 
-    <!-- 4. 💥 已儲存的配置 (受密碼保護區域) -->
+    <!-- 4. 已儲存的配置 (受密碼保護區域) -->
     <section class="panel">
       <div class="panel-header">
         <h2 class="panel-title">
@@ -1772,76 +1771,68 @@ export const HTML_PAGE = `
   </div>
 
   <script>
-    let favs = [];
-    let isFavLocked = false;
+    var favs = [];
+    var isFavLocked = false;
 
-    // 💥 改用 sessionStorage：關閉分頁或瀏覽器後自動安全上鎖
+    // 使用 sessionStorage：關閉分頁或瀏覽器後全自動鎖定
     function getStoredPwd() {
       return sessionStorage.getItem('sub_fav_pwd') || '';
     }
 
-    async function loadFavs() {
-      const pwd = getStoredPwd();
-      try {
-        const resp = await fetch('/favs', {
-          headers: {
-            'X-Password': pwd
-          }
-        });
-
+    function loadFavs() {
+      var pwd = getStoredPwd();
+      fetch('/favs', {
+        headers: { 'X-Password': pwd }
+      }).then(function(resp) {
         if (resp.status === 401) {
           isFavLocked = true;
           renderLockScreen();
           return;
         }
-
         if (resp.ok) {
-          favs = await resp.json();
-          isFavLocked = false;
-          renderFavs();
+          resp.json().then(function(data) {
+            favs = data;
+            isFavLocked = false;
+            renderFavs();
+          });
         } else {
           renderErrorScreen('載入配置失敗');
         }
-      } catch(e) {
-        console.error('載入配置失敗:', e);
+      }).catch(function(e) {
         renderErrorScreen('網路連線失敗');
-      }
+      });
     }
 
-    // 💥 旗艦級全居中美化鎖定卡片
     function renderLockScreen() {
-      const headerActions = document.getElementById('favHeaderActions');
+      var headerActions = document.getElementById('favHeaderActions');
       headerActions.innerHTML = '';
 
-      const grid = document.getElementById('favGrid');
+      var grid = document.getElementById('favGrid');
       grid.className = '';
-      grid.innerHTML = \`
-        <div class="lock-card" id="lockCardElement">
-          <div class="lock-icon-badge">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-            </svg>
-          </div>
-          <div class="lock-title">私密配置已鎖定</div>
-          <div class="lock-desc">此區域受管理密碼保護，請輸入密碼以檢視、新增或編輯私密訂閱與節點</div>
-          <div class="lock-form">
-            <input type="password" id="lockPwdInput" placeholder="請輸入密碼..." onkeydown="if(event.key==='Enter') unlockFavs()">
-            <button class="btn btn-primary" onclick="unlockFavs()">解鎖</button>
-          </div>
-        </div>
-      \`;
+      grid.innerHTML = '<div class="lock-card" id="lockCardElement">' +
+        '<div class="lock-icon-badge">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+            '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>' +
+            '<path d="M7 11V7a5 5 0 0 1 10 0v4"></path>' +
+          '</svg>' +
+        '</div>' +
+        '<div class="lock-title">私密配置已鎖定</div>' +
+        '<div class="lock-desc">此區域受管理密碼保護，請輸入密碼以檢視、新增或編輯私密訂閱與節點</div>' +
+        '<div class="lock-form">' +
+          '<input type="password" id="lockPwdInput" placeholder="請輸入密碼..." onkeydown="if(event.key===\\'Enter\\') unlockFavs()">' +
+          '<button class="btn btn-primary" onclick="unlockFavs()">解鎖</button>' +
+        '</div>' +
+      '</div>';
     }
 
     function renderErrorScreen(msg) {
       document.getElementById('favHeaderActions').innerHTML = '';
-      document.getElementById('favGrid').innerHTML = \`<div class="empty-state">\${msg}</div>\`;
+      document.getElementById('favGrid').innerHTML = '<div class="empty-state">' + msg + '</div>';
     }
 
-    // 💥 解鎖操作 (帶失敗微震動)
-    async function unlockFavs() {
-      const input = document.getElementById('lockPwdInput');
-      const pwd = input ? input.value.trim() : '';
+    function unlockFavs() {
+      var input = document.getElementById('lockPwdInput');
+      var pwd = input ? input.value.trim() : '';
       if (!pwd) {
         triggerShake();
         return showToast('請輸入管理密碼', false);
@@ -1849,24 +1840,35 @@ export const HTML_PAGE = `
 
       sessionStorage.setItem('sub_fav_pwd', pwd);
       showToast('正在驗證密碼...');
-      await loadFavs();
-      if (!isFavLocked) {
-        showToast('🔓 解鎖成功！已載入私密配置');
-      } else {
+      
+      fetch('/favs', {
+        headers: { 'X-Password': pwd }
+      }).then(function(resp) {
+        if (resp.ok) {
+          resp.json().then(function(data) {
+            favs = data;
+            isFavLocked = false;
+            renderFavs();
+            showToast('🔓 解鎖成功！已載入私密配置');
+          });
+        } else {
+          triggerShake();
+          showToast('❌ 密碼錯誤，請重新輸入', false);
+        }
+      }).catch(function() {
         triggerShake();
-        showToast('❌ 密碼錯誤，請重新輸入', false);
-      }
+        showToast('❌ 網路請求失敗', false);
+      });
     }
 
     function triggerShake() {
-      const el = document.getElementById('lockCardElement');
+      var el = document.getElementById('lockCardElement');
       if (el) {
         el.classList.add('shake');
-        setTimeout(() => el.classList.remove('shake'), 400);
+        setTimeout(function() { el.classList.remove('shake'); }, 400);
       }
     }
 
-    // 💥 隨時手動鎖定
     function lockFavs() {
       sessionStorage.removeItem('sub_fav_pwd');
       isFavLocked = true;
@@ -1875,19 +1877,17 @@ export const HTML_PAGE = `
     }
     
     function renderFavs() {
-      const headerActions = document.getElementById('favHeaderActions');
-      headerActions.innerHTML = \`
-        <button class="btn btn-ghost" onclick="openModal()">
-          <svg viewBox="0 0 24 24" style="width:16px;height:16px"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          新增配置
-        </button>
-        <button class="btn btn-ghost" onclick="lockFavs()" title="鎖定配置清單">
-          <svg viewBox="0 0 24 24" style="width:16px;height:16px"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-          鎖定
-        </button>
-      \`;
+      var headerActions = document.getElementById('favHeaderActions');
+      headerActions.innerHTML = '<button class="btn btn-ghost" onclick="openModal()">' +
+        '<svg viewBox="0 0 24 24" style="width:16px;height:16px"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>' +
+        '新增配置' +
+      '</button>' +
+      '<button class="btn btn-ghost" onclick="lockFavs()" title="鎖定配置清單">' +
+        '<svg viewBox="0 0 24 24" style="width:16px;height:16px"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>' +
+        '鎖定' +
+      '</button>';
 
-      const grid = document.getElementById('favGrid');
+      var grid = document.getElementById('favGrid');
       if (!favs || favs.length === 0) {
         grid.className = '';
         grid.innerHTML = '<div class="empty-state">目前尚未儲存配置，請點擊上方按鈕新增</div>';
@@ -1895,34 +1895,34 @@ export const HTML_PAGE = `
       }
 
       grid.className = 'fav-grid';
-      grid.innerHTML = favs.map((f, i) => {
-        const includeBadge = f.include ? \`<span class="badge" style="background: rgba(16, 185, 129, 0.1); color: var(--success); border-color: rgba(16, 185, 129, 0.2); margin-right: 4px;">保: \${f.include}</span>\` : '';
-        const excludeBadge = f.exclude ? \`<span class="badge" style="background: rgba(239, 68, 68, 0.1); color: var(--danger); border-color: rgba(239, 68, 68, 0.2); margin-right: 4px;">排: \${f.exclude}</span>\` : '';
-        const renameBadge = f.rename ? \`<span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--primary); border-color: rgba(59, 130, 246, 0.2)">替: \${f.rename}</span>\` : '';
+      var html = '';
+      for (var i = 0; i < favs.length; i++) {
+        var f = favs[i];
+        var includeBadge = f.include ? '<span class="badge" style="background: rgba(16, 185, 129, 0.1); color: var(--success); border-color: rgba(16, 185, 129, 0.2); margin-right: 4px;">保: ' + f.include + '</span>' : '';
+        var excludeBadge = f.exclude ? '<span class="badge" style="background: rgba(239, 68, 68, 0.1); color: var(--danger); border-color: rgba(239, 68, 68, 0.2); margin-right: 4px;">排: ' + f.exclude + '</span>' : '';
+        var renameBadge = f.rename ? '<span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--primary); border-color: rgba(59, 130, 246, 0.2)">替: ' + f.rename + '</span>' : '';
 
-        return \`
-        <div class="fav-card" onclick="useFav(\${i})">
-          <div class="fav-title">
-            <svg viewBox="0 0 24 24" style="width:16px;height:16px;color:var(--primary)"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
-            \${f.name}
-          </div>
-          <div class="fav-url">\${f.url}</div>
-          <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;">
-            \${includeBadge}
-            \${excludeBadge}
-            \${renameBadge}
-          </div>
-          <div class="fav-actions">
-            <button class="btn btn-ghost" onclick="event.stopPropagation(); editFav(\${i})">編輯</button>
-            <button class="btn btn-ghost btn-danger" onclick="event.stopPropagation(); deleteFav(\${i})">刪除</button>
-          </div>
-        </div>\`;
-      }).join('');
+        html += '<div class="fav-card" onclick="useFav(' + i + ')">' +
+          '<div class="fav-title">' +
+            '<svg viewBox="0 0 24 24" style="width:16px;height:16px;color:var(--primary)"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>' +
+            f.name +
+          '</div>' +
+          '<div class="fav-url">' + f.url + '</div>' +
+          '<div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;">' +
+            includeBadge + excludeBadge + renameBadge +
+          '</div>' +
+          '<div class="fav-actions">' +
+            '<button class="btn btn-ghost" onclick="event.stopPropagation(); editFav(' + i + ')">編輯</button>' +
+            '<button class="btn btn-ghost btn-danger" onclick="event.stopPropagation(); deleteFav(' + i + ')">刪除</button>' +
+          '</div>' +
+        '</div>';
+      }
+      grid.innerHTML = html;
     }
 
     function useFav(index) {
       if (!favs[index]) return;
-      const f = favs[index];
+      var f = favs[index];
       document.getElementById('urlInput').value = f.url || '';
       document.getElementById('shortCode').value = (f.name || '').replace(/\\s+/g, '-').toLowerCase();
       document.getElementById('includeKeywords').value = f.include || '';
@@ -1934,7 +1934,7 @@ export const HTML_PAGE = `
 
     function editFav(index) {
       if (!favs[index]) return;
-      const f = favs[index];
+      var f = favs[index];
       document.getElementById('modalTitle').textContent = '編輯配置';
       document.getElementById('favName').value = f.name || '';
       document.getElementById('favUrl').value = f.url || '';
@@ -1945,253 +1945,274 @@ export const HTML_PAGE = `
       document.getElementById('modal').classList.add('show');
     }
 
-    async function deleteFav(index) {
+    function deleteFav(index) {
       if (!confirm('確定要刪除這筆配置嗎？')) return;
-      const pwd = getStoredPwd();
-      try {
-        const resp = await fetch('/favs', { 
-          method: 'DELETE', 
-          headers: { 
-            'Content-Type': 'application/json',
-            'X-Password': pwd
-          }, 
-          body: JSON.stringify({ index }) 
-        });
+      var pwd = getStoredPwd();
+      fetch('/favs', { 
+        method: 'DELETE', 
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Password': pwd
+        }, 
+        body: JSON.stringify({ index: index }) 
+      }).then(function(resp) {
         if (resp.ok) {
-          await loadFavs();
+          loadFavs();
           showToast('已成功刪除配置');
         } else {
           showToast('刪除失敗：未授權或密碼錯誤', false);
         }
-      } catch(e) {
+      }).catch(function(e) {
         showToast('刪除失敗: ' + e.message, false);
-      }
+      });
     }
 
-    async function saveFav() {
-      const name = document.getElementById('favName').value.trim();
-      const url = document.getElementById('favUrl').value.trim();
-      const include = document.getElementById('favInclude').value.trim();
-      const exclude = document.getElementById('favExclude').value.trim();
-      const rename = document.getElementById('favRename').value.trim();
+    function saveFav() {
+      var name = document.getElementById('favName').value.trim();
+      var url = document.getElementById('favUrl').value.trim();
+      var include = document.getElementById('favInclude').value.trim();
+      var exclude = document.getElementById('favExclude').value.trim();
+      var rename = document.getElementById('favRename').value.trim();
       if (!name || !url) return showToast('請完整填寫名稱與節點內容', false);
 
-      const editIndex = document.getElementById('modal').dataset.edit;
-      const pwd = getStoredPwd();
-      try {
-        let resp;
-        if (editIndex !== '' && editIndex !== undefined) {
-          resp = await fetch('/favs', {
-            method: 'PUT',
-            headers: { 
-              'Content-Type': 'application/json',
-              'X-Password': pwd
-            },
-            body: JSON.stringify({ index: parseInt(editIndex, 10), name, url, include, exclude, rename })
-          });
-        } else {
-          resp = await fetch('/favs', {
-            method: 'POST',
-            headers: { 
-              'Content-Type': 'application/json',
-              'X-Password': pwd
-            },
-            body: JSON.stringify({ name, url, include, exclude, rename })
-          });
-        }
+      var editIndex = document.getElementById('modal').dataset.edit;
+      var pwd = getStoredPwd();
+      var reqMethod = (editIndex !== '' && editIndex !== undefined) ? 'PUT' : 'POST';
+      var reqBody = {
+        name: name,
+        url: url,
+        include: include,
+        exclude: exclude,
+        rename: rename
+      };
+      if (reqMethod === 'PUT') {
+        reqBody.index = parseInt(editIndex, 10);
+      }
 
+      fetch('/favs', {
+        method: reqMethod,
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Password': pwd
+        },
+        body: JSON.stringify(reqBody)
+      }).then(function(resp) {
         if (resp.ok) {
           closeModal();
-          await loadFavs();
+          loadFavs();
           showToast('配置儲存成功！');
         } else {
           showToast('儲存失敗：密碼錯誤或未授權', false);
         }
-      } catch(e) {
+      }).catch(function() {
         showToast('儲存失敗，請重試', false);
-      }
+      });
     }
 
-    async function generate() {
-      const raw = document.getElementById('urlInput').value.trim();
+    function generate() {
+      var raw = document.getElementById('urlInput').value.trim();
       if (!raw) return showToast('請先輸入節點連結或訂閱網址', false);
 
-      const host = window.location.origin;
-      const shortCode = document.getElementById('shortCode').value.trim();
-      const include = document.getElementById('includeKeywords').value.trim();
-      const exclude = document.getElementById('excludeKeywords').value.trim();
-      const rename = document.getElementById('renameKeywords').value.trim();
+      var host = window.location.origin;
+      var shortCode = document.getElementById('shortCode').value.trim();
+      var include = document.getElementById('includeKeywords').value.trim();
+      var exclude = document.getElementById('excludeKeywords').value.trim();
+      var rename = document.getElementById('renameKeywords').value.trim();
       
-      let baseUrl = '';
+      var proceed = function(baseUrl) {
+        var sep = baseUrl.indexOf('?') !== -1 ? '&' : '?';
+        document.getElementById('adaptiveUrl').value = baseUrl;
+        document.getElementById('clashUrl').value = baseUrl + sep + 'target=clash';
+        document.getElementById('singboxUrl').value = baseUrl + sep + 'target=singbox';
+        document.getElementById('surgeUrl').value = baseUrl + sep + 'target=surge';
+        document.getElementById('quanxUrl').value = baseUrl + sep + 'target=quanx';
+        document.getElementById('loonUrl').value = baseUrl + sep + 'target=loon';
+        document.getElementById('base64Url').value = baseUrl + sep + 'target=base64';
+
+        document.getElementById('results').classList.add('show');
+        showToast('全客戶端連結生成完畢！');
+      };
+
       if (shortCode) {
-        await fetch('/save', { 
+        fetch('/save', { 
           method: 'POST', 
           headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ path: shortCode, content: raw, include, exclude, rename }) 
+          body: JSON.stringify({ path: shortCode, content: raw, include: include, exclude: exclude, rename: rename }) 
+        }).then(function() {
+          proceed(host + '/' + shortCode);
         });
-        baseUrl = host + '/' + shortCode;
       } else {
-        baseUrl = host + '/?url=' + encodeURIComponent(raw);
-        if (include) baseUrl += '&include=' + encodeURIComponent(include);
-        if (exclude) baseUrl += '&exclude=' + encodeURIComponent(exclude);
-        if (rename) baseUrl += '&rename=' + encodeURIComponent(rename);
+        var bUrl = host + '/?url=' + encodeURIComponent(raw);
+        if (include) bUrl += '&include=' + encodeURIComponent(include);
+        if (exclude) bUrl += '&exclude=' + encodeURIComponent(exclude);
+        if (rename) bUrl += '&rename=' + encodeURIComponent(rename);
+        proceed(bUrl);
       }
-
-      const sep = baseUrl.includes('?') ? '&' : '?';
-      document.getElementById('adaptiveUrl').value = baseUrl;
-      document.getElementById('clashUrl').value = baseUrl + sep + 'target=clash';
-      document.getElementById('singboxUrl').value = baseUrl + sep + 'target=singbox';
-      document.getElementById('surgeUrl').value = baseUrl + sep + 'target=surge';
-      document.getElementById('quanxUrl').value = baseUrl + sep + 'target=quanx';
-      document.getElementById('loonUrl').value = baseUrl + sep + 'target=loon';
-      document.getElementById('base64Url').value = baseUrl + sep + 'target=base64';
-
-      document.getElementById('results').classList.add('show');
-      showToast('全客戶端連結生成完畢！');
     }
 
-    function showQr(id, clientType = 'auto') {
-      const rawUrl = document.getElementById(id).value;
+    function showQr(id, clientType) {
+      if (!clientType) clientType = 'auto';
+      var rawUrl = document.getElementById(id).value;
       if (!rawUrl) return;
 
-      const profileName = (document.getElementById('shortCode').value.trim() || 'SubConverter');
-      let deepLink = rawUrl;
-      let displayTitle = '掃碼導入配置';
-      let clientName = '客戶端';
+      var profileName = document.getElementById('shortCode').value.trim() || 'SubConverter';
+      var deepLink = rawUrl;
+      var displayTitle = '掃碼導入配置';
+      var clientName = '客戶端';
 
       if (clientType === 'singbox') {
-        deepLink = \`sing-box://import-remote-profile?url=\${encodeURIComponent(rawUrl)}#\${encodeURIComponent(profileName)}\`;
+        deepLink = 'sing-box://import-remote-profile?url=' + encodeURIComponent(rawUrl) + '#' + encodeURIComponent(profileName);
         displayTitle = 'Sing-Box 專屬掃碼導入';
         clientName = 'Sing-Box';
       } else if (clientType === 'clash') {
-        deepLink = \`clash://install-config?url=\${encodeURIComponent(rawUrl)}&name=\${encodeURIComponent(profileName)}\`;
+        deepLink = 'clash://install-config?url=' + encodeURIComponent(rawUrl) + '&name=' + encodeURIComponent(profileName);
         displayTitle = 'Clash / Mihomo 專屬導入';
         clientName = 'Clash';
       } else if (clientType === 'surge') {
-        deepLink = \`surge:///install-config?url=\${encodeURIComponent(rawUrl)}\`;
+        deepLink = 'surge:///install-config?url=' + encodeURIComponent(rawUrl);
         displayTitle = 'Surge 5 專屬導入';
         clientName = 'Surge';
       } else if (clientType === 'quanx') {
-        deepLink = \`quantumult-x:///add-resource?remote-resource=\${encodeURIComponent(JSON.stringify({ server_remote: [\`\${rawUrl}, tag=\${profileName}\`] }))}\`;
+        deepLink = 'quantumult-x:///add-resource?remote-resource=' + encodeURIComponent(JSON.stringify({ server_remote: [rawUrl + ', tag=' + profileName] }));
         displayTitle = 'Quantumult X 專屬導入';
         clientName = 'Quantumult X';
       } else if (clientType === 'loon') {
-        deepLink = \`loon://import?type=config&url=\${encodeURIComponent(rawUrl)}\`;
+        deepLink = 'loon://import?type=config&url=' + encodeURIComponent(rawUrl);
         displayTitle = 'Loon 專屬導入';
         clientName = 'Loon';
       } else if (clientType === 'shadowrocket') {
-        deepLink = \`shadowrocket://add/sub://\${btoa(rawUrl)}?title=\${encodeURIComponent(profileName)}\`;
+        deepLink = 'shadowrocket://add/sub://' + btoa(rawUrl) + '?title=' + encodeURIComponent(profileName);
         displayTitle = 'Shadowrocket 專屬導入';
         clientName = 'Shadowrocket';
       }
 
-      const win = window.open('', '_blank', 'width=440,height=560');
+      var win = window.open('', '_blank', 'width=440,height=560');
       if (!win) return showToast('請允許瀏覽器開啟彈出視窗', false);
 
-      win.document.write(\`
-        <!DOCTYPE html><html><head><meta charset="utf-8"><title>\${displayTitle}</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-          body { margin:0; background:#0f172a; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; font-family:-apple-system,BlinkMacSystemFont,sans-serif; color:#f8fafc; padding:20px; box-sizing:border-box; text-align:center;}
-          .qr-container { padding:20px; background:#ffffff; border-radius:16px; box-shadow:0 10px 25px rgba(0,0,0,0.5); display:inline-block; }
-          .title { margin-top:20px; font-size:18px; font-weight:700; color:#38bdf8; letter-spacing:0.5px; }
-          .subtitle { margin-top:6px; font-size:12px; color:#94a3b8; max-width:320px; word-break:break-all; font-family:monospace; line-height:1.4; }
-          .btn-open { margin-top:20px; display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:12px 28px; background:#3b82f6; color:#fff; text-decoration:none; border-radius:10px; font-weight:600; font-size:15px; box-shadow:0 4px 14px rgba(59,130,246,0.4); transition:transform 0.2s;}
-          .btn-open:hover { transform:translateY(-1px); background:#2563eb; }
-          .hint-box { margin-top:14px; font-size:12px; color:#10b981; background:rgba(16,185,129,0.1); padding:8px 14px; border-radius:8px; border:1px solid rgba(16,185,129,0.2); max-width:320px; }
-        </style>
-        </head><body>
-        <div class="qr-container"><div id="qr"></div></div>
-        <div class="title">\${displayTitle}</div>
-        <div class="subtitle">\${rawUrl}</div>
-        
-        <a class="btn-open" href="\${deepLink}">🚀 一鍵打開並導入 \${clientName}</a>
-        
-        <div class="hint-box">
-          ✨ 手機相機或 \${clientName} App 掃描此二維碼，即可全自動填入名稱與網址！
-        </div>
+      var qrHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + displayTitle + '</title>' +
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">' +
+        '<style>' +
+          'body { margin:0; background:#0f172a; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; font-family:-apple-system,BlinkMacSystemFont,sans-serif; color:#f8fafc; padding:20px; box-sizing:border-box; text-align:center;}' +
+          '.qr-container { padding:20px; background:#ffffff; border-radius:16px; box-shadow:0 10px 25px rgba(0,0,0,0.5); display:inline-block; }' +
+          '.title { margin-top:20px; font-size:18px; font-weight:700; color:#38bdf8; letter-spacing:0.5px; }' +
+          '.subtitle { margin-top:6px; font-size:12px; color:#94a3b8; max-width:320px; word-break:break-all; font-family:monospace; line-height:1.4; }' +
+          '.btn-open { margin-top:20px; display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:12px 28px; background:#3b82f6; color:#fff; text-decoration:none; border-radius:10px; font-weight:600; font-size:15px; box-shadow:0 4px 14px rgba(59,130,246,0.4); transition:transform 0.2s;}' +
+          '.btn-open:hover { transform:translateY(-1px); background:#2563eb; }' +
+          '.hint-box { margin-top:14px; font-size:12px; color:#10b981; background:rgba(16,185,129,0.1); padding:8px 14px; border-radius:8px; border:1px solid rgba(16,185,129,0.2); max-width:320px; }' +
+        '</style>' +
+        '</head><body>' +
+        '<div class="qr-container"><div id="qr"></div></div>' +
+        '<div class="title">' + displayTitle + '</div>' +
+        '<div class="subtitle">' + rawUrl + '</div>' +
+        '<a class="btn-open" href="' + deepLink + '">🚀 一鍵打開並導入 ' + clientName + '</a>' +
+        '<div class="hint-box">✨ 手機相機或 ' + clientName + ' App 掃描此二維碼，即可全自動填入名稱與網址！</div>' +
+        '<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><' + '/script>' +
+        '<script>' +
+          'setTimeout(function() {' +
+            'new QRCode(document.getElementById("qr"), {' +
+              'text: "' + deepLink.replace(/"/g, '\\\\"') + '",' +
+              'width: 240,' +
+              'height: 240,' +
+              'colorDark: "#0f172a",' +
+              'colorLight: "#ffffff",' +
+              'correctLevel: QRCode.CorrectLevel.L' +
+            '});' +
+          '}, 100);' +
+        '<' + '/script>' +
+        '</body></html>';
 
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\\/script>
-        <script>
-          setTimeout(() => {
-            new QRCode(document.getElementById('qr'), { 
-              text: "\${deepLink}", 
-              width: 240, 
-              height: 240, 
-              colorDark: "#0f172a", 
-              colorLight: "#ffffff", 
-              correctLevel: QRCode.CorrectLevel.L 
-            });
-          }, 100);
-        <\\/script>
-        </body></html>
-      \`);
+      win.document.write(qrHtml);
     }
 
-    async function parseVlessNodes() {
-      const raw = document.getElementById('urlInput').value.trim();
+    function parseVlessNodes() {
+      var raw = document.getElementById('urlInput').value.trim();
       if (!raw) return showToast('請先輸入節點內容', false);
-      const resp = await fetch('/api/parse-argo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: raw }) });
-      const nodes = await resp.json();
-      if (!nodes || nodes.length === 0) return showToast('未找到 VLESS/VMess 節點', false);
-
-      const listEl = document.getElementById('vlessCheckboxList');
-      listEl.innerHTML = nodes.map(n => \`
-        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px 0;">
-          <input type="checkbox" class="vless-chk" value="\${n.index}" data-port="\${n.port}">
-          <span>\${n.name} (\${n.server}:\${n.port})</span>
-        </label>
-      \`).join('');
-      document.getElementById('vlessSelectorWrapper').style.display = 'block';
+      fetch('/api/parse-argo', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ url: raw }) 
+      }).then(function(resp) {
+        return resp.json();
+      }).then(function(nodes) {
+        if (!nodes || nodes.length === 0) return showToast('未找到 VLESS/VMess 節點', false);
+        var listEl = document.getElementById('vlessCheckboxList');
+        var html = '';
+        for (var i = 0; i < nodes.length; i++) {
+          var n = nodes[i];
+          html += '<label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px 0;">' +
+            '<input type="checkbox" class="vless-chk" value="' + n.index + '" data-port="' + n.port + '">' +
+            '<span>' + n.name + ' (' + n.server + ':' + n.port + ')</span>' +
+          '</label>';
+        }
+        listEl.innerHTML = html;
+        document.getElementById('vlessSelectorWrapper').style.display = 'block';
+      });
     }
 
-    async function generateArgo() {
-      const raw = document.getElementById('urlInput').value.trim();
-      const checkboxes = document.querySelectorAll('.vless-chk:checked');
+    function generateArgo() {
+      var raw = document.getElementById('urlInput').value.trim();
+      var checkboxes = document.querySelectorAll('.vless-chk:checked');
       if (checkboxes.length === 0) return showToast('請至少選擇一個節點', false);
 
-      const indices = Array.from(checkboxes).map(cb => parseInt(cb.value));
-      const port = document.getElementById('argoLocalPort').value.trim() || '8080';
-      const cleanIp = document.getElementById('argoCleanIp').value.trim();
-      const token = document.getElementById('argoTunnelToken').value.trim();
-      const domain = document.getElementById('argoCustomDomain').value.trim();
+      var indices = [];
+      for (var i = 0; i < checkboxes.length; i++) {
+        indices.push(parseInt(checkboxes[i].value, 10));
+      }
+      var port = document.getElementById('argoLocalPort').value.trim() || '8080';
+      var cleanIp = document.getElementById('argoCleanIp').value.trim();
+      var token = document.getElementById('argoTunnelToken').value.trim();
+      var domain = document.getElementById('argoCustomDomain').value.trim();
 
-      const resp = await fetch('/api/argo-generate', {
+      fetch('/api/argo-generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: raw, indices, port, cleanIp, token, domain })
+        body: JSON.stringify({ url: raw, indices: indices, port: port, cleanIp: cleanIp, token: token, domain: domain })
+      }).then(function(resp) {
+        return resp.json();
+      }).then(function(res) {
+        var host = window.location.origin;
+        if (res.scriptId) {
+          document.getElementById('argoCurlCmd').value = 'curl -sSL ' + host + '/argo/sh/' + res.scriptId + ' | bash';
+        }
+        var links = res.argoNodes.map(function(x) { return x.link; }).join('\\n');
+        document.getElementById('argoBase64Sub').value = links;
+        document.getElementById('argoResults').classList.add('show');
+        showToast('Argo 部署指令與節點已生成！');
       });
-      const res = await resp.json();
-      const host = window.location.origin;
-
-      if (res.scriptId) {
-        document.getElementById('argoCurlCmd').value = \`curl -sSL \${host}/argo/sh/\${res.scriptId} | bash\`;
-      }
-      document.getElementById('argoBase64Sub').value = res.argoNodes.map(x => x.link).join('\\n');
-      document.getElementById('argoResults').classList.add('show');
-      showToast('Argo 部署指令與節點已生成！');
     }
 
     function copyResult(id) {
-      const el = document.getElementById(id);
-      navigator.clipboard.writeText(el.value).then(() => showToast('已複製連結'));
+      var el = document.getElementById(id);
+      navigator.clipboard.writeText(el.value).then(function() { showToast('已複製連結'); });
     }
     function copyText(id) {
-      const el = document.getElementById(id);
-      navigator.clipboard.writeText(el.value).then(() => showToast('已成功複製到剪貼簿！'));
+      var el = document.getElementById(id);
+      navigator.clipboard.writeText(el.value).then(function() { showToast('已成功複製到剪貼簿！'); });
     }
-    function showToast(msg, isSuccess = true) {
-      const t = document.getElementById('toast');
+    function showToast(msg, isSuccess) {
+      if (isSuccess === undefined) isSuccess = true;
+      var t = document.getElementById('toast');
       document.getElementById('toastMsg').textContent = msg;
       t.className = 'toast show' + (isSuccess ? ' success' : '');
-      setTimeout(() => t.classList.remove('show'), 3000);
+      setTimeout(function() { t.classList.remove('show'); }, 3000);
     }
     function openModal() { 
       document.getElementById('modalTitle').textContent = '新增配置';
       document.getElementById('favName').value = '';
       document.getElementById('favUrl').value = '';
       document.getElementById('favInclude').value = '';
-      document.getElementById('favExclud
+      document.getElementById('favExclude').value = '';
+      document.getElementById('favRename').value = '';
+      delete document.getElementById('modal').dataset.edit;
+      document.getElementById('modal').classList.add('show'); 
+    }
+    function closeModal() { document.getElementById('modal').classList.remove('show'); }
+    
+    loadFavs();
+  </script>
+</body>
+</html>
+`;
 
 ````
 

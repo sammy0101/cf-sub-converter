@@ -4,11 +4,11 @@ export const REMOTE_CONFIG = {
   clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML'
 };
 
-// 方案 B1 內嵌緊急降級模板 (Sing-Box 1.14+ 規範，海外全面對接 fakeip-dns)
+// 方案 B1 內嵌緊急降級模板 (Sing-Box 1.14+ 規範，http_clients 無 detour)
 export const FALLBACK_SINGBOX_RULES = JSON.stringify({
   log: { level: "info" },
   http_clients: [
-    { tag: "default", detour: "direct" }
+    { tag: "default" }
   ],
   dns: {
     servers: [

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Tue Sep  1 08:36:52 UTC 2026
+Generated on: Wed Sep  2 07:35:29 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -472,8 +472,7 @@ rules:
   },
   "http_clients": [
     {
-      "tag": "default",
-      "detour": "direct"
+      "tag": "default"
     }
   ],
   "dns": {

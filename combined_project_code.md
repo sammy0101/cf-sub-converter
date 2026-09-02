@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep  2 14:15:55 UTC 2026
+Generated on: Wed Sep  2 14:19:45 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -1420,67 +1420,74 @@ export const HTML_PAGE = `<!DOCTYPE html>
     .fav-actions { display: flex; gap: 8px; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); justify-content: flex-end; }
     .empty-state { text-align: center; padding: 2.5rem; color: var(--text-muted); font-size: 0.9rem; border: 1px dashed var(--border); border-radius: var(--radius-md); }
 
-    /* 鎖定區域樣式 */
+    /* 💥 鎖定區域重構：黃金比例垂直卡片設計 */
     .lock-card {
-      background: radial-gradient(circle at top, rgba(59, 130, 246, 0.08) 0%, rgba(15, 23, 42, 0.4) 100%);
-      border: 1px solid rgba(59, 130, 246, 0.25);
+      background: radial-gradient(circle at top, rgba(59, 130, 246, 0.1) 0%, rgba(15, 23, 42, 0.6) 100%);
+      border: 1px solid rgba(59, 130, 246, 0.3);
       border-radius: var(--radius-lg);
-      padding: 3rem 1.5rem;
+      padding: 2.5rem 2rem;
       text-align: center;
       display: flex;
       flex-direction: column;
       align-items: center;
-      max-width: 440px;
-      margin: 1rem auto;
-      box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+      max-width: 400px;
+      width: 100%;
+      margin: 1.25rem auto;
+      box-shadow: 0 12px 36px -8px rgba(0, 0, 0, 0.6);
     }
     .lock-icon-badge {
-      width: 60px;
-      height: 60px;
+      width: 58px;
+      height: 58px;
       border-radius: 50%;
       background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(37, 99, 235, 0.05));
-      border: 1px solid rgba(59, 130, 246, 0.35);
+      border: 1px solid rgba(59, 130, 246, 0.4);
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-bottom: 1.25rem;
+      margin-bottom: 1rem;
       color: var(--primary);
-      box-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
+      box-shadow: 0 0 20px rgba(59, 130, 246, 0.25);
     }
     .lock-icon-badge svg {
-      width: 28px;
-      height: 28px;
+      width: 26px;
+      height: 26px;
     }
     .lock-title {
       font-size: 1.15rem;
       font-weight: 700;
       color: var(--text-main);
-      margin-bottom: 0.5rem;
+      margin-bottom: 0.4rem;
+      letter-spacing: 0.5px;
     }
     .lock-desc {
       font-size: 0.85rem;
       color: var(--text-muted);
       max-width: 320px;
       line-height: 1.5;
-      margin-bottom: 1.75rem;
+      margin-bottom: 1.5rem;
     }
     .lock-form {
       display: flex;
-      gap: 10px;
+      flex-direction: column;
+      gap: 12px;
       width: 100%;
-      max-width: 340px;
     }
     .lock-form input {
-      flex: 1;
+      width: 100% !important;
       text-align: center;
-      letter-spacing: 2px;
+      letter-spacing: 3px;
       font-size: 1rem;
-      padding: 0.75rem 1rem;
+      padding: 0.85rem 1rem;
+      background: var(--bg-app);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
     }
     .lock-form .btn {
-      padding: 0 1.5rem;
+      width: 100% !important;
+      padding: 0.85rem;
       font-size: 0.95rem;
-      flex-shrink: 0;
+      font-weight: 600;
+      box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);
     }
 
     @keyframes shake {
@@ -1512,8 +1519,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       .result-icon-box { display: none; }
       .result-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
       .result-actions .btn-icon { height: 38px; display: flex; justify-content: center; align-items: center; }
-      .lock-form { flex-direction: column; }
-      .lock-form .btn { width: 100%; }
+      .lock-card { padding: 2rem 1.25rem; }
     }
   </style>
 </head>
@@ -1581,7 +1587,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
         <!-- 自適應 -->
         <div class="result-item">
           <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1 4-10z"></path></svg>
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
           </div>
           <div class="result-info"><div class="result-name">自適應 (Auto)</div><div class="result-desc">自動識別客戶端協議</div></div>
           <div class="result-input-wrapper"><input type="text" id="adaptiveUrl" readonly></div>
@@ -1817,10 +1823,13 @@ export const HTML_PAGE = `<!DOCTYPE html>
           '</svg>' +
         '</div>' +
         '<div class="lock-title">私密配置已鎖定</div>' +
-        '<div class="lock-desc">此區域受管理密碼保護，請輸入密碼以檢視、新增或編輯私密訂閱與節點</div>' +
+        '<div class="lock-desc">此區域受管理密碼保護，請輸入密碼解鎖以檢視、新增或編輯私密配置</div>' +
         '<div class="lock-form">' +
-          '<input type="password" id="lockPwdInput" placeholder="請輸入密碼..." onkeydown="if(event.key===\\'Enter\\') unlockFavs()">' +
-          '<button class="btn btn-primary" onclick="unlockFavs()">解鎖</button>' +
+          '<input type="password" id="lockPwdInput" placeholder="請輸入管理密碼..." onkeydown="if(event.key===\\'Enter\\') unlockFavs()">' +
+          '<button class="btn btn-primary" onclick="unlockFavs()">' +
+            '<svg viewBox="0 0 24 24" style="width:18px;height:18px;margin-right:4px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>' +
+            '解鎖配置' +
+          '</button>' +
         '</div>' +
       '</div>';
     }

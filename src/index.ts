@@ -16,6 +16,15 @@ import { deduplicateNodeNames, groupNodesByFlag } from './utils';
 
 const version = packageJson.version || '3.5.0';
 
+// 密碼鑒權校驗（僅在設置了 PAGE_PASSWORD 時攔截）
+function checkAuth(request: Request, env: Env): boolean {
+  if (!env.PAGE_PASSWORD || env.PAGE_PASSWORD.trim() === '') {
+    return true; // 未設置密碼，免密模式
+  }
+  const clientPwd = request.headers.get('X-Password') || '';
+  return clientPwd === env.PAGE_PASSWORD.trim();
+}
+
 // 輔助載入與解析節點
 async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
   const inputs = urlParam.split(/[\n\r|]+/); 
@@ -116,12 +125,12 @@ export default {
         headers: {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
+          'Access-Control-Allow-Headers': 'Content-Type, X-Password',
         }
       });
     }
 
-    // GET /argo/sh/:id
+    // GET /argo/sh/:id (公開)
     if (request.method === 'GET' && url.pathname.startsWith('/argo/sh/')) {
       const scriptId = url.pathname.split('/').pop();
       if (env.SUB_CACHE && scriptId) {
@@ -141,7 +150,7 @@ export default {
       });
     }
 
-    // POST /api/parse-argo
+    // POST /api/parse-argo (公開)
     if (request.method === 'POST' && (url.pathname === '/api/parse-vless' || url.pathname === '/api/parse-argo')) {
       try {
         const body = (await request.json()) as { url?: string };
@@ -175,7 +184,7 @@ export default {
       }
     }
 
-    // POST /api/argo-generate
+    // POST /api/argo-generate (公開)
     if (request.method === 'POST' && url.pathname === '/api/argo-generate') {
       try {
         const body = (await request.json()) as {
@@ -254,7 +263,7 @@ export default {
       }
     }
 
-    // GET /version
+    // GET /version (公開)
     if (request.method === 'GET' && url.pathname === '/version') {
       return new Response(`subconverter v${version} ${url.host} backend\n`, {
         headers: { 
@@ -264,7 +273,7 @@ export default {
       });
     }
 
-    // POST /save 
+    // POST /save (公開)
     if (request.method === 'POST' && url.pathname === '/save') {
       try {
         const body = (await request.json()) as { path?: string; content?: string; include?: string; exclude?: string; rename?: string };
@@ -284,7 +293,7 @@ export default {
       }
     }
 
-    // Favorites API
+    // --- 💥 Favorites API (受密碼保護區域) ---
     const FAVS_KEY = 'favorites';
     const getFavs = async (): Promise<Array<Record<string, string>>> => {
       const data = await env.SUB_CACHE.get(FAVS_KEY);
@@ -295,11 +304,20 @@ export default {
     };
 
     if (request.method === 'GET' && url.pathname === '/favs') {
+      if (!checkAuth(request, env)) {
+        return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
       const favs = await getFavs();
       return new Response(JSON.stringify(favs), { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
     }
 
     if (request.method === 'POST' && url.pathname === '/favs') {
+      if (!checkAuth(request, env)) {
+        return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
+      }
       try {
         const body = (await request.json()) as Record<string, string>;
         if (!body.name || !body.url) return new Response('Missing name or url', { status: 400 });
@@ -312,13 +330,16 @@ export default {
           rename: body.rename || ''
         });
         await saveFavs(favs);
-        return new Response('OK', { status: 200 });
+        return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
       } catch {
         return new Response('Error saving favorite', { status: 500 });
       }
     }
 
     if (request.method === 'PUT' && url.pathname === '/favs') {
+      if (!checkAuth(request, env)) {
+        return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
+      }
       try {
         const body = (await request.json()) as { index?: number; name?: string; url?: string; include?: string; exclude?: string; rename?: string };
         if (body.index === undefined || !body.name || !body.url) return new Response('Missing data', { status: 400 });
@@ -333,13 +354,16 @@ export default {
           };
           await saveFavs(favs);
         }
-        return new Response('OK', { status: 200 });
+        return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
       } catch {
         return new Response('Error updating favorite', { status: 500 });
       }
     }
 
     if (request.method === 'DELETE' && url.pathname === '/favs') {
+      if (!checkAuth(request, env)) {
+        return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
+      }
       try {
         const body = (await request.json()) as { index?: number };
         if (body.index === undefined) return new Response('Missing index', { status: 400 });
@@ -348,18 +372,17 @@ export default {
           favs.splice(body.index, 1);
           await saveFavs(favs);
         }
-        return new Response('OK', { status: 200 });
+        return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
       } catch {
         return new Response('Error deleting favorite', { status: 500 });
       }
     }
 
-    // GET 訂閱路由
+    // GET 訂閱路由 (公開免密)
     let urlParam = url.searchParams.get('url') || '';
     let includeParam = url.searchParams.get('include') || '';
     let excludeParam = url.searchParams.get('exclude') || '';
     let renameParam = url.searchParams.get('rename') || '';
-    // 💥 支援 ?force=1 或 ?nocache=1 即時強制穿透快取
     const forceRefresh = url.searchParams.has('force') || url.searchParams.has('nocache');
 
     const path = decodeURIComponent(url.pathname.slice(1)); 

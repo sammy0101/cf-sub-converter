@@ -5,8 +5,7 @@
   },
   "http_clients": [
     {
-      "tag": "default",
-      "detour": "direct"
+      "tag": "default"
     }
   ],
   "dns": {

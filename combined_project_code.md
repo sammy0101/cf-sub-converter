@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep  2 07:36:09 UTC 2026
+Generated on: Wed Sep  2 07:37:11 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -2884,7 +2884,7 @@ import { utf8ToBase64 } from './utils';
 
 const version = packageJson.version || '3.5.0';
 
-// --- 明文 URI 格式導出 (含 ECH 參數回填) ---
+// --- 明文 URI 格式導出 ---
 export function toRawLinks(nodes: ProxyNode[]): string {
   const links = nodes.map(node => {
     try {
@@ -2895,7 +2895,6 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (node.flow) params.set('flow', node.flow);
         if (node.sni) params.set('sni', node.sni);
         if (node.fingerprint) params.set('fp', node.fingerprint);
-        // 💥 保留 ECH 參數
         if (node.ech) params.set('ech', 'https://cloudflare-dns.com/dns-query');
         if (node.reality) { params.set('pbk', node.reality.publicKey); params.set('sid', node.reality.shortId); }
         if (node.network === 'ws') { if (node.wsPath) params.set('path', node.wsPath); if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host); }
@@ -3037,17 +3036,23 @@ async function fetchTemplateWithSWR(
   return fallbackJsonStr;
 }
 
-// --- Sing-Box 配置生成 ---
+// --- Sing-Box 配置生成 (含自動語法淨化與規範修正) ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
   const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox', FALLBACK_SINGBOX_RULES, env, forceRefresh);
   const config = JSON.parse(text);
   
-  // 1. 自動補全 Sing-Box 1.14+ 規範之 http_clients
+  // 💥 1. 自動補全 Sing-Box 1.14+ 規範之 http_clients (移除 detour: direct 以杜絕 empty direct outbound 錯誤)
   if (!config.http_clients || !Array.isArray(config.http_clients) || config.http_clients.length === 0) {
-    config.http_clients = [{ tag: 'default', detour: 'direct' }];
+    config.http_clients = [{ tag: 'default' }];
+  } else {
+    config.http_clients.forEach((hc: Record<string, unknown>) => {
+      if (hc.detour === 'direct' || hc.detour === 'DIRECT') {
+        delete hc.detour;
+      }
+    });
   }
 
-  // 2. 自動淨化 DNS 規範
+  // 💥 2. 自動淨化 DNS 規範
   if (config.dns) {
     config.dns.final = 'local-dns';
     if (Array.isArray(config.dns.servers)) {
@@ -3061,7 +3066,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     }
   }
 
-  // 3. 自動補充 route.default_domain_resolver 與 default_http_client
+  // 💥 3. 自動補充 route.default_domain_resolver 與 default_http_client
   if (!config.route) config.route = {};
   config.route.default_domain_resolver = 'local-dns';
   config.route.default_http_client = 'default';
@@ -3072,7 +3077,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 4. 自動清理 inbounds
+  // 💥 4. 自動清理 inbounds
   if (Array.isArray(config.inbounds)) {
     config.inbounds.forEach((ib: Record<string, unknown>) => {
       delete ib.sniff;
@@ -3080,7 +3085,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 5. 確保出站節點的 WebSocket ALPN 與 ECH 正確保留
+  // 💥 5. 確保出站節點的 WebSocket ALPN 正確保留
   const outbounds = nodes.map(n => {
     const obj = JSON.parse(JSON.stringify(n.singboxObj));
     if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {

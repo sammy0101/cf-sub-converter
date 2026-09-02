@@ -1,130 +1,18 @@
 # Complete Project Codebase
-Generated on: Wed Sep  2 13:56:31 UTC 2026
+Generated on: Wed Sep  2 13:56:55 UTC 2026
 
-## File: argo.sh
-````sh
-#!/bin/bash
-# Cloudflare Argo Tunnel 一鍵部署腳本 (增強版 2.0)
-# 專案網址: https://github.com/sammy0101/cf-sub-converter
+## File: wrangler.toml
+````toml
+name = "my-sub-converter"
+main = "src/index.ts"
+compatibility_date = "2024-04-01"
 
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-NC='\033[0m'
+[placement]
+mode = "smart"
 
-NODE_TYPE="{{NODE_TYPE}}"
-VLESS_UUID="{{VLESS_UUID}}"
-VLESS_PATH="{{VLESS_PATH}}"
-VLESS_TYPE="{{VLESS_TYPE}}"
-VLESS_PORT="{{VLESS_PORT}}"
-NODE_NAME="{{NODE_NAME}}"
-TUNNEL_TOKEN="{{TUNNEL_TOKEN}}"
-CUSTOM_DOMAIN="{{CUSTOM_DOMAIN}}"
-VLESS_TLS="{{VLESS_TLS}}"
-ORIGIN_HOST="{{ORIGIN_HOST}}"
-
-echo -e "${GREEN}=== 開始部署 Cloudflare Argo 隧道 (${NODE_NAME}) ===${NC}"
-
-if [ "$EUID" -ne 0 ]; then
-  echo -e "${RED}錯誤: 請使用 root 權限執行此腳本！${NC}"
-  exit 1
-fi
-
-# 1. 安裝 cloudflared
-if ! command -v cloudflared &> /dev/null; then
-    echo "正在下載安裝 cloudflared..."
-    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
-    chmod +x /usr/local/bin/cloudflared
-else
-    echo "cloudflared 已存在，跳過安裝。"
-fi
-
-SAFE_NODE_NAME=$(echo "$NODE_NAME" | sed 's/[^a-zA-Z0-9]/_/g')
-
-# 2. 自動探測與修正連接埠
-DETECTED_PORT="$VLESS_PORT"
-if command -v ss &> /dev/null; then
-    if ! ss -tln | grep -qE ":$VLESS_PORT([[:space:]]|$)"; then
-        echo -e "${RED}警告: 本地轉發埠 $VLESS_PORT 未監聽，正在探測...${NC}"
-        if ss -tln | grep -qE ":443([[:space:]]|$)"; then
-            echo -e "${GREEN}自動修正：轉發目標為 443 埠。${NC}"
-            DETECTED_PORT="443"
-        elif ss -tln | grep -qE ":80([[:space:]]|$)"; then
-            echo -e "${GREEN}自動修正：轉發目標為 80 埠。${NC}"
-            DETECTED_PORT="80"
-        fi
-    fi
-fi
-
-# 3. 智慧探測 TLS
-DETECTED_TLS="false"
-if curl -s -k --connect-timeout 2 "https://127.0.0.1:$DETECTED_PORT" &>/dev/null; then
-    echo "偵測到本地為 HTTPS 加密埠，開啟 TLS 轉發與 SNI 對齊。"
-    DETECTED_TLS="true"
-fi
-
-LOCAL_URL="http://127.0.0.1:$DETECTED_PORT"
-EXTRA_ARGS=""
-if [ "$DETECTED_TLS" = "true" ]; then
-    LOCAL_URL="https://127.0.0.1:$DETECTED_PORT"
-    EXTRA_ARGS="--no-tls-verify"
-fi
-
-if [ -n "$ORIGIN_HOST" ]; then
-    EXTRA_ARGS="$EXTRA_ARGS --http-host-header $ORIGIN_HOST"
-    if [ "$DETECTED_TLS" = "true" ]; then
-        EXTRA_ARGS="$EXTRA_ARGS --origin-server-name $ORIGIN_HOST"
-    fi
-fi
-
-# 4. 啟動隧道
-if [ -n "$TUNNEL_TOKEN" ]; then
-    echo -e "${GREEN}【固定隧道模式】正在啟動服務...${NC}"
-    cloudflared service uninstall &> /dev/null
-    cloudflared service install "$TUNNEL_TOKEN"
-    systemctl daemon-reload
-    systemctl enable cloudflared
-    systemctl restart cloudflared
-    echo -e "${GREEN}固定域名隧道部署完成！${NC}"
-else
-    echo -e "${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...${NC}"
-    systemctl stop cloudflared-argo-${SAFE_NODE_NAME} &> /dev/null
-    
-    cat <<EOF > /etc/systemd/system/cloudflared-argo-${SAFE_NODE_NAME}.service
-[Unit]
-Description=Cloudflare Argo Tunnel for ${NODE_NAME}
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/cloudflared tunnel --url $LOCAL_URL $EXTRA_ARGS
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    systemctl daemon-reload
-    systemctl enable cloudflared-argo-${SAFE_NODE_NAME}
-    systemctl start cloudflared-argo-${SAFE_NODE_NAME}
-    
-    echo "正在等待 Cloudflare 分配臨時域名..."
-    TEMP_DOMAIN=""
-    for i in {1..15}; do
-        sleep 1
-        TEMP_DOMAIN=$(journalctl -u cloudflared-argo-${SAFE_NODE_NAME} -n 50 --no-pager 2>/dev/null | grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' | tail -n 1 | cut -d'/' -f3)
-        if [ -n "$TEMP_DOMAIN" ]; then
-            break
-        fi
-    done
-    
-    if [ -n "$TEMP_DOMAIN" ]; then
-        echo -e "${GREEN}獲取臨時域名成功: $TEMP_DOMAIN${NC}"
-    else
-        echo -e "${RED}超時未獲取到域名，請手動檢查 journalctl -u cloudflared-argo-${SAFE_NODE_NAME}${NC}"
-    fi
-fi
+[[kv_namespaces]]
+binding = "SUB_CACHE"
+id = "KV_ID_PLACEHOLDER"
 
 ````
 
@@ -463,162 +351,688 @@ rules:
 
 ````
 
-## File: Sing-Box_Rules.JSON
-````JSON
-{
-  "log": {
-    "level": "info",
-    "timestamp": true
-  },
-  "http_clients": [
-    {
-      "tag": "default"
-    }
-  ],
-  "dns": {
-    "servers": [
-      {
-        "tag": "remote-dns",
-        "type": "https",
-        "server": "8.8.8.8",
-        "detour": "🚀 節點選擇"
-      },
-      {
-        "tag": "local-dns",
-        "type": "udp",
-        "server": "223.5.5.5"
-      },
-      {
-        "tag": "system-dns",
-        "type": "local"
-      },
-      {
-        "tag": "fakeip-dns",
-        "type": "fakeip",
-        "inet4_range": "198.18.0.0/15",
-        "inet6_range": "fc00::/18"
-      }
-    ],
-    "rules": [
-      { "clash_mode": "Direct", "server": "system-dns" },
-      { "clash_mode": "Global", "server": "fakeip-dns" },
-      { "rule_set": "rs-ads", "action": "reject" },
-      {
-        "domain": [
-          "github.com",
-          "raw.githubusercontent.com",
-          "githubusercontent.com",
-          "gh-proxy.com"
-        ],
-        "server": "local-dns"
-      },
-      {
-        "rule_set": [
-          "rs-cn",
-          "rs-private"
-        ],
-        "server": "local-dns",
-        "disable_cache": true
-      },
-      {
-        "rule_set": [
-          "rs-apple"
-        ],
-        "server": "system-dns",
-        "disable_cache": true
-      },
-      {
-        "rule_set": [
-          "rs-geolocation-!cn",
-          "rs-ai"
-        ],
-        "server": "fakeip-dns"
-      }
-    ],
-    "final": "local-dns",
-    "strategy": "ipv4_only"
-  },
-  "inbounds": [
-    {
-      "type": "tun",
-      "tag": "tun-in",
-      "interface_name": "tun0",
-      "address": [
-        "172.19.0.1/30",
-        "fd00::1/126"
-      ],
-      "stack": "mixed",
-      "auto_route": true,
-      "strict_route": true
-    }
-  ],
-  "outbounds": [
-    { "type": "selector", "tag": "🚀 節點選擇", "outbounds": ["⚡ 自動選擇", "direct"] },
-    { "type": "urltest", "tag": "⚡ 自動選擇", "outbounds": [], "url": "https://www.gstatic.com/generate_204", "interval": "3m", "tolerance": 50 },
-    { "type": "selector", "tag": "💬 AI 服務", "outbounds": ["⚡ 自動選擇", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🍎 蘋果服務", "outbounds": ["direct", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "Ⓜ️ 微軟服務", "outbounds": ["direct", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🎮 遊戲平台", "outbounds": ["direct", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🌐 非中國", "outbounds": ["🚀 節點選擇", "direct"] },
-    { "type": "selector", "tag": "🇨🇳 國內服務", "outbounds": ["direct", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🏠 私有網絡", "outbounds": ["direct"] },
-    { "type": "selector", "tag": "🐟 漏網之魚", "outbounds": ["🚀 節點選擇", "direct"] },
-    { "type": "selector", "tag": "🛑 廣告攔截", "outbounds": ["block", "direct"] },
+## File: argo.sh
+````sh
+#!/bin/bash
+# Cloudflare Argo Tunnel 一鍵部署腳本 (增強版 2.0)
+# 專案網址: https://github.com/sammy0101/cf-sub-converter
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+NODE_TYPE="{{NODE_TYPE}}"
+VLESS_UUID="{{VLESS_UUID}}"
+VLESS_PATH="{{VLESS_PATH}}"
+VLESS_TYPE="{{VLESS_TYPE}}"
+VLESS_PORT="{{VLESS_PORT}}"
+NODE_NAME="{{NODE_NAME}}"
+TUNNEL_TOKEN="{{TUNNEL_TOKEN}}"
+CUSTOM_DOMAIN="{{CUSTOM_DOMAIN}}"
+VLESS_TLS="{{VLESS_TLS}}"
+ORIGIN_HOST="{{ORIGIN_HOST}}"
+
+echo -e "${GREEN}=== 開始部署 Cloudflare Argo 隧道 (${NODE_NAME}) ===${NC}"
+
+if [ "$EUID" -ne 0 ]; then
+  echo -e "${RED}錯誤: 請使用 root 權限執行此腳本！${NC}"
+  exit 1
+fi
+
+# 1. 安裝 cloudflared
+if ! command -v cloudflared &> /dev/null; then
+    echo "正在下載安裝 cloudflared..."
+    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+    chmod +x /usr/local/bin/cloudflared
+else
+    echo "cloudflared 已存在，跳過安裝。"
+fi
+
+SAFE_NODE_NAME=$(echo "$NODE_NAME" | sed 's/[^a-zA-Z0-9]/_/g')
+
+# 2. 自動探測與修正連接埠
+DETECTED_PORT="$VLESS_PORT"
+if command -v ss &> /dev/null; then
+    if ! ss -tln | grep -qE ":$VLESS_PORT([[:space:]]|$)"; then
+        echo -e "${RED}警告: 本地轉發埠 $VLESS_PORT 未監聽，正在探測...${NC}"
+        if ss -tln | grep -qE ":443([[:space:]]|$)"; then
+            echo -e "${GREEN}自動修正：轉發目標為 443 埠。${NC}"
+            DETECTED_PORT="443"
+        elif ss -tln | grep -qE ":80([[:space:]]|$)"; then
+            echo -e "${GREEN}自動修正：轉發目標為 80 埠。${NC}"
+            DETECTED_PORT="80"
+        fi
+    fi
+fi
+
+# 3. 智慧探測 TLS
+DETECTED_TLS="false"
+if curl -s -k --connect-timeout 2 "https://127.0.0.1:$DETECTED_PORT" &>/dev/null; then
+    echo "偵測到本地為 HTTPS 加密埠，開啟 TLS 轉發與 SNI 對齊。"
+    DETECTED_TLS="true"
+fi
+
+LOCAL_URL="http://127.0.0.1:$DETECTED_PORT"
+EXTRA_ARGS=""
+if [ "$DETECTED_TLS" = "true" ]; then
+    LOCAL_URL="https://127.0.0.1:$DETECTED_PORT"
+    EXTRA_ARGS="--no-tls-verify"
+fi
+
+if [ -n "$ORIGIN_HOST" ]; then
+    EXTRA_ARGS="$EXTRA_ARGS --http-host-header $ORIGIN_HOST"
+    if [ "$DETECTED_TLS" = "true" ]; then
+        EXTRA_ARGS="$EXTRA_ARGS --origin-server-name $ORIGIN_HOST"
+    fi
+fi
+
+# 4. 啟動隧道
+if [ -n "$TUNNEL_TOKEN" ]; then
+    echo -e "${GREEN}【固定隧道模式】正在啟動服務...${NC}"
+    cloudflared service uninstall &> /dev/null
+    cloudflared service install "$TUNNEL_TOKEN"
+    systemctl daemon-reload
+    systemctl enable cloudflared
+    systemctl restart cloudflared
+    echo -e "${GREEN}固定域名隧道部署完成！${NC}"
+else
+    echo -e "${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...${NC}"
+    systemctl stop cloudflared-argo-${SAFE_NODE_NAME} &> /dev/null
     
-    { "type": "direct", "tag": "direct" },
-    { "type": "direct", "tag": "DIRECT" },
-    { "type": "block", "tag": "block" },
-    { "type": "block", "tag": "REJECT" }
-  ],
-  "route": {
-    "default_domain_resolver": "local-dns",
-    "default_http_client": "default",
-    "rule_set": [
-      { "type": "remote", "tag": "rs-ai", "format": "binary", "url": "https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.srs" },
-      { "type": "remote", "tag": "rs-apple", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/apple.srs" },
-      { "type": "remote", "tag": "rs-microsoft", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/microsoft.srs" },
-      { "type": "remote", "tag": "rs-steam", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/steam.srs" },
-      { "type": "remote", "tag": "rs-epicgames", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/epicgames.srs" },
-      { "type": "remote", "tag": "rs-ea", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/ea.srs" },
-      { "type": "remote", "tag": "rs-ubisoft", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/ubisoft.srs" },
-      { "type": "remote", "tag": "rs-blizzard", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/blizzard.srs" },
-      { "type": "remote", "tag": "rs-geolocation-!cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/geolocation-!cn.srs" },
-      { "type": "remote", "tag": "rs-cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs" },
-      { "type": "remote", "tag": "ip-cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/cn.srs" },
-      { "type": "remote", "tag": "rs-ads", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ads-all.srs" },
-      { "type": "remote", "tag": "rs-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/private.srs" },
-      { "type": "remote", "tag": "ip-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs" }
-    ],
-    "rules": [
-      { "action": "sniff" },
-      { "protocol": "dns", "action": "hijack-dns" },
-      { "clash_mode": "Direct", "outbound": "direct" },
-      { "clash_mode": "Global", "outbound": "🚀 節點選擇" },
-      { "rule_set": "rs-ads", "outbound": "block" },
-      { "rule_set": ["rs-private", "ip-private"], "outbound": "🏠 私有網絡" },
-      { "rule_set": "rs-ai", "outbound": "💬 AI 服務" },
-      { "rule_set": "rs-microsoft", "outbound": "Ⓜ️ 微軟服務" },
-      { "rule_set": ["rs-steam", "rs-epicgames", "rs-ea", "rs-ubisoft", "rs-blizzard"], "outbound": "🎮 遊戲平台" },
-      { "rule_set": "rs-geolocation-!cn", "outbound": "🌐 非中國" },
-      { "rule_set": "rs-apple", "outbound": "🍎 蘋果服務" },
-      { "rule_set": ["rs-cn", "ip-cn"], "outbound": "🇨🇳 國內服務" },
-      { "outbound": "🐟 漏網之魚" }
-    ],
-    "auto_detect_interface": true
+    cat <<EOF > /etc/systemd/system/cloudflared-argo-${SAFE_NODE_NAME}.service
+[Unit]
+Description=Cloudflare Argo Tunnel for ${NODE_NAME}
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/cloudflared tunnel --url $LOCAL_URL $EXTRA_ARGS
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable cloudflared-argo-${SAFE_NODE_NAME}
+    systemctl start cloudflared-argo-${SAFE_NODE_NAME}
+    
+    echo "正在等待 Cloudflare 分配臨時域名..."
+    TEMP_DOMAIN=""
+    for i in {1..15}; do
+        sleep 1
+        TEMP_DOMAIN=$(journalctl -u cloudflared-argo-${SAFE_NODE_NAME} -n 50 --no-pager 2>/dev/null | grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' | tail -n 1 | cut -d'/' -f3)
+        if [ -n "$TEMP_DOMAIN" ]; then
+            break
+        fi
+    done
+    
+    if [ -n "$TEMP_DOMAIN" ]; then
+        echo -e "${GREEN}獲取臨時域名成功: $TEMP_DOMAIN${NC}"
+    else
+        echo -e "${RED}超時未獲取到域名，請手動檢查 journalctl -u cloudflared-argo-${SAFE_NODE_NAME}${NC}"
+    fi
+fi
+
+````
+
+## File: package.json
+````json
+{
+  "name": "cf-sub-converter",
+  "version": "3.1.2",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "start": "wrangler dev",
+    "argo": "tsx scripts/argo-converter.ts"
   },
-  "experimental": {
-    "cache_file": {
-      "enabled": true,
-      "store_fakeip": true
-    },
-    "clash_api": {
-      "external_controller": "127.0.0.1:9090",
-      "external_ui": "ui",
-      "secret": "",
-      "default_mode": "rule"
-    }
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240208.0",
+    "@types/js-yaml": "^4.0.9",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3",
+    "wrangler": "^3.28.1"
   }
 }
+
+````
+
+## File: scripts/argo-converter.ts
+````ts
+// scripts/argo-converter.ts
+import fs from 'fs';
+import path from 'path';
+import readline from 'readline';
+import { Buffer } from 'buffer';
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
+
+const question = (query: string): Promise<string> => {
+  return new Promise((resolve) => rl.question(query, resolve));
+};
+
+interface VlessNode {
+  originalLink: string;
+  uuid: string;
+  server: string;
+  port: string;
+  type: string;
+  path: string;
+  host: string;
+  sni: string;
+  name: string;
+}
+
+// 簡易 VLESS 連結解析器
+function parseVlessLink(link: string): VlessNode | null {
+  try {
+    const urlStr = link.replace('vless://', 'http://');
+    const url = new URL(urlStr);
+    const params = url.searchParams;
+    return {
+      originalLink: link,
+      uuid: url.username,
+      server: url.hostname,
+      port: url.port,
+      type: params.get('type') || 'ws',
+      path: params.get('path') || '/',
+      host: params.get('host') || params.get('sni') || url.hostname,
+      sni: params.get('sni') || url.hostname,
+      name: decodeURIComponent(url.hash.slice(1)) || 'VLESS Node'
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+// 獲取並解析訂閱
+async function fetchAndParse(input: string): Promise<VlessNode[]> {
+  let content = input.trim();
+  if (input.startsWith('http')) {
+    console.log('正在獲取網址內容...');
+    try {
+      const res = await fetch(input, {
+        headers: { 'User-Agent': 'v2rayNG/1.8.5' }
+      });
+      if (!res.ok) throw new Error(`HTTP 狀態碼 ${res.status}`);
+      content = await res.text();
+    } catch (e: any) {
+      console.log(`獲取訂閱失敗: ${e.message}`);
+      return [];
+    }
+  }
+
+  // 嘗試 Base64 解碼
+  let decoded = content;
+  try {
+    const cleaned = content.replace(/[\s\r\n]+/g, '');
+    decoded = Buffer.from(cleaned, 'base64').toString('utf8');
+  } catch (e) {
+    // 解碼失敗則視為純文字
+  }
+
+  const lines = decoded.split(/\r?\n/);
+  const vlessNodes: VlessNode[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('vless://')) {
+      const parsed = parseVlessLink(trimmed);
+      if (parsed) vlessNodes.push(parsed);
+    }
+  }
+  return vlessNodes;
+}
+
+// 生成 VPS 安裝腳本模板
+function generateVpsScript(node: VlessNode, port: string, token: string, domain: string): string {
+  return `#!/bin/bash
+# Cloudflare Argo Tunnel 一鍵部署腳本 (由 cf-sub-converter 自動生成)
+# 適用於已使用 mack-a v2ray-agent 部署之 Xray/Sing-box 環境
+
+GREEN='\\033[0;32m'
+RED='\\033[0;31m'
+NC='\\033[0m'
+
+echo -e "\${GREEN}=== 開始部署 Cloudflare Argo 隧道 ===\${NC}"
+
+if [ "$EUID" -ne 0 ]; then
+  echo -e "\${RED}錯誤: 請使用 root 權限執行此腳本！\${NC}"
+  exit 1
+fi
+
+# 節點參數配置
+VLESS_UUID="${node.uuid}"
+VLESS_PATH="${node.path}"
+VLESS_TYPE="${node.type}"
+VLESS_PORT="${port}"
+NODE_NAME="${node.name}"
+TUNNEL_TOKEN="${token.trim()}"
+CUSTOM_DOMAIN="${domain.trim()}"
+
+# 下載安裝 cloudflared
+if ! command -v cloudflared &> /dev/null; then
+    echo "正在下載安裝 cloudflared..."
+    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+    chmod +x /usr/local/bin/cloudflared
+    echo "cloudflared 安裝完成！"
+else
+    echo "cloudflared 已存在，跳過安裝。"
+fi
+
+# 判斷是否使用固定隧道
+if [ -n "$TUNNEL_TOKEN" ]; then
+    echo -e "\${GREEN}【固定隧道模式】正在配置服務...\${NC}"
+    cloudflared service uninstall &> /dev/null
+    cloudflared service install "$TUNNEL_TOKEN"
+    systemctl daemon-reload
+    systemctl enable cloudflared
+    systemctl restart cloudflared
+    
+    echo -e "\${GREEN}部署成功！\${NC}"
+    echo "請確保已在 Cloudflare Dashboard 中將網域 '$CUSTOM_DOMAIN' 指向本地 'http://localhost:$VLESS_PORT'"
+    
+    # 輸出用戶端連結
+    FINAL_LINK="vless://$VLESS_UUID@$CUSTOM_DOMAIN:443?encryption=none&security=tls&type=$VLESS_TYPE&host=$CUSTOM_DOMAIN"
+    if [ "$VLESS_TYPE" = "ws" ]; then
+        FINAL_LINK="$FINAL_LINK&path=$(echo -n "$VLESS_PATH" | jq -s -R -r @uri 2>/dev/null || echo -n "$VLESS_PATH")"
+    fi
+    FINAL_LINK="$FINAL_LINK#Argo-$NODE_NAME"
+    echo -e "\n\${GREEN}您的 Argo VLESS 訂閱連結為:\${NC}"
+    echo -e "\${GREEN}$FINAL_LINK\${NC}\n"
+else
+    echo -e "\${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...\${NC}"
+    systemctl stop cloudflared-argo &> /dev/null
+    
+    # 寫入 systemd 臨時隧道服務
+    cat <<EOF > /etc/systemd/system/cloudflared-argo.service
+[Unit]
+Description=Cloudflare Argo Temporary Tunnel for VLESS
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/cloudflared tunnel --url http://127.0.0.1:$VLESS_PORT
+Restart=always
+RestartSec=5
+StandardOutput=file:/var/log/cloudflared-argo.log
+StandardError=file:/var/log/cloudflared-argo.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    touch /var/log/cloudflared-argo.log
+    systemctl daemon-reload
+    systemctl enable cloudflared-argo
+    systemctl start cloudflared-argo
+    
+    echo "正在等待 Cloudflare 分配臨時域名 (約需 10-15 秒)..."
+    TEMP_DOMAIN=""
+    for i in {1..15}; do
+        sleep 1
+        TEMP_DOMAIN=$(grep -oE 'https://[a-zA-Z0-9-]+\\.trycloudflare\\.com' /var/log/cloudflared-argo.log | head -n 1 | sed 's/https:\\/\\///')
+        if [ -n "$TEMP_DOMAIN" ]; then
+            break
+        fi
+    done
+    
+    if [ -n "$TEMP_DOMAIN" ]; then
+        echo -e "\${GREEN}獲取域名成功: \$TEMP_DOMAIN\${NC}"
+        FINAL_LINK="vless://$VLESS_UUID@\$TEMP_DOMAIN:443?encryption=none&security=tls&type=$VLESS_TYPE&host=\$TEMP_DOMAIN"
+        if [ "$VLESS_TYPE" = "ws" ]; then
+            FINAL_LINK="$FINAL_LINK&path=$(echo -n "$VLESS_PATH" | jq -s -R -r @uri 2>/dev/null || echo -n "$VLESS_PATH")"
+        fi
+        FINAL_LINK="$FINAL_LINK#Argo-Temp-$NODE_NAME"
+        
+        echo -e "\n\${GREEN}=== 部署成功 ===\${NC}"
+        echo -e "原節點名稱: $NODE_NAME"
+        echo -e "轉發連接埠: $VLESS_PORT"
+        echo -e "您的臨時 Argo 節點 VLESS 連結為 (注意：VPS 重啟或重開服務後域名會刷新):"
+        echo -e "\${GREEN}\$FINAL_LINK\${NC}\n"
+    else
+        echo -e "\${RED}錯誤: 獲取臨時域名超時！請執行 'cat /var/log/cloudflared-argo.log' 檢查日誌。\${NC}"
+    fi
+fi
+`;
+}
+
+async function main() {
+  console.log('==============================================');
+  console.log('      VLESS -> Cloudflare Argo 轉換工具');
+  console.log('==============================================');
+
+  const input = await question('請輸入訂閱地址、多個 VLESS 節點、或儲存配置的訂閱網址:\n> ');
+  if (!input.trim()) {
+    console.log('輸入不能為空。');
+    rl.close();
+    return;
+  }
+
+  const nodes = await fetchAndParse(input);
+  if (nodes.length === 0) {
+    console.log('未找到任何有效的 VLESS 節點。');
+    rl.close();
+    return;
+  }
+
+  console.log(`\n成功解析出 ${nodes.length} 個 VLESS 節點:`);
+  nodes.forEach((node, i) => {
+    console.log(`  [${i + 1}] ${node.name} (${node.server}:${node.port}, 傳輸協定: ${node.type})`);
+  });
+
+  const select = await question('\n請選擇要複製並轉換的節點 (輸入數字並用逗號隔開，例如: 1,3 ；或輸入 all 代表全部):\n> ');
+  let selectedNodes: VlessNode[] = [];
+  if (select.trim().toLowerCase() === 'all') {
+    selectedNodes = nodes;
+  } else {
+    const indices = select.split(',').map(s => parseInt(s.trim()) - 1);
+    selectedNodes = indices.map(idx => nodes[idx]).filter(Boolean);
+  }
+
+  if (selectedNodes.length === 0) {
+    console.log('選擇無效，程式結束。');
+    rl.close();
+    return;
+  }
+
+  console.log(`\n已選擇 ${selectedNodes.length} 個節點進行轉換...`);
+
+  // 本地連接埠設定
+  const port = await question('\n1. 請輸入該 VLESS 節點在 VPS 上監聽的本地連接埠 (預設 8080，請與 mack-a 配置一致):\n> ') || '8080';
+
+  // Argo Tunnel 授權設定
+  console.log('\n2. 隧道設定（直接斷行即代表隨機生成臨時隧道）：');
+  const token = await question('   請貼上您的 Cloudflare Tunnel Token (選填):\n   > ');
+
+  let domain = '';
+  if (token.trim()) {
+    domain = await question('   請輸入該隧道綁定的自訂域名 (例如: vless.domain.com):\n   > ');
+    if (!domain.trim()) {
+      console.log('   錯誤: 固定隧道模式必須提供自訂域名。');
+      rl.close();
+      return;
+    }
+  }
+
+  // 建立腳本存放目錄
+  const outputDir = path.join(process.cwd(), 'argo_outputs');
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir);
+  }
+
+  const generatedNodes: string[] = [];
+
+  for (const node of selectedNodes) {
+    // 保留原本節點
+    generatedNodes.push(node.originalLink);
+
+    // 生成並寫入一鍵 VPS 腳本
+    const vpsScript = generateVpsScript(node, port, token, domain);
+    const safeNodeName = node.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
+    const scriptPath = path.join(outputDir, `argo-install-${safeNodeName}.sh`);
+    
+    fs.writeFileSync(scriptPath, vpsScript, { encoding: 'utf8', mode: 0o755 });
+    console.log(`\n[✓] 成功生成 VPS 安裝腳本: ${scriptPath}`);
+
+    // 如果是固定隧道，可以直接在本地計算出新的 Argo 節點
+    if (token.trim() && domain.trim()) {
+      const argoLink = `vless://${node.uuid}@${domain.trim()}:443?encryption=none&security=tls&type=${node.type}&host=${domain.trim()}${node.type === 'ws' ? `&path=${encodeURIComponent(node.path)}` : ''}#Argo-${node.name}`;
+      generatedNodes.push(argoLink);
+      console.log(`    └─ 同步生成 Argo 節點連結: ${argoLink}`);
+    } else {
+      console.log(`    └─ 臨時隧道模式：節點連結需在 VPS 上執行腳本後動態輸出。`);
+    }
+  }
+
+  // 如果有生成固定隧道的節點，將新舊節點整合寫入訂閱文件
+  if (generatedNodes.length > selectedNodes.length) {
+    const subPath = path.join(outputDir, 'argo_subscription.txt');
+    fs.writeFileSync(subPath, generatedNodes.join('\n'), 'utf8');
+    const base64Sub = Buffer.from(generatedNodes.join('\n')).toString('base64');
+    fs.writeFileSync(path.join(outputDir, 'argo_subscription_base64.txt'), base64Sub, 'utf8');
+    
+    console.log(`\n[✓] 整合訂閱已生成（含原節點 + 新 Argo 節點）:`);
+    console.log(`    - 明文列表: ${path.join(outputDir, 'argo_subscription.txt')}`);
+    console.log(`    - Base64 格式: ${path.join(outputDir, 'argo_subscription_base64.txt')}`);
+  }
+
+  console.log('\n==============================================');
+  console.log('部署說明：');
+  console.log('1. 請將 argo_outputs 目錄內對應的 .sh 腳本上傳至您的 VPS。');
+  console.log('2. 執行命令賦予執行權限並啟動：');
+  console.log('   chmod +x argo-install-*.sh && ./argo-install-*.sh');
+  console.log('==============================================');
+
+  rl.close();
+}
+
+main();
+
+````
+
+## File: README.md
+````md
+# ⚡ CF Sub Converter Pro
+
+基於 Cloudflare Workers 的全能 Serverless 訂閱轉換與節點中樞。擁有現代深色 UI、SWR 高可用快取容災架構、智慧倍率/專線分組、國旗萬國對齊系統，以及 **Argo 隧道 2.0 自動化生成器**。支援將各類代理節點一鍵轉換為 **Sing-Box / Clash Meta (Mihomo) / Surge 5 / Quantumult X / Loon / Base64** 格式，亦可作為第三方轉換前端（如 `sub-web`）的標準後端。
+
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sammy0101/cf-sub-converter)
+
+---
+
+## 🌟 核心特性
+
+### 1. 🔌 全主流與新興協議深度解析
+- 完整支援 **VLESS**（含最新 `xhttp` / `splithttp`、`Reality`、`Vision`、`WebSocket`、`gRPC`）。
+- 完整支援 **WireGuard** / **Cloudflare WARP**（雙棧 IPv4/IPv6、Reserved 欄位相容）。
+- 完整支援 **Shadowsocks-2022**（`2022-blake3-*` 多端口與密鑰）、**Trojan**、**VMess**、**Hysteria 2 (`hy2`)**、**TUIC**、**AnyTLS**。
+
+### 2. 📱 全生態客戶端格式適配
+- **自適應識別 (Adaptive)**：自動依據請求客戶端的 `User-Agent` 回傳對應格式。
+- **Clash Meta (Mihomo)**：YAML 格式，內建流量嗅探、Fake-IP、DoH 分流與動態策略組。
+- **Sing-Box**：標準 JSON 格式，支援 Mixed TUN 堆疊、獨立 DNS 規則與出站映射。
+- **Surge 5**：標準 `.conf` 格式，支援 Proxy、Proxy Group 與分流規則。
+- **Quantumult X**：標準 `server_remote` 節點清單格式。
+- **Loon**：標準 `[Proxy]` 格式。
+- **Base64**：通用明文與編碼格式，適用於 v2rayNG、PassWall、Shadowrocket 等。
+
+### 3. 🛡️ 99.99% 高可用 SWR 容災架構 (Zero Downtime)
+- **Stale-While-Revalidate + KV 快取**：遠端規則模板自動在邊緣快取，背景非同步靜默更新。
+- **三重容災降級保證**：`KV 快取優先` ➔ `GitHub 即時獲取` ➔ `內嵌應急模板兜底`，徹底杜絕因 GitHub 429 限流或網路波動導致轉換失敗。
+
+### 4. 🏎️ 智慧倍率與專線動態策略組
+- **倍率辨識**：自動識別節點名稱中的倍率特徵（如 `0.1x`、`0.5X`、`0.2倍`），並在 Sing-Box 與 Clash Meta 中動態建立「🏎️ 低倍率節點」策略組。
+- **專線辨識**：自動擷取 `IPLC`、`IEPL`、`專線`、`內網` 特徵，動態生成「⚡ 專線加速」策略組。
+
+### 5. 🌀 Argo 隧道 2.0 一鍵生成器
+- **優選 IP / 官方域名注入**：支援填入 Cloudflare Clean IP（如 `104.16.80.1`）或優選網域，自動完成連接伺服器與 SNI/Host 映射，顯著降低延遲。
+- **極簡 VPS 命令**：腳本自動上傳至 KV 快取，透過 `curl -sSL ... | bash` 極速完成部署。
+- **智慧探測與修復**：VPS 端自動探測 443 / 80 本地監聽連接埠、TLS 狀態與 Host Header 重寫。
+
+### 6. 🔍 智慧篩選、名稱替換與黃金國旗排版
+- **雙向過濾**：支援「僅保留」與「排除」規則（多組用 `|` 隔開，如 `HK|TW` 或 `5x`），內建 `x`/`X`/`×` 字符相容匹配。
+- **名稱替換**：支援 `DEL-關鍵字`（刪除）、`尋找-替換`，以及 `ALL-新名稱`（一鍵統改所有節點名稱）。
+- **黃金 22 地區國旗排序**：自動為節點補上國旗 Emoji，依亞太核心（港、台、日、星、韓）➔ 歐美主流（美、英、加、澳）順序緊密分群，並自動對重複節點編號。
+
+### 7. 📊 流量與到期日加總透傳
+- 自動從上游多個機場擷取並加總上傳、下載與總流量，計算最近的到期時間，透過標準 `subscription-userinfo` 標頭透傳，完美點亮客戶端流量資訊條。
+
+---
+
+## 🚀 部署教學
+
+### 方法一：一鍵按鈕快速部署 (最推薦、零設定自動託管)
+
+點擊本說明文件上方的 **Deploy to Cloudflare Workers** 藍色按鈕。
+
+* **零設定自動託管**：Cloudflare 網頁部署精靈會引導您登入，並**在背景全自動為您建立並對接好所需的 KV 命名空間（`SUB_CACHE`）**，完全不需要您手動至儀表板綁定。
+* **自建 CI/CD (Workers Builds)**：Cloudflare 會在您的 GitHub 下自動建立此專案的複製倉庫。未來只要在 GitHub 修改並 `git push`，Cloudflare 就會自動在端點編譯部署，**此模式完全不需要設定 GitHub Secrets 密鑰**。
+
+---
+
+### 方法二：手動 Fork 本專案並使用 GitHub Actions 自動部署 (需設定 Secrets)
+
+如果您選擇**手動 Fork 本項目**並利用倉庫內建的 GitHub Actions 自動進行 CI/CD 部署，請依照以下步驟操作：
+
+1. **Fork 本專案**：
+   點擊本倉庫右上角的 **`Fork`** 按鈕，將專案複製一份到您的 GitHub 帳號下。
+
+2. **建立 Cloudflare KV 命名空間**：
+   - 登入 [Cloudflare Dashboard](https://dash.cloudflare.com/)。
+   - 點擊左側選單的 **`Storage & Databases` (儲存與資料庫)** ➔ **`KV`**。
+   - 點擊 **`Create a namespace`**，輸入名稱（例如 `SUB_CACHE`），建立完成後複製其 **Namespace ID**。
+
+3. **設定 GitHub Repository Secrets**：
+   前往您 Fork 出來的 GitHub 倉庫頁面，依次點擊：
+   **`Settings`** ➔ **`Secrets and variables`** ➔ **`Actions`** ➔ **`New repository secret`**，添加以下三個密鑰：
+
+   | 密鑰名稱 (Secret Name) | 說明與獲取方式 |
+   | :--- | :--- |
+   | **`CF_API_TOKEN`** | **Cloudflare API 權杖**<br>獲取方式：Cloudflare 首頁 ➔ 右上角「我的個人資料」➔「API 權杖」➔「建立權杖」➔ 選擇「編輯 Cloudflare Workers」模板（需具備 Workers 與 KV 的編輯權限）。 |
+   | **`CF_ACCOUNT_ID`** | **Cloudflare 帳戶 ID**<br>獲取方式：登入 Cloudflare ➔ 點擊任意網域或 Worker 頁面，在右側欄位即可找到「帳戶 ID (Account ID)」。 |
+   | **`CF_KV_ID`** | **KV 命名空間 ID**<br>獲取方式：填入步驟 2 中建立的 `SUB_CACHE` 命名空間 ID。 |
+
+4. **觸發自動部署**：
+   - 前往 GitHub 倉庫的 **`Actions`** 標籤頁。
+   - 點擊左側的 **`Deploy to Cloudflare Workers`** 工作流，點擊 **`Run workflow`** 手動執行部署。
+   - 後續只要您對 `main` 或 `master` 分支推送（Push）任何代碼變更，GitHub Actions 就會全自動為您編譯並發布至 Cloudflare Workers。
+
+---
+
+### 方法三：本地手動編譯部署 (Wrangler CLI)
+
+1. **克隆專案並安裝依賴**：
+   ```bash
+   git clone https://github.com/sammy0101/cf-sub-converter.git
+   cd cf-sub-converter
+   npm install
+   ```
+
+2. **建立 KV 命名空間**：
+   ```bash
+   wrangler kv:namespace create SUB_CACHE
+   ```
+   *將終端機回傳的 `id` 替換至 `wrangler.toml` 中的 `KV_ID_PLACEHOLDER`。*
+
+3. **發布至 Cloudflare**：
+   ```bash
+   npm run deploy
+   ```
+
+---
+
+## 📖 使用指南
+
+### 1. 視覺化 Web 面板
+訪問您部署完成的 Workers 網址：
+- **資料來源設定**：貼上機場訂閱連結或各類協議節點（支援多行混合輸入）。
+- **過濾與替換**：設定保留/排除關鍵字或名稱替換規則。
+- **短連結雲端儲存**：設定自訂短代碼，規則將自動打包存入 KV。
+- **多平台訂閱面板**：一鍵複製對應客戶端連結，或點擊 QR Code 按鈕掃描行動條碼。
+- **配置收藏管理**：可隨時儲存、編輯、一鍵載入常用配置，卡片上直觀顯示「保 / 排 / 替」規則標籤。
+
+---
+
+### 2. Argo 隧道 2.0 部署步驟
+
+1. 在網頁主輸入框貼入您的 VLESS / VMess 節點內容。
+2. 點擊 **「第一步：解析並載入目前輸入的 VLESS / VMess 節點」**。
+3. 勾選欲轉換之節點，系統會自動匹配原埠號。
+4. （選填）填入 **Cloudflare 優選 IP**（例如 `104.16.80.1`）以加速連線。
+5. （選填）填入固定 Tunnel Token 與自訂綁定域名（若留空則為臨時隨機隧道）。
+6. 點擊 **「第二步：生成 Argo 一鍵部署指令與節點」**。
+7. 將產生的 `curl -sSL ... | bash` 指令複製至 VPS（以 root 權限執行）。
+8. 部署成功後：
+   - **固定域名模式**：下方文字框直接複製已轉換好的 `_Argo_優選` 節點。
+   - **臨時隨機模式**：VPS 終端機將動態輸出最終分配的節點連結。
+
+---
+
+### 3. API 調用與外部前端對接
+
+#### 當作標準 SubConverter 後端使用
+本專案內建標準 `/sub` 與 `/version` 端點，可直接填入任何開源 `sub-web` 前端的「後端地址 (Backend URL)」：
+```text
+https://your-worker.workers.dev
+```
+
+#### URL 參數手動轉換
+
+| 參數 | 說明 | 範例 |
+| :--- | :--- | :--- |
+| `url` | 原始訂閱連結或節點內容（需 URL 編碼） | `https://example.com/sub` |
+| `target` | 目標格式：`clash` / `singbox` / `surge` / `quanx` / `loon` / `base64` | `target=clash` |
+| `include` | 僅保留符合正則之節點 | `include=HK\|TW` |
+| `exclude` | 排除符合正則之節點（自動相容乘號 `×`） | `exclude=5x\|官網` |
+| `rename` | 名稱替換（刪除：`DEL-字串`、替換：`A-B`、統改：`ALL-名稱`） | `rename=DEL-[69云]\|ALL-JP` |
+
+**完整調用範例**：
+```http
+# 轉換原始訂閱為 Clash Meta 格式，僅保留香港，並刪除廣告名稱
+https://your-worker.workers.dev/sub?url=<URL編碼>&target=clash&include=HK&rename=DEL-[廣告]
+
+# 讀取已存於雲端 KV 的短連結配置
+https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox
+```
+
+---
+
+## 🛡️ 內建分流群組 (Sing-Box / Clash Meta)
+
+| 圖示 | 策略組名稱 | 路由邏輯 |
+| :--- | :--- | :--- |
+| 🏎️ | 低倍率節點 | 自動彙整倍率 `< 1.0x` 的節點（省流專用） |
+| ⚡ | 專線加速 | 自動彙整包含 `IPLC` / `IEPL` / `專線` 的低延遲節點 |
+| 🚀 | 節點選擇 | 手動指定出站節點 |
+| ⚡ | 自動選擇 | URL Test 自動測速切換最低延遲節點 |
+| 💬 | AI 服務 | 針對 OpenAI / Claude / Gemini 專屬分流 |
+| 🍎 | 蘋果服務 | Apple 相關服務直連或代理 |
+| Ⓜ️ | 微軟服務 | Microsoft 服務直連或代理 |
+| 🎮 | 遊戲平台 | Steam / Epic / EA / Ubisoft / Blizzard |
+| 🌐 | 非中國 | 全球主流網站（Google、Telegram、YouTube 等） |
+| 🇨🇳 | 國內服務 | 中國大陸 IP 與網域自動精準直連 |
+| 🏠 | 私有網絡 | 區域網路 (LAN) 直連 |
+| 🛑 | 廣告攔截 | 阻擋常見廣告與追蹤器 (AdBlock) |
+| 🐟 | 漏網之魚 | Final Match 未命中規則之預設路由 |
+
+---
+
+## 📁 專案架構
+
+```text
+cf-sub-converter/
+├── src/
+│   ├── index.ts          # Worker 核心路由、並發請求控制、User-Agent 辨識與 API 接口
+│   ├── constants.ts      # 響應式深色 UI 模板、QR Code 生成器與 SWR 內嵌降級規則
+│   ├── parser.ts         # 萬能節點解析器 (VLESS SplitHTTP, WireGuard, SS-2022, Hy2, TUIC 等)
+│   ├── generator.ts      # 多平台格式生成器 (Sing-Box, Clash, Surge 5, QuanX, Loon, Base64)
+│   ├── utils.ts          # 倍率與專線特徵提取、Base64 安全編碼、萬國國旗對齊演算法
+│   └── types.ts          # 嚴格 TypeScript 類型定義
+├── argo.sh               # VPS Argo 隧道 2.0 一鍵安裝與自我修復通用腳本
+├── Sing-Box_Rules.JSON   # 遠端 Sing-Box 混合 TUN 規則模板
+├── Clash_Rules.YAML      # 遠端 Clash Meta (Mihomo) 規則模板
+├── wrangler.toml         # Cloudflare Workers 配置檔
+└── .github/workflows/
+    └── deploy.yml        # GitHub Actions 自動化部署工作流
+```
+
+---
+
+## ⚠️ 免責聲明
+
+本專案僅供網路安全、分散式架構學習與技術交流使用，不提供任何代理伺服器或節點服務。請使用者自覺遵守當地法律法規，切勿用於任何非法用途。
+
 ````
 
 ## File: src/index.ts
@@ -640,6 +1054,15 @@ import {
 import { deduplicateNodeNames, groupNodesByFlag } from './utils';
 
 const version = packageJson.version || '3.5.0';
+
+// 密碼鑒權校驗（僅在設置了 PAGE_PASSWORD 時攔截）
+function checkAuth(request: Request, env: Env): boolean {
+  if (!env.PAGE_PASSWORD || env.PAGE_PASSWORD.trim() === '') {
+    return true; // 未設置密碼，免密模式
+  }
+  const clientPwd = request.headers.get('X-Password') || '';
+  return clientPwd === env.PAGE_PASSWORD.trim();
+}
 
 // 輔助載入與解析節點
 async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
@@ -741,12 +1164,12 @@ export default {
         headers: {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
+          'Access-Control-Allow-Headers': 'Content-Type, X-Password',
         }
       });
     }
 
-    // GET /argo/sh/:id
+    // GET /argo/sh/:id (公開)
     if (request.method === 'GET' && url.pathname.startsWith('/argo/sh/')) {
       const scriptId = url.pathname.split('/').pop();
       if (env.SUB_CACHE && scriptId) {
@@ -766,7 +1189,7 @@ export default {
       });
     }
 
-    // POST /api/parse-argo
+    // POST /api/parse-argo (公開)
     if (request.method === 'POST' && (url.pathname === '/api/parse-vless' || url.pathname === '/api/parse-argo')) {
       try {
         const body = (await request.json()) as { url?: string };
@@ -800,7 +1223,7 @@ export default {
       }
     }
 
-    // POST /api/argo-generate
+    // POST /api/argo-generate (公開)
     if (request.method === 'POST' && url.pathname === '/api/argo-generate') {
       try {
         const body = (await request.json()) as {
@@ -879,7 +1302,7 @@ export default {
       }
     }
 
-    // GET /version
+    // GET /version (公開)
     if (request.method === 'GET' && url.pathname === '/version') {
       return new Response(`subconverter v${version} ${url.host} backend\n`, {
         headers: { 
@@ -889,7 +1312,7 @@ export default {
       });
     }
 
-    // POST /save 
+    // POST /save (公開)
     if (request.method === 'POST' && url.pathname === '/save') {
       try {
         const body = (await request.json()) as { path?: string; content?: string; include?: string; exclude?: string; rename?: string };
@@ -909,7 +1332,7 @@ export default {
       }
     }
 
-    // Favorites API
+    // --- 💥 Favorites API (受密碼保護區域) ---
     const FAVS_KEY = 'favorites';
     const getFavs = async (): Promise<Array<Record<string, string>>> => {
       const data = await env.SUB_CACHE.get(FAVS_KEY);
@@ -920,11 +1343,20 @@ export default {
     };
 
     if (request.method === 'GET' && url.pathname === '/favs') {
+      if (!checkAuth(request, env)) {
+        return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
       const favs = await getFavs();
       return new Response(JSON.stringify(favs), { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
     }
 
     if (request.method === 'POST' && url.pathname === '/favs') {
+      if (!checkAuth(request, env)) {
+        return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
+      }
       try {
         const body = (await request.json()) as Record<string, string>;
         if (!body.name || !body.url) return new Response('Missing name or url', { status: 400 });
@@ -937,13 +1369,16 @@ export default {
           rename: body.rename || ''
         });
         await saveFavs(favs);
-        return new Response('OK', { status: 200 });
+        return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
       } catch {
         return new Response('Error saving favorite', { status: 500 });
       }
     }
 
     if (request.method === 'PUT' && url.pathname === '/favs') {
+      if (!checkAuth(request, env)) {
+        return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
+      }
       try {
         const body = (await request.json()) as { index?: number; name?: string; url?: string; include?: string; exclude?: string; rename?: string };
         if (body.index === undefined || !body.name || !body.url) return new Response('Missing data', { status: 400 });
@@ -958,13 +1393,16 @@ export default {
           };
           await saveFavs(favs);
         }
-        return new Response('OK', { status: 200 });
+        return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
       } catch {
         return new Response('Error updating favorite', { status: 500 });
       }
     }
 
     if (request.method === 'DELETE' && url.pathname === '/favs') {
+      if (!checkAuth(request, env)) {
+        return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
+      }
       try {
         const body = (await request.json()) as { index?: number };
         if (body.index === undefined) return new Response('Missing index', { status: 400 });
@@ -973,18 +1411,17 @@ export default {
           favs.splice(body.index, 1);
           await saveFavs(favs);
         }
-        return new Response('OK', { status: 200 });
+        return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
       } catch {
         return new Response('Error deleting favorite', { status: 500 });
       }
     }
 
-    // GET 訂閱路由
+    // GET 訂閱路由 (公開免密)
     let urlParam = url.searchParams.get('url') || '';
     let includeParam = url.searchParams.get('include') || '';
     let excludeParam = url.searchParams.get('exclude') || '';
     let renameParam = url.searchParams.get('rename') || '';
-    // 💥 支援 ?force=1 或 ?nocache=1 即時強制穿透快取
     const forceRefresh = url.searchParams.has('force') || url.searchParams.has('nocache');
 
     const path = decodeURIComponent(url.pathname.slice(1)); 
@@ -1223,760 +1660,6 @@ export default {
   }
 };
 
-````
-
-## File: src/constants.ts
-````ts
-// src/constants.ts
-export const REMOTE_CONFIG = {
-  singbox: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Sing-Box_Rules.JSON',
-  clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML'
-};
-
-// 方案 B1 內嵌緊急降級模板 (Sing-Box 1.14+ 規範，http_clients 無 detour)
-export const FALLBACK_SINGBOX_RULES = JSON.stringify({
-  log: { level: "info" },
-  http_clients: [
-    { tag: "default" }
-  ],
-  dns: {
-    servers: [
-      { tag: "remote-dns", type: "https", server: "8.8.8.8", detour: "🚀 節點選擇" },
-      { tag: "local-dns", type: "udp", server: "223.5.5.5" },
-      { tag: "system-dns", type: "local" },
-      { tag: "fakeip-dns", type: "fakeip", inet4_range: "198.18.0.0/15", inet6_range: "fc00::/18" }
-    ],
-    rules: [
-      { rule_set: "rs-ads", action: "reject" },
-      {
-        rule_set: [
-          "rs-cn",
-          "rs-private"
-        ],
-        "server": "local-dns"
-      },
-      {
-        rule_set: [
-          "rs-geolocation-!cn",
-          "rs-ai"
-        ],
-        "server": "fakeip-dns"
-      }
-    ],
-    final: "local-dns",
-    strategy: "ipv4_only"
-  },
-  inbounds: [{ type: "tun", tag: "tun-in", interface_name: "tun0", auto_route: true, stack: "mixed" }],
-  outbounds: [
-    { type: "selector", tag: "🚀 節點選擇", outbounds: ["⚡ 自動選擇", "direct"] },
-    { type: "urltest", tag: "⚡ 自動選擇", outbounds: [], url: "https://www.gstatic.com/generate_204", interval: "3m" },
-    { type: "direct", tag: "direct" },
-    { type: "block", tag: "block" }
-  ],
-  route: {
-    default_domain_resolver: "local-dns",
-    default_http_client: "default",
-    rules: [
-      { action: "sniff" },
-      { protocol: "dns", action: "hijack-dns" }
-    ],
-    auto_detect_interface: true
-  },
-  experimental: {
-    cache_file: { enabled: true, store_fakeip: true }
-  }
-});
-
-export const FALLBACK_CLASH_RULES = `
-port: 7890
-allow-lan: true
-mode: rule
-log-level: info
-proxies: []
-proxy-groups:
-  - name: 🚀 節點選擇
-    type: select
-    proxies:
-      - ⚡ 自動選擇
-      - DIRECT
-  - name: ⚡ 自動選擇
-    type: url-test
-    url: http://www.gstatic.com/generate_204
-    interval: 300
-    proxies: []
-rules:
-  - GEOIP,CN,DIRECT
-  - MATCH,🚀 節點選擇
-`;
-
-export const HTML_PAGE = `
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SubConverter Pro | 全能訂閱轉換器</title>
-  
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-  
-  <style>
-    :root {
-      --bg-app: #0f172a;
-      --bg-panel: #1e293b;
-      --bg-input: #0f172a;
-      --bg-hover: #334155;
-      --text-main: #f8fafc;
-      --text-muted: #94a3b8;
-      --border: #334155;
-      --primary: #3b82f6;
-      --primary-hover: #2563eb;
-      --success: #10b981;
-      --danger: #ef4444;
-      --radius-sm: 6px;
-      --radius-md: 10px;
-      --radius-lg: 16px;
-      --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background-color: var(--bg-app); color: var(--text-main); line-height: 1.5; min-height: 100vh;
-    }
-    svg { width: 1.25rem; height: 1.25rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-    .header {
-      background-color: var(--bg-panel); border-bottom: 1px solid var(--border); padding: 1rem 2rem; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 50;
-    }
-    .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 1.25rem; }
-    .brand svg { color: var(--primary); width: 1.75rem; height: 1.75rem; }
-    .badge { background: rgba(59, 130, 246, 0.1); color: var(--primary); font-size: 0.75rem; padding: 4px 8px; border-radius: 9999px; font-weight: 600; border: 1px solid rgba(59, 130, 246, 0.2); }
-    .container { max-width: 860px; margin: 2.5rem auto; padding: 0 1.5rem; display: flex; flex-direction: column; gap: 1.5rem; }
-    .panel { background-color: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.75rem; box-shadow: var(--shadow); }
-    .panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; }
-    .panel-title { font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: 8px; }
-    .form-group { margin-bottom: 1.25rem; }
-    .form-group:last-child { margin-bottom: 0; }
-    label { display: block; font-size: 0.875rem; font-weight: 500; color: var(--text-muted); margin-bottom: 0.5rem; }
-    textarea, input[type="text"] {
-      width: 100%; background-color: var(--bg-input); border: 1px solid var(--border); color: var(--text-main); border-radius: var(--radius-md); padding: 0.875rem 1rem; font-size: 0.95rem; outline: none; transition: border-color 0.2s;
-    }
-    textarea { font-family: 'JetBrains Mono', monospace; font-size: 0.875rem; min-height: 140px; resize: vertical; }
-    textarea:focus, input[type="text"]:focus { border-color: var(--primary); }
-    .hint { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.4rem; display: flex; align-items: flex-start; gap: 6px; }
-    
-    .btn {
-      display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0.75rem 1.25rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.95rem; border: none; cursor: pointer; transition: background-color 0.2s; user-select: none;
-    }
-    .btn-primary { background-color: var(--primary); color: white; width: 100%; padding: 1rem; font-size: 1.05rem; }
-    .btn-primary:hover { background-color: var(--primary-hover); }
-    .btn-icon { background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border); padding: 0.6rem; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s; }
-    .btn-icon:hover { background: var(--bg-hover); color: var(--primary); border-color: var(--text-muted); }
-    .btn-ghost { background: transparent; color: var(--text-muted); padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.85rem;}
-    .btn-ghost:hover { background: var(--bg-hover); color: var(--text-main); }
-    .btn-danger:hover { color: var(--danger); border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.1); }
-
-    .results-wrapper { display: none; }
-    .results-wrapper.show { display: block; animation: slideUp 0.3s ease forwards; }
-    .result-item { display: flex; align-items: center; gap: 1rem; background-color: var(--bg-input); border: 1px solid var(--border); padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1rem; }
-    .result-icon-box { width: 44px; height: 44px; border-radius: var(--radius-sm); background-color: var(--bg-panel); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; color: var(--primary); flex-shrink: 0; }
-    .result-info { flex: 1; min-width: 140px; }
-    .result-name { font-weight: 600; font-size: 0.95rem; color: var(--text-main); }
-    .result-desc { font-size: 0.8rem; color: var(--text-muted); }
-    .result-input-wrapper { flex: 2; position: relative; }
-    .result-input-wrapper input { width: 100%; padding: 0.6rem 0.8rem; background: var(--bg-panel); font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-muted); }
-    .result-actions { display: flex; gap: 6px; flex-shrink: 0; }
-
-    .fav-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; margin-top: 1rem; }
-    .fav-card { 
-      background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.25rem; cursor: pointer; transition: all 0.2s ease; 
-    }
-    .fav-card:hover { border-color: var(--primary); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
-    .fav-title { font-weight: 600; font-size: 0.95rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
-    .fav-url { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .fav-actions { display: flex; gap: 8px; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); justify-content: flex-end; }
-    .empty-state { text-align: center; padding: 2rem; color: var(--text-muted); font-size: 0.9rem; border: 1px dashed var(--border); border-radius: var(--radius-md); }
-
-    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(4px); z-index: 100; display: none; align-items: center; justify-content: center; }
-    .modal-overlay.show { display: flex; }
-    .modal-content { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 92%; max-width: 720px; padding: 2rem; max-height: 92vh; overflow-y: auto; }
-    .modal-footer { display: flex; gap: 12px; margin-top: 2rem; justify-content: flex-end; }
-
-    .toast { position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%); background: var(--bg-panel); color: var(--text-main); border: 1px solid var(--border); padding: 0.8rem 1.5rem; border-radius: 999px; font-weight: 500; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; opacity: 0; transition: opacity 0.3s; z-index: 200; }
-    .toast.show { opacity: 1; }
-    .toast.success svg { color: var(--success); }
-    .cmd-group { display: flex; gap: 8px; margin-top: 8px; align-items: center; width: 100%; }
-    .cmd-group input { flex: 1; }
-    .cmd-group .btn { flex-shrink: 0; }
-
-    @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-
-    @media (max-width: 640px) {
-      .result-item { flex-direction: column; align-items: stretch; gap: 8px; padding: 1rem; }
-      .result-icon-box { display: none; }
-      .result-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
-      .result-actions .btn-icon { height: 38px; display: flex; justify-content: center; align-items: center; }
-    }
-  </style>
-</head>
-<body>
-
-  <header class="header">
-    <div class="brand">
-      <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
-      SubConverter Pro
-    </div>
-    <span class="badge">v3.5.0</span>
-  </header>
-
-  <div class="container">
-    <main class="panel">
-      <div class="panel-header">
-        <h2 class="panel-title">
-          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-          資料來源與規則設定
-        </h2>
-      </div>
-      
-      <div class="form-group">
-        <label for="urlInput">節點連結或訂閱地址 (支援多筆換行，含 WireGuard/WARP/AnyTLS)</label>
-        <textarea id="urlInput" placeholder="vmess://...\nvless://...\nwireguard://...\nhysteria2://...\nhttps://example.com/sub"></textarea>
-      </div>
-
-      <div class="form-group">
-        <label for="includeKeywords">僅保留關鍵字節點 (選填，多個用 | 分隔)</label>
-        <input type="text" id="includeKeywords" placeholder="例如: 🇭🇰|台灣|TW|IPLC">
-      </div>
-
-      <div class="form-group">
-        <label for="excludeKeywords">排除關鍵字節點 (選填，多個用 | 分隔)</label>
-        <input type="text" id="excludeKeywords" placeholder="例如: 流量|官網|重置|5x">
-      </div>
-
-      <div class="form-group">
-        <label for="renameKeywords">節點名稱替換 (選填，多個用 | 分隔)</label>
-        <input type="text" id="renameKeywords" placeholder="例如: DEL-[69云]|移动优化-專線|ALL-JP">
-      </div>
-      
-      <div class="form-group">
-        <label for="shortCode">自訂路徑短連結 (選填)</label>
-        <input type="text" id="shortCode" placeholder="例如: my-sub-vip">
-      </div>
-      
-      <button class="btn btn-primary" id="generateBtn" onclick="generate()" style="margin-top: 1.5rem;">
-        <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-        <span>執行全客戶端轉換</span>
-      </button>
-    </main>
-
-    <!-- ⚡ 轉換結果面板 -->
-    <section class="results-wrapper" id="results">
-      <div class="panel">
-        <div class="panel-header">
-          <h2 class="panel-title">
-            <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-            多平台訂閱連結
-          </h2>
-        </div>
-        
-        <!-- 1. 自適應 -->
-        <div class="result-item">
-          <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
-          </div>
-          <div class="result-info"><div class="result-name">自適應 (Auto)</div><div class="result-desc">自動識別客戶端協議</div></div>
-          <div class="result-input-wrapper"><input type="text" id="adaptiveUrl" readonly></div>
-          <div class="result-actions">
-            <button class="btn-icon" onclick="copyResult('adaptiveUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('adaptiveUrl', 'auto')" title="顯示專屬 QR Code / 一鍵喚醒"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
-          </div>
-        </div>
-
-        <!-- 2. Sing-Box -->
-        <div class="result-item">
-          <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
-          </div>
-          <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · 支援掃碼自動填入</div></div>
-          <div class="result-input-wrapper"><input type="text" id="singboxUrl" readonly></div>
-          <div class="result-actions">
-            <button class="btn-icon" onclick="copyResult('singboxUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('singboxUrl', 'singbox')" title="顯示 Sing-Box 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
-          </div>
-        </div>
-
-        <!-- 3. Clash Meta -->
-        <div class="result-item">
-          <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"></path><line x1="16" y1="8" x2="2" y2="22"></line><line x1="17.5" y1="15" x2="9" y2="6.5"></line></svg>
-          </div>
-          <div class="result-info"><div class="result-name">Clash Meta (Mihomo)</div><div class="result-desc">YAML 配置 · 含低倍率/專線分組</div></div>
-          <div class="result-input-wrapper"><input type="text" id="clashUrl" readonly></div>
-          <div class="result-actions">
-            <button class="btn-icon" onclick="copyResult('clashUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('clashUrl', 'clash')" title="顯示 Clash 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
-          </div>
-        </div>
-
-        <!-- 4. Surge 5 -->
-        <div class="result-item">
-          <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-          </div>
-          <div class="result-info"><div class="result-name">Surge 5</div><div class="result-desc">標準 Surge .conf 格式</div></div>
-          <div class="result-input-wrapper"><input type="text" id="surgeUrl" readonly></div>
-          <div class="result-actions">
-            <button class="btn-icon" onclick="copyResult('surgeUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('surgeUrl', 'surge')" title="顯示 Surge 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
-          </div>
-        </div>
-
-        <!-- 5. Quantumult X -->
-        <div class="result-item">
-          <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-          </div>
-          <div class="result-info"><div class="result-name">Quantumult X</div><div class="result-desc">server_remote 遠端節點列表</div></div>
-          <div class="result-input-wrapper"><input type="text" id="quanxUrl" readonly></div>
-          <div class="result-actions">
-            <button class="btn-icon" onclick="copyResult('quanxUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('quanxUrl', 'quanx')" title="顯示 Quantumult X 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
-          </div>
-        </div>
-
-        <!-- 6. Loon -->
-        <div class="result-item">
-          <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
-          </div>
-          <div class="result-info"><div class="result-name">Loon</div><div class="result-desc">Loon 代理配置清單</div></div>
-          <div class="result-input-wrapper"><input type="text" id="loonUrl" readonly></div>
-          <div class="result-actions">
-            <button class="btn-icon" onclick="copyResult('loonUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('loonUrl', 'loon')" title="顯示 Loon 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
-          </div>
-        </div>
-
-        <!-- 7. Base64 -->
-        <div class="result-item">
-          <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
-          </div>
-          <div class="result-info"><div class="result-name">Base64 / 通用</div><div class="result-desc">通用明文 / v2rayNG / Shadowrocket</div></div>
-          <div class="result-input-wrapper"><input type="text" id="base64Url" readonly></div>
-          <div class="result-actions">
-            <button class="btn-icon" onclick="copyResult('base64Url')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('base64Url', 'shadowrocket')" title="顯示通用掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ⚡ Argo 隧道 2.0 生成器 -->
-    <main class="panel">
-      <div class="panel-header">
-        <h2 class="panel-title" style="color: var(--primary);">
-          <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
-          Argo 隧道 2.0 (支援優選 IP / 多端口部署)
-        </h2>
-      </div>
-      
-      <div class="form-group">
-        <button class="btn btn-ghost" id="parseVlessBtn" onclick="parseVlessNodes()" style="width: 100%; justify-content: center; font-weight: 600;">
-          第一步：解析並載入目前輸入的 VLESS / VMess 節點
-        </button>
-      </div>
-
-      <div id="vlessSelectorWrapper" style="display: none; margin-top: 1.25rem; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.25rem; background: var(--bg-input);">
-        <label style="margin-bottom: 0.75rem; display: block; font-weight: 600;">選擇要轉換的原始節點 (可多選)：</label>
-        <div id="vlessCheckboxList" style="display: flex; flex-direction: column; gap: 8px; max-height: 200px; overflow-y: auto; margin-bottom: 1.25rem;"></div>
-        
-        <div class="form-group">
-          <label>1. VPS 本地監聽連接埠 (預設匹配選中節點)</label>
-          <input type="text" id="argoLocalPort" value="8080">
-        </div>
-
-        <div class="form-group">
-          <label>2. Cloudflare 優選 IP / 優選官方域名 (方案 D1：可填寫如 104.16.80.1 或 hk.cf.090227.xyz，選填)</label>
-          <input type="text" id="argoCleanIp" placeholder="若留空則預設直接使用 Argo 分配域名">
-        </div>
-
-        <div class="form-group">
-          <label>3. Cloudflare Tunnel Token (選填，留空啟用臨時隨機隧道)</label>
-          <input type="text" id="argoTunnelToken" placeholder="若使用固定隧道請貼上 Token">
-        </div>
-
-        <div class="form-group">
-          <label>4. 自訂綁定域名 (固定隧道必填)</label>
-          <input type="text" id="argoCustomDomain" placeholder="例如: argo.yourdomain.com">
-        </div>
-
-        <button class="btn btn-primary" id="generateArgoBtn" onclick="generateArgo()" style="margin-top: 1rem; background: var(--success);">
-          第二步：生成 Argo 一鍵部署指令與節點
-        </button>
-      </div>
-    </main>
-
-    <!-- Argo 結果區 -->
-    <section class="results-wrapper" id="argoResults">
-      <div class="panel">
-        <div class="panel-header"><h2 class="panel-title" style="color: var(--success);">Argo 部署指令與節點列表</h2></div>
-        <div class="form-group">
-          <label>📋 VPS 一鍵部署命令 (root 權限執行)：</label>
-          <div class="cmd-group">
-            <input type="text" id="argoCurlCmd" readonly>
-            <button class="btn btn-ghost" onclick="copyText('argoCurlCmd')">複製指令</button>
-          </div>
-        </div>
-        <div class="form-group">
-          <label>🔗 新生成的 Argo 節點列表：</label>
-          <textarea id="argoBase64Sub" readonly style="min-height: 120px; font-size: 0.8rem;"></textarea>
-          <button class="btn btn-ghost" onclick="copyText('argoBase64Sub')" style="margin-top: 0.5rem; width: 100%;">複製全部節點</button>
-        </div>
-      </div>
-    </section>
-
-    <!-- 配置收藏 -->
-    <section class="panel">
-      <div class="panel-header">
-        <h2 class="panel-title">已儲存的配置</h2>
-        <button class="btn btn-ghost" onclick="openModal()">新增配置</button>
-      </div>
-      <div id="favGrid" class="fav-grid"></div>
-    </section>
-  </div>
-
-  <div class="modal-overlay" id="modal">
-    <div class="modal-content">
-      <h3 id="modalTitle" style="margin-bottom: 1rem;">新增配置</h3>
-      <div class="form-group"><label>配置名稱</label><input type="text" id="favName"></div>
-      <div class="form-group"><label>節點內容 / 訂閱連結</label><textarea id="favUrl"></textarea></div>
-      <div class="form-group"><label>保留關鍵字</label><input type="text" id="favInclude"></div>
-      <div class="form-group"><label>排除關鍵字</label><input type="text" id="favExclude"></div>
-      <div class="form-group"><label>名稱替換規則</label><input type="text" id="favRename"></div>
-      <div class="modal-footer">
-        <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-        <button class="btn btn-primary" onclick="saveFav()" style="width: auto;">儲存</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="toast" id="toast">
-    <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-    <span id="toastMsg">提示訊息</span>
-  </div>
-
-  <script>
-    let favs = [];
-
-    async function loadFavs() {
-      try {
-        const resp = await fetch('/favs');
-        if (resp.ok) favs = await resp.json();
-        renderFavs();
-      } catch(e) {
-        console.error('載入配置失敗:', e);
-      }
-    }
-    
-    function renderFavs() {
-      const grid = document.getElementById('favGrid');
-      if (!favs || favs.length === 0) {
-        grid.innerHTML = '<div class="empty-state">目前尚未儲存配置</div>';
-        return;
-      }
-      grid.innerHTML = favs.map((f, i) => {
-        const includeBadge = f.include ? \`<span class="badge" style="background: rgba(16, 185, 129, 0.1); color: var(--success); border-color: rgba(16, 185, 129, 0.2); margin-right: 4px;">保: \${f.include}</span>\` : '';
-        const excludeBadge = f.exclude ? \`<span class="badge" style="background: rgba(239, 68, 68, 0.1); color: var(--danger); border-color: rgba(239, 68, 68, 0.2); margin-right: 4px;">排: \${f.exclude}</span>\` : '';
-        const renameBadge = f.rename ? \`<span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--primary); border-color: rgba(59, 130, 246, 0.2)">替: \${f.rename}</span>\` : '';
-
-        return \`
-        <div class="fav-card" onclick="useFav(\${i})">
-          <div class="fav-title">
-            <svg viewBox="0 0 24 24" style="width:16px;height:16px;color:var(--primary)"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
-            \${f.name}
-          </div>
-          <div class="fav-url">\${f.url}</div>
-          <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;">
-            \${includeBadge}
-            \${excludeBadge}
-            \${renameBadge}
-          </div>
-          <div class="fav-actions">
-            <button class="btn btn-ghost" onclick="event.stopPropagation(); editFav(\${i})">編輯</button>
-            <button class="btn btn-ghost btn-danger" onclick="event.stopPropagation(); deleteFav(\${i})">刪除</button>
-          </div>
-        </div>\`;
-      }).join('');
-    }
-
-    function useFav(index) {
-      if (!favs[index]) return;
-      const f = favs[index];
-      document.getElementById('urlInput').value = f.url || '';
-      document.getElementById('shortCode').value = (f.name || '').replace(/\\s+/g, '-').toLowerCase();
-      document.getElementById('includeKeywords').value = f.include || '';
-      document.getElementById('excludeKeywords').value = f.exclude || '';
-      document.getElementById('renameKeywords').value = f.rename || '';
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      showToast('已載入配置：' + f.name);
-    }
-
-    function editFav(index) {
-      if (!favs[index]) return;
-      const f = favs[index];
-      document.getElementById('modalTitle').textContent = '編輯配置';
-      document.getElementById('favName').value = f.name || '';
-      document.getElementById('favUrl').value = f.url || '';
-      document.getElementById('favInclude').value = f.include || '';
-      document.getElementById('favExclude').value = f.exclude || '';
-      document.getElementById('favRename').value = f.rename || '';
-      document.getElementById('modal').dataset.edit = index;
-      document.getElementById('modal').classList.add('show');
-    }
-
-    async function deleteFav(index) {
-      if (!confirm('確定要刪除這筆配置嗎？')) return;
-      try {
-        const resp = await fetch('/favs', { 
-          method: 'DELETE', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ index }) 
-        });
-        if (resp.ok) {
-          await loadFavs();
-          showToast('已成功刪除配置');
-        } else {
-          showToast('刪除失敗', false);
-        }
-      } catch(e) {
-        showToast('刪除失敗: ' + e.message, false);
-      }
-    }
-
-    async function saveFav() {
-      const name = document.getElementById('favName').value.trim();
-      const url = document.getElementById('favUrl').value.trim();
-      const include = document.getElementById('favInclude').value.trim();
-      const exclude = document.getElementById('favExclude').value.trim();
-      const rename = document.getElementById('favRename').value.trim();
-      if (!name || !url) return showToast('請完整填寫名稱與節點內容', false);
-
-      const editIndex = document.getElementById('modal').dataset.edit;
-      try {
-        if (editIndex !== '' && editIndex !== undefined) {
-          await fetch('/favs', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ index: parseInt(editIndex, 10), name, url, include, exclude, rename })
-          });
-        } else {
-          await fetch('/favs', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, url, include, exclude, rename })
-          });
-        }
-        closeModal();
-        await loadFavs();
-        showToast('配置儲存成功！');
-      } catch(e) {
-        showToast('儲存失敗，請重試', false);
-      }
-    }
-
-    async function generate() {
-      const raw = document.getElementById('urlInput').value.trim();
-      if (!raw) return showToast('請先輸入節點連結或訂閱網址', false);
-
-      const host = window.location.origin;
-      const shortCode = document.getElementById('shortCode').value.trim();
-      const include = document.getElementById('includeKeywords').value.trim();
-      const exclude = document.getElementById('excludeKeywords').value.trim();
-      const rename = document.getElementById('renameKeywords').value.trim();
-      
-      let baseUrl = '';
-      if (shortCode) {
-        await fetch('/save', { 
-          method: 'POST', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ path: shortCode, content: raw, include, exclude, rename }) 
-        });
-        baseUrl = host + '/' + shortCode;
-      } else {
-        baseUrl = host + '/?url=' + encodeURIComponent(raw);
-        if (include) baseUrl += '&include=' + encodeURIComponent(include);
-        if (exclude) baseUrl += '&exclude=' + encodeURIComponent(exclude);
-        if (rename) baseUrl += '&rename=' + encodeURIComponent(rename);
-      }
-
-      const sep = baseUrl.includes('?') ? '&' : '?';
-      document.getElementById('adaptiveUrl').value = baseUrl;
-      document.getElementById('clashUrl').value = baseUrl + sep + 'target=clash';
-      document.getElementById('singboxUrl').value = baseUrl + sep + 'target=singbox';
-      document.getElementById('surgeUrl').value = baseUrl + sep + 'target=surge';
-      document.getElementById('quanxUrl').value = baseUrl + sep + 'target=quanx';
-      document.getElementById('loonUrl').value = baseUrl + sep + 'target=loon';
-      document.getElementById('base64Url').value = baseUrl + sep + 'target=base64';
-
-      document.getElementById('results').classList.add('show');
-      showToast('全客戶端連結生成完畢！');
-    }
-
-    function showQr(id, clientType = 'auto') {
-      const rawUrl = document.getElementById(id).value;
-      if (!rawUrl) return;
-
-      const profileName = (document.getElementById('shortCode').value.trim() || 'SubConverter');
-      let deepLink = rawUrl;
-      let displayTitle = '掃碼導入配置';
-      let clientName = '客戶端';
-
-      if (clientType === 'singbox') {
-        deepLink = \`sing-box://import-remote-profile?url=\${encodeURIComponent(rawUrl)}#\${encodeURIComponent(profileName)}\`;
-        displayTitle = 'Sing-Box 專屬掃碼導入';
-        clientName = 'Sing-Box';
-      } else if (clientType === 'clash') {
-        deepLink = \`clash://install-config?url=\${encodeURIComponent(rawUrl)}&name=\${encodeURIComponent(profileName)}\`;
-        displayTitle = 'Clash / Mihomo 專屬導入';
-        clientName = 'Clash';
-      } else if (clientType === 'surge') {
-        deepLink = \`surge:///install-config?url=\${encodeURIComponent(rawUrl)}\`;
-        displayTitle = 'Surge 5 專屬導入';
-        clientName = 'Surge';
-      } else if (clientType === 'quanx') {
-        deepLink = \`quantumult-x:///add-resource?remote-resource=\${encodeURIComponent(JSON.stringify({ server_remote: [\`\${rawUrl}, tag=\${profileName}\`] }))}\`;
-        displayTitle = 'Quantumult X 專屬導入';
-        clientName = 'Quantumult X';
-      } else if (clientType === 'loon') {
-        deepLink = \`loon://import?type=config&url=\${encodeURIComponent(rawUrl)}\`;
-        displayTitle = 'Loon 專屬導入';
-        clientName = 'Loon';
-      } else if (clientType === 'shadowrocket') {
-        deepLink = \`shadowrocket://add/sub://\${btoa(rawUrl)}?title=\${encodeURIComponent(profileName)}\`;
-        displayTitle = 'Shadowrocket 專屬導入';
-        clientName = 'Shadowrocket';
-      }
-
-      const win = window.open('', '_blank', 'width=440,height=560');
-      if (!win) return showToast('請允許瀏覽器開啟彈出視窗', false);
-
-      win.document.write(\`
-        <!DOCTYPE html><html><head><meta charset="utf-8"><title>\${displayTitle}</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-          body { margin:0; background:#0f172a; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; font-family:-apple-system,BlinkMacSystemFont,sans-serif; color:#f8fafc; padding:20px; box-sizing:border-box; text-align:center;}
-          .qr-container { padding:20px; background:#ffffff; border-radius:16px; box-shadow:0 10px 25px rgba(0,0,0,0.5); display:inline-block; }
-          .title { margin-top:20px; font-size:18px; font-weight:700; color:#38bdf8; letter-spacing:0.5px; }
-          .subtitle { margin-top:6px; font-size:12px; color:#94a3b8; max-width:320px; word-break:break-all; font-family:monospace; line-height:1.4; }
-          .btn-open { margin-top:20px; display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:12px 28px; background:#3b82f6; color:#fff; text-decoration:none; border-radius:10px; font-weight:600; font-size:15px; box-shadow:0 4px 14px rgba(59,130,246,0.4); transition:transform 0.2s;}
-          .btn-open:hover { transform:translateY(-1px); background:#2563eb; }
-          .hint-box { margin-top:14px; font-size:12px; color:#10b981; background:rgba(16,185,129,0.1); padding:8px 14px; border-radius:8px; border:1px solid rgba(16,185,129,0.2); max-width:320px; }
-        </style>
-        </head><body>
-        <div class="qr-container"><div id="qr"></div></div>
-        <div class="title">\${displayTitle}</div>
-        <div class="subtitle">\${rawUrl}</div>
-        
-        <a class="btn-open" href="\${deepLink}">🚀 一鍵打開並導入 \${clientName}</a>
-        
-        <div class="hint-box">
-          ✨ 手機相機或 \${clientName} App 掃描此二維碼，即可全自動填入名稱與網址！
-        </div>
-
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\\/script>
-        <script>
-          setTimeout(() => {
-            new QRCode(document.getElementById('qr'), { 
-              text: "\${deepLink}", 
-              width: 240, 
-              height: 240, 
-              colorDark: "#0f172a", 
-              colorLight: "#ffffff", 
-              correctLevel: QRCode.CorrectLevel.L 
-            });
-          }, 100);
-        <\\/script>
-        </body></html>
-      \`);
-    }
-
-    async function parseVlessNodes() {
-      const raw = document.getElementById('urlInput').value.trim();
-      if (!raw) return showToast('請先輸入節點內容', false);
-      const resp = await fetch('/api/parse-argo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: raw }) });
-      const nodes = await resp.json();
-      if (!nodes || nodes.length === 0) return showToast('未找到 VLESS/VMess 節點', false);
-
-      const listEl = document.getElementById('vlessCheckboxList');
-      listEl.innerHTML = nodes.map(n => \`
-        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px 0;">
-          <input type="checkbox" class="vless-chk" value="\${n.index}" data-port="\${n.port}">
-          <span>\${n.name} (\${n.server}:\${n.port})</span>
-        </label>
-      \`).join('');
-      document.getElementById('vlessSelectorWrapper').style.display = 'block';
-    }
-
-    async function generateArgo() {
-      const raw = document.getElementById('urlInput').value.trim();
-      const checkboxes = document.querySelectorAll('.vless-chk:checked');
-      if (checkboxes.length === 0) return showToast('請至少選擇一個節點', false);
-
-      const indices = Array.from(checkboxes).map(cb => parseInt(cb.value));
-      const port = document.getElementById('argoLocalPort').value.trim() || '8080';
-      const cleanIp = document.getElementById('argoCleanIp').value.trim();
-      const token = document.getElementById('argoTunnelToken').value.trim();
-      const domain = document.getElementById('argoCustomDomain').value.trim();
-
-      const resp = await fetch('/api/argo-generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: raw, indices, port, cleanIp, token, domain })
-      });
-      const res = await resp.json();
-      const host = window.location.origin;
-
-      if (res.scriptId) {
-        document.getElementById('argoCurlCmd').value = \`curl -sSL \${host}/argo/sh/\${res.scriptId} | bash\`;
-      }
-      document.getElementById('argoBase64Sub').value = res.argoNodes.map(x => x.link).join('\\n');
-      document.getElementById('argoResults').classList.add('show');
-      showToast('Argo 部署指令與節點已生成！');
-    }
-
-    function copyResult(id) {
-      const el = document.getElementById(id);
-      navigator.clipboard.writeText(el.value).then(() => showToast('已複製連結'));
-    }
-    function copyText(id) {
-      const el = document.getElementById(id);
-      navigator.clipboard.writeText(el.value).then(() => showToast('已成功複製到剪貼簿！'));
-    }
-    function showToast(msg, isSuccess = true) {
-      const t = document.getElementById('toast');
-      document.getElementById('toastMsg').textContent = msg;
-      t.className = 'toast show' + (isSuccess ? ' success' : '');
-      setTimeout(() => t.classList.remove('show'), 3000);
-    }
-    function openModal() { 
-      document.getElementById('modalTitle').textContent = '新增配置';
-      document.getElementById('favName').value = '';
-      document.getElementById('favUrl').value = '';
-      document.getElementById('favInclude').value = '';
-      document.getElementById('favExclude').value = '';
-      document.getElementById('favRename').value = '';
-      delete document.getElementById('modal').dataset.edit;
-      document.getElementById('modal').classList.add('show'); 
-    }
-    function closeModal() { document.getElementById('modal').classList.remove('show'); }
-    
-    loadFavs();
-  </script>
-</body>
-</html>
-`;
 ````
 
 ## File: src/parser.ts
@@ -2813,67 +2496,6 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
 }
 ````
 
-## File: src/types.ts
-````ts
-export interface Env {
-  SUB_CACHE: KVNamespace;
-  PAGE_PASSWORD?: string;
-}
-
-export interface WireGuardConfig {
-  privateKey: string;
-  localAddress: string[];
-  publicKey?: string;
-  presharedKey?: string;
-  mtu?: number;
-  reserved?: number[];
-}
-
-export interface ProxyNode {
-  type: string;
-  name: string;
-  server: string;
-  port: number;
-  uuid?: string;
-  password?: string;
-  cipher?: string;
-  udp?: boolean;
-  tls?: boolean;
-  sni?: string;
-  alpn?: string[];
-  fingerprint?: string;
-  flow?: string;
-  network?: string;
-  wsPath?: string;
-  wsHeaders?: Record<string, string>;
-  reality?: { publicKey: string; shortId: string };
-  obfs?: string;
-  obfsPassword?: string;
-  skipCertVerify?: boolean;
-  singboxObj?: Record<string, unknown>;
-  clashObj?: Record<string, unknown>;
-  congestion_control?: string;
-  udp_relay_mode?: string;
-  // VLESS SplitHTTP (xhttp)
-  xhttpPath?: string;
-  xhttpHost?: string;
-  xhttpMode?: string;
-  // WireGuard / WARP
-  wireguard?: WireGuardConfig;
-  // ECH (Encrypted Client Hello)
-  ech?: boolean;
-  // 標籤特徵
-  multiplier?: number;
-  isIplc?: boolean;
-}
-
-export interface CachedTemplate {
-  content: string;
-  updatedAt: number;
-}
-
-````
-
 ## File: src/generator.ts
 ````ts
 // src/generator.ts
@@ -3271,6 +2893,821 @@ export function toLoon(nodes: ProxyNode[]): string {
 }
 ````
 
+## File: src/constants.ts
+````ts
+// src/constants.ts
+export const REMOTE_CONFIG = {
+  singbox: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Sing-Box_Rules.JSON',
+  clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML'
+};
+
+// 方案 B1 內嵌緊急降級模板 (Sing-Box 1.14+ 規範，http_clients 無 detour)
+export const FALLBACK_SINGBOX_RULES = JSON.stringify({
+  log: { level: "info" },
+  http_clients: [
+    { tag: "default" }
+  ],
+  dns: {
+    servers: [
+      { tag: "remote-dns", type: "https", server: "8.8.8.8", detour: "🚀 節點選擇" },
+      { tag: "local-dns", type: "udp", server: "223.5.5.5" },
+      { tag: "system-dns", type: "local" },
+      { tag: "fakeip-dns", type: "fakeip", inet4_range: "198.18.0.0/15", inet6_range: "fc00::/18" }
+    ],
+    rules: [
+      { rule_set: "rs-ads", action: "reject" },
+      {
+        rule_set: [
+          "rs-cn",
+          "rs-private"
+        ],
+        "server": "local-dns"
+      },
+      {
+        rule_set: [
+          "rs-geolocation-!cn",
+          "rs-ai"
+        ],
+        "server": "fakeip-dns"
+      }
+    ],
+    final: "local-dns",
+    strategy: "ipv4_only"
+  },
+  inbounds: [{ type: "tun", tag: "tun-in", interface_name: "tun0", auto_route: true, stack: "mixed" }],
+  outbounds: [
+    { type: "selector", tag: "🚀 節點選擇", outbounds: ["⚡ 自動選擇", "direct"] },
+    { type: "urltest", tag: "⚡ 自動選擇", outbounds: [], url: "https://www.gstatic.com/generate_204", interval: "3m" },
+    { type: "direct", tag: "direct" },
+    { type: "block", tag: "block" }
+  ],
+  route: {
+    default_domain_resolver: "local-dns",
+    default_http_client: "default",
+    rules: [
+      { action: "sniff" },
+      { protocol: "dns", action: "hijack-dns" }
+    ],
+    auto_detect_interface: true
+  },
+  experimental: {
+    cache_file: { enabled: true, store_fakeip: true }
+  }
+});
+
+export const FALLBACK_CLASH_RULES = `
+port: 7890
+allow-lan: true
+mode: rule
+log-level: info
+proxies: []
+proxy-groups:
+  - name: 🚀 節點選擇
+    type: select
+    proxies:
+      - ⚡ 自動選擇
+      - DIRECT
+  - name: ⚡ 自動選擇
+    type: url-test
+    url: http://www.gstatic.com/generate_204
+    interval: 300
+    proxies: []
+rules:
+  - GEOIP,CN,DIRECT
+  - MATCH,🚀 節點選擇
+`;
+
+export const HTML_PAGE = `
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SubConverter Pro | 全能訂閱轉換器</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  
+  <style>
+    :root {
+      --bg-app: #0f172a;
+      --bg-panel: #1e293b;
+      --bg-input: #0f172a;
+      --bg-hover: #334155;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --border: #334155;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --success: #10b981;
+      --danger: #ef4444;
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 16px;
+      --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg-app); color: var(--text-main); line-height: 1.5; min-height: 100vh;
+    }
+    svg { width: 1.25rem; height: 1.25rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .header {
+      background-color: var(--bg-panel); border-bottom: 1px solid var(--border); padding: 1rem 2rem; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 50;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 1.25rem; }
+    .brand svg { color: var(--primary); width: 1.75rem; height: 1.75rem; }
+    .badge { background: rgba(59, 130, 246, 0.1); color: var(--primary); font-size: 0.75rem; padding: 4px 8px; border-radius: 9999px; font-weight: 600; border: 1px solid rgba(59, 130, 246, 0.2); }
+    .container { max-width: 860px; margin: 2.5rem auto; padding: 0 1.5rem; display: flex; flex-direction: column; gap: 1.5rem; }
+    .panel { background-color: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.75rem; box-shadow: var(--shadow); }
+    .panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; }
+    .panel-title { font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    .form-group { margin-bottom: 1.25rem; }
+    .form-group:last-child { margin-bottom: 0; }
+    label { display: block; font-size: 0.875rem; font-weight: 500; color: var(--text-muted); margin-bottom: 0.5rem; }
+    textarea, input[type="text"] {
+      width: 100%; background-color: var(--bg-input); border: 1px solid var(--border); color: var(--text-main); border-radius: var(--radius-md); padding: 0.875rem 1rem; font-size: 0.95rem; outline: none; transition: border-color 0.2s;
+    }
+    textarea { font-family: 'JetBrains Mono', monospace; font-size: 0.875rem; min-height: 140px; resize: vertical; }
+    textarea:focus, input[type="text"]:focus { border-color: var(--primary); }
+    .hint { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.4rem; display: flex; align-items: flex-start; gap: 6px; }
+    
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0.75rem 1.25rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.95rem; border: none; cursor: pointer; transition: background-color 0.2s; user-select: none;
+    }
+    .btn-primary { background-color: var(--primary); color: white; width: 100%; padding: 1rem; font-size: 1.05rem; }
+    .btn-primary:hover { background-color: var(--primary-hover); }
+    .btn-icon { background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border); padding: 0.6rem; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s; }
+    .btn-icon:hover { background: var(--bg-hover); color: var(--primary); border-color: var(--text-muted); }
+    .btn-ghost { background: transparent; color: var(--text-muted); padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.85rem;}
+    .btn-ghost:hover { background: var(--bg-hover); color: var(--text-main); }
+    .btn-danger:hover { color: var(--danger); border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.1); }
+
+    .results-wrapper { display: none; }
+    .results-wrapper.show { display: block; animation: slideUp 0.3s ease forwards; }
+    .result-item { display: flex; align-items: center; gap: 1rem; background-color: var(--bg-input); border: 1px solid var(--border); padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1rem; }
+    .result-icon-box { width: 44px; height: 44px; border-radius: var(--radius-sm); background-color: var(--bg-panel); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; color: var(--primary); flex-shrink: 0; }
+    .result-info { flex: 1; min-width: 140px; }
+    .result-name { font-weight: 600; font-size: 0.95rem; color: var(--text-main); }
+    .result-desc { font-size: 0.8rem; color: var(--text-muted); }
+    .result-input-wrapper { flex: 2; position: relative; }
+    .result-input-wrapper input { width: 100%; padding: 0.6rem 0.8rem; background: var(--bg-panel); font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-muted); }
+    .result-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+    .fav-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; margin-top: 1rem; }
+    .fav-card { 
+      background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.25rem; cursor: pointer; transition: all 0.2s ease; 
+    }
+    .fav-card:hover { border-color: var(--primary); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+    .fav-title { font-weight: 600; font-size: 0.95rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+    .fav-url { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fav-actions { display: flex; gap: 8px; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); justify-content: flex-end; }
+    .empty-state { text-align: center; padding: 2rem; color: var(--text-muted); font-size: 0.9rem; border: 1px dashed var(--border); border-radius: var(--radius-md); }
+
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(4px); z-index: 100; display: none; align-items: center; justify-content: center; }
+    .modal-overlay.show { display: flex; }
+    .modal-content { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 92%; max-width: 720px; padding: 2rem; max-height: 92vh; overflow-y: auto; }
+    .modal-footer { display: flex; gap: 12px; margin-top: 2rem; justify-content: flex-end; }
+
+    .toast { position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%); background: var(--bg-panel); color: var(--text-main); border: 1px solid var(--border); padding: 0.8rem 1.5rem; border-radius: 999px; font-weight: 500; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; opacity: 0; transition: opacity 0.3s; z-index: 200; }
+    .toast.show { opacity: 1; }
+    .toast.success svg { color: var(--success); }
+    .cmd-group { display: flex; gap: 8px; margin-top: 8px; align-items: center; width: 100%; }
+    .cmd-group input { flex: 1; }
+    .cmd-group .btn { flex-shrink: 0; }
+
+    @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+    @media (max-width: 640px) {
+      .result-item { flex-direction: column; align-items: stretch; gap: 8px; padding: 1rem; }
+      .result-icon-box { display: none; }
+      .result-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+      .result-actions .btn-icon { height: 38px; display: flex; justify-content: center; align-items: center; }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="header">
+    <div class="brand">
+      <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
+      SubConverter Pro
+    </div>
+    <span class="badge">v3.5.0</span>
+  </header>
+
+  <div class="container">
+    <main class="panel">
+      <div class="panel-header">
+        <h2 class="panel-title">
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+          資料來源與規則設定
+        </h2>
+      </div>
+      
+      <div class="form-group">
+        <label for="urlInput">節點連結或訂閱地址 (支援多筆換行，含 WireGuard/WARP/AnyTLS)</label>
+        <textarea id="urlInput" placeholder="vmess://...\nvless://...\nwireguard://...\nhysteria2://...\nhttps://example.com/sub"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="includeKeywords">僅保留關鍵字節點 (選填，多個用 | 分隔)</label>
+        <input type="text" id="includeKeywords" placeholder="例如: 🇭🇰|台灣|TW|IPLC">
+      </div>
+
+      <div class="form-group">
+        <label for="excludeKeywords">排除關鍵字節點 (選填，多個用 | 分隔)</label>
+        <input type="text" id="excludeKeywords" placeholder="例如: 流量|官網|重置|5x">
+      </div>
+
+      <div class="form-group">
+        <label for="renameKeywords">節點名稱替換 (選填，多個用 | 分隔)</label>
+        <input type="text" id="renameKeywords" placeholder="例如: DEL-[69云]|移动优化-專線|ALL-JP">
+      </div>
+      
+      <div class="form-group">
+        <label for="shortCode">自訂路徑短連結 (選填)</label>
+        <input type="text" id="shortCode" placeholder="例如: my-sub-vip">
+      </div>
+      
+      <button class="btn btn-primary" id="generateBtn" onclick="generate()" style="margin-top: 1.5rem;">
+        <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+        <span>執行全客戶端轉換</span>
+      </button>
+    </main>
+
+    <!-- ⚡ 轉換結果面板 -->
+    <section class="results-wrapper" id="results">
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">
+            <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+            多平台訂閱連結
+          </h2>
+        </div>
+        
+        <!-- 1. 自適應 -->
+        <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+          </div>
+          <div class="result-info"><div class="result-name">自適應 (Auto)</div><div class="result-desc">自動識別客戶端協議</div></div>
+          <div class="result-input-wrapper"><input type="text" id="adaptiveUrl" readonly></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('adaptiveUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('adaptiveUrl', 'auto')" title="顯示專屬 QR Code / 一鍵喚醒"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
+        </div>
+
+        <!-- 2. Sing-Box -->
+        <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+          </div>
+          <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · 支援掃碼自動填入</div></div>
+          <div class="result-input-wrapper"><input type="text" id="singboxUrl" readonly></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('singboxUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('singboxUrl', 'singbox')" title="顯示 Sing-Box 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
+        </div>
+
+        <!-- 3. Clash Meta -->
+        <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"></path><line x1="16" y1="8" x2="2" y2="22"></line><line x1="17.5" y1="15" x2="9" y2="6.5"></line></svg>
+          </div>
+          <div class="result-info"><div class="result-name">Clash Meta (Mihomo)</div><div class="result-desc">YAML 配置 · 含低倍率/專線分組</div></div>
+          <div class="result-input-wrapper"><input type="text" id="clashUrl" readonly></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('clashUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('clashUrl', 'clash')" title="顯示 Clash 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
+        </div>
+
+        <!-- 4. Surge 5 -->
+        <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+          </div>
+          <div class="result-info"><div class="result-name">Surge 5</div><div class="result-desc">標準 Surge .conf 格式</div></div>
+          <div class="result-input-wrapper"><input type="text" id="surgeUrl" readonly></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('surgeUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('surgeUrl', 'surge')" title="顯示 Surge 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
+        </div>
+
+        <!-- 5. Quantumult X -->
+        <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+          </div>
+          <div class="result-info"><div class="result-name">Quantumult X</div><div class="result-desc">server_remote 遠端節點列表</div></div>
+          <div class="result-input-wrapper"><input type="text" id="quanxUrl" readonly></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('quanxUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('quanxUrl', 'quanx')" title="顯示 Quantumult X 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
+        </div>
+
+        <!-- 6. Loon -->
+        <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
+          </div>
+          <div class="result-info"><div class="result-name">Loon</div><div class="result-desc">Loon 代理配置清單</div></div>
+          <div class="result-input-wrapper"><input type="text" id="loonUrl" readonly></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('loonUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('loonUrl', 'loon')" title="顯示 Loon 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
+        </div>
+
+        <!-- 7. Base64 -->
+        <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+          </div>
+          <div class="result-info"><div class="result-name">Base64 / 通用</div><div class="result-desc">通用明文 / v2rayNG / Shadowrocket</div></div>
+          <div class="result-input-wrapper"><input type="text" id="base64Url" readonly></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('base64Url')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('base64Url', 'shadowrocket')" title="顯示通用掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ⚡ Argo 隧道 2.0 生成器 -->
+    <main class="panel">
+      <div class="panel-header">
+        <h2 class="panel-title" style="color: var(--primary);">
+          <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
+          Argo 隧道 2.0 (支援優選 IP / 多端口部署)
+        </h2>
+      </div>
+      
+      <div class="form-group">
+        <button class="btn btn-ghost" id="parseVlessBtn" onclick="parseVlessNodes()" style="width: 100%; justify-content: center; font-weight: 600;">
+          第一步：解析並載入目前輸入的 VLESS / VMess 節點
+        </button>
+      </div>
+
+      <div id="vlessSelectorWrapper" style="display: none; margin-top: 1.25rem; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.25rem; background: var(--bg-input);">
+        <label style="margin-bottom: 0.75rem; display: block; font-weight: 600;">選擇要轉換的原始節點 (可多選)：</label>
+        <div id="vlessCheckboxList" style="display: flex; flex-direction: column; gap: 8px; max-height: 200px; overflow-y: auto; margin-bottom: 1.25rem;"></div>
+        
+        <div class="form-group">
+          <label>1. VPS 本地監聽連接埠 (預設匹配選中節點)</label>
+          <input type="text" id="argoLocalPort" value="8080">
+        </div>
+
+        <div class="form-group">
+          <label>2. Cloudflare 優選 IP / 優選官方域名 (方案 D1：可填寫如 104.16.80.1 或 hk.cf.090227.xyz，選填)</label>
+          <input type="text" id="argoCleanIp" placeholder="若留空則預設直接使用 Argo 分配域名">
+        </div>
+
+        <div class="form-group">
+          <label>3. Cloudflare Tunnel Token (選填，留空啟用臨時隨機隧道)</label>
+          <input type="text" id="argoTunnelToken" placeholder="若使用固定隧道請貼上 Token">
+        </div>
+
+        <div class="form-group">
+          <label>4. 自訂綁定域名 (固定隧道必填)</label>
+          <input type="text" id="argoCustomDomain" placeholder="例如: argo.yourdomain.com">
+        </div>
+
+        <button class="btn btn-primary" id="generateArgoBtn" onclick="generateArgo()" style="margin-top: 1rem; background: var(--success);">
+          第二步：生成 Argo 一鍵部署指令與節點
+        </button>
+      </div>
+    </main>
+
+    <!-- Argo 結果區 -->
+    <section class="results-wrapper" id="argoResults">
+      <div class="panel">
+        <div class="panel-header"><h2 class="panel-title" style="color: var(--success);">Argo 部署指令與節點列表</h2></div>
+        <div class="form-group">
+          <label>📋 VPS 一鍵部署命令 (root 權限執行)：</label>
+          <div class="cmd-group">
+            <input type="text" id="argoCurlCmd" readonly>
+            <button class="btn btn-ghost" onclick="copyText('argoCurlCmd')">複製指令</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>🔗 新生成的 Argo 節點列表：</label>
+          <textarea id="argoBase64Sub" readonly style="min-height: 120px; font-size: 0.8rem;"></textarea>
+          <button class="btn btn-ghost" onclick="copyText('argoBase64Sub')" style="margin-top: 0.5rem; width: 100%;">複製全部節點</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 配置收藏 -->
+    <section class="panel">
+      <div class="panel-header">
+        <h2 class="panel-title">已儲存的配置</h2>
+        <button class="btn btn-ghost" onclick="openModal()">新增配置</button>
+      </div>
+      <div id="favGrid" class="fav-grid"></div>
+    </section>
+  </div>
+
+  <div class="modal-overlay" id="modal">
+    <div class="modal-content">
+      <h3 id="modalTitle" style="margin-bottom: 1rem;">新增配置</h3>
+      <div class="form-group"><label>配置名稱</label><input type="text" id="favName"></div>
+      <div class="form-group"><label>節點內容 / 訂閱連結</label><textarea id="favUrl"></textarea></div>
+      <div class="form-group"><label>保留關鍵字</label><input type="text" id="favInclude"></div>
+      <div class="form-group"><label>排除關鍵字</label><input type="text" id="favExclude"></div>
+      <div class="form-group"><label>名稱替換規則</label><input type="text" id="favRename"></div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+        <button class="btn btn-primary" onclick="saveFav()" style="width: auto;">儲存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">
+    <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+    <span id="toastMsg">提示訊息</span>
+  </div>
+
+  <script>
+    let favs = [];
+
+    async function loadFavs() {
+      try {
+        const resp = await fetch('/favs');
+        if (resp.ok) favs = await resp.json();
+        renderFavs();
+      } catch(e) {
+        console.error('載入配置失敗:', e);
+      }
+    }
+    
+    function renderFavs() {
+      const grid = document.getElementById('favGrid');
+      if (!favs || favs.length === 0) {
+        grid.innerHTML = '<div class="empty-state">目前尚未儲存配置</div>';
+        return;
+      }
+      grid.innerHTML = favs.map((f, i) => {
+        const includeBadge = f.include ? \`<span class="badge" style="background: rgba(16, 185, 129, 0.1); color: var(--success); border-color: rgba(16, 185, 129, 0.2); margin-right: 4px;">保: \${f.include}</span>\` : '';
+        const excludeBadge = f.exclude ? \`<span class="badge" style="background: rgba(239, 68, 68, 0.1); color: var(--danger); border-color: rgba(239, 68, 68, 0.2); margin-right: 4px;">排: \${f.exclude}</span>\` : '';
+        const renameBadge = f.rename ? \`<span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--primary); border-color: rgba(59, 130, 246, 0.2)">替: \${f.rename}</span>\` : '';
+
+        return \`
+        <div class="fav-card" onclick="useFav(\${i})">
+          <div class="fav-title">
+            <svg viewBox="0 0 24 24" style="width:16px;height:16px;color:var(--primary)"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+            \${f.name}
+          </div>
+          <div class="fav-url">\${f.url}</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;">
+            \${includeBadge}
+            \${excludeBadge}
+            \${renameBadge}
+          </div>
+          <div class="fav-actions">
+            <button class="btn btn-ghost" onclick="event.stopPropagation(); editFav(\${i})">編輯</button>
+            <button class="btn btn-ghost btn-danger" onclick="event.stopPropagation(); deleteFav(\${i})">刪除</button>
+          </div>
+        </div>\`;
+      }).join('');
+    }
+
+    function useFav(index) {
+      if (!favs[index]) return;
+      const f = favs[index];
+      document.getElementById('urlInput').value = f.url || '';
+      document.getElementById('shortCode').value = (f.name || '').replace(/\\s+/g, '-').toLowerCase();
+      document.getElementById('includeKeywords').value = f.include || '';
+      document.getElementById('excludeKeywords').value = f.exclude || '';
+      document.getElementById('renameKeywords').value = f.rename || '';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      showToast('已載入配置：' + f.name);
+    }
+
+    function editFav(index) {
+      if (!favs[index]) return;
+      const f = favs[index];
+      document.getElementById('modalTitle').textContent = '編輯配置';
+      document.getElementById('favName').value = f.name || '';
+      document.getElementById('favUrl').value = f.url || '';
+      document.getElementById('favInclude').value = f.include || '';
+      document.getElementById('favExclude').value = f.exclude || '';
+      document.getElementById('favRename').value = f.rename || '';
+      document.getElementById('modal').dataset.edit = index;
+      document.getElementById('modal').classList.add('show');
+    }
+
+    async function deleteFav(index) {
+      if (!confirm('確定要刪除這筆配置嗎？')) return;
+      try {
+        const resp = await fetch('/favs', { 
+          method: 'DELETE', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ index }) 
+        });
+        if (resp.ok) {
+          await loadFavs();
+          showToast('已成功刪除配置');
+        } else {
+          showToast('刪除失敗', false);
+        }
+      } catch(e) {
+        showToast('刪除失敗: ' + e.message, false);
+      }
+    }
+
+    async function saveFav() {
+      const name = document.getElementById('favName').value.trim();
+      const url = document.getElementById('favUrl').value.trim();
+      const include = document.getElementById('favInclude').value.trim();
+      const exclude = document.getElementById('favExclude').value.trim();
+      const rename = document.getElementById('favRename').value.trim();
+      if (!name || !url) return showToast('請完整填寫名稱與節點內容', false);
+
+      const editIndex = document.getElementById('modal').dataset.edit;
+      try {
+        if (editIndex !== '' && editIndex !== undefined) {
+          await fetch('/favs', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ index: parseInt(editIndex, 10), name, url, include, exclude, rename })
+          });
+        } else {
+          await fetch('/favs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, url, include, exclude, rename })
+          });
+        }
+        closeModal();
+        await loadFavs();
+        showToast('配置儲存成功！');
+      } catch(e) {
+        showToast('儲存失敗，請重試', false);
+      }
+    }
+
+    async function generate() {
+      const raw = document.getElementById('urlInput').value.trim();
+      if (!raw) return showToast('請先輸入節點連結或訂閱網址', false);
+
+      const host = window.location.origin;
+      const shortCode = document.getElementById('shortCode').value.trim();
+      const include = document.getElementById('includeKeywords').value.trim();
+      const exclude = document.getElementById('excludeKeywords').value.trim();
+      const rename = document.getElementById('renameKeywords').value.trim();
+      
+      let baseUrl = '';
+      if (shortCode) {
+        await fetch('/save', { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ path: shortCode, content: raw, include, exclude, rename }) 
+        });
+        baseUrl = host + '/' + shortCode;
+      } else {
+        baseUrl = host + '/?url=' + encodeURIComponent(raw);
+        if (include) baseUrl += '&include=' + encodeURIComponent(include);
+        if (exclude) baseUrl += '&exclude=' + encodeURIComponent(exclude);
+        if (rename) baseUrl += '&rename=' + encodeURIComponent(rename);
+      }
+
+      const sep = baseUrl.includes('?') ? '&' : '?';
+      document.getElementById('adaptiveUrl').value = baseUrl;
+      document.getElementById('clashUrl').value = baseUrl + sep + 'target=clash';
+      document.getElementById('singboxUrl').value = baseUrl + sep + 'target=singbox';
+      document.getElementById('surgeUrl').value = baseUrl + sep + 'target=surge';
+      document.getElementById('quanxUrl').value = baseUrl + sep + 'target=quanx';
+      document.getElementById('loonUrl').value = baseUrl + sep + 'target=loon';
+      document.getElementById('base64Url').value = baseUrl + sep + 'target=base64';
+
+      document.getElementById('results').classList.add('show');
+      showToast('全客戶端連結生成完畢！');
+    }
+
+    function showQr(id, clientType = 'auto') {
+      const rawUrl = document.getElementById(id).value;
+      if (!rawUrl) return;
+
+      const profileName = (document.getElementById('shortCode').value.trim() || 'SubConverter');
+      let deepLink = rawUrl;
+      let displayTitle = '掃碼導入配置';
+      let clientName = '客戶端';
+
+      if (clientType === 'singbox') {
+        deepLink = \`sing-box://import-remote-profile?url=\${encodeURIComponent(rawUrl)}#\${encodeURIComponent(profileName)}\`;
+        displayTitle = 'Sing-Box 專屬掃碼導入';
+        clientName = 'Sing-Box';
+      } else if (clientType === 'clash') {
+        deepLink = \`clash://install-config?url=\${encodeURIComponent(rawUrl)}&name=\${encodeURIComponent(profileName)}\`;
+        displayTitle = 'Clash / Mihomo 專屬導入';
+        clientName = 'Clash';
+      } else if (clientType === 'surge') {
+        deepLink = \`surge:///install-config?url=\${encodeURIComponent(rawUrl)}\`;
+        displayTitle = 'Surge 5 專屬導入';
+        clientName = 'Surge';
+      } else if (clientType === 'quanx') {
+        deepLink = \`quantumult-x:///add-resource?remote-resource=\${encodeURIComponent(JSON.stringify({ server_remote: [\`\${rawUrl}, tag=\${profileName}\`] }))}\`;
+        displayTitle = 'Quantumult X 專屬導入';
+        clientName = 'Quantumult X';
+      } else if (clientType === 'loon') {
+        deepLink = \`loon://import?type=config&url=\${encodeURIComponent(rawUrl)}\`;
+        displayTitle = 'Loon 專屬導入';
+        clientName = 'Loon';
+      } else if (clientType === 'shadowrocket') {
+        deepLink = \`shadowrocket://add/sub://\${btoa(rawUrl)}?title=\${encodeURIComponent(profileName)}\`;
+        displayTitle = 'Shadowrocket 專屬導入';
+        clientName = 'Shadowrocket';
+      }
+
+      const win = window.open('', '_blank', 'width=440,height=560');
+      if (!win) return showToast('請允許瀏覽器開啟彈出視窗', false);
+
+      win.document.write(\`
+        <!DOCTYPE html><html><head><meta charset="utf-8"><title>\${displayTitle}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          body { margin:0; background:#0f172a; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; font-family:-apple-system,BlinkMacSystemFont,sans-serif; color:#f8fafc; padding:20px; box-sizing:border-box; text-align:center;}
+          .qr-container { padding:20px; background:#ffffff; border-radius:16px; box-shadow:0 10px 25px rgba(0,0,0,0.5); display:inline-block; }
+          .title { margin-top:20px; font-size:18px; font-weight:700; color:#38bdf8; letter-spacing:0.5px; }
+          .subtitle { margin-top:6px; font-size:12px; color:#94a3b8; max-width:320px; word-break:break-all; font-family:monospace; line-height:1.4; }
+          .btn-open { margin-top:20px; display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:12px 28px; background:#3b82f6; color:#fff; text-decoration:none; border-radius:10px; font-weight:600; font-size:15px; box-shadow:0 4px 14px rgba(59,130,246,0.4); transition:transform 0.2s;}
+          .btn-open:hover { transform:translateY(-1px); background:#2563eb; }
+          .hint-box { margin-top:14px; font-size:12px; color:#10b981; background:rgba(16,185,129,0.1); padding:8px 14px; border-radius:8px; border:1px solid rgba(16,185,129,0.2); max-width:320px; }
+        </style>
+        </head><body>
+        <div class="qr-container"><div id="qr"></div></div>
+        <div class="title">\${displayTitle}</div>
+        <div class="subtitle">\${rawUrl}</div>
+        
+        <a class="btn-open" href="\${deepLink}">🚀 一鍵打開並導入 \${clientName}</a>
+        
+        <div class="hint-box">
+          ✨ 手機相機或 \${clientName} App 掃描此二維碼，即可全自動填入名稱與網址！
+        </div>
+
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\\/script>
+        <script>
+          setTimeout(() => {
+            new QRCode(document.getElementById('qr'), { 
+              text: "\${deepLink}", 
+              width: 240, 
+              height: 240, 
+              colorDark: "#0f172a", 
+              colorLight: "#ffffff", 
+              correctLevel: QRCode.CorrectLevel.L 
+            });
+          }, 100);
+        <\\/script>
+        </body></html>
+      \`);
+    }
+
+    async function parseVlessNodes() {
+      const raw = document.getElementById('urlInput').value.trim();
+      if (!raw) return showToast('請先輸入節點內容', false);
+      const resp = await fetch('/api/parse-argo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: raw }) });
+      const nodes = await resp.json();
+      if (!nodes || nodes.length === 0) return showToast('未找到 VLESS/VMess 節點', false);
+
+      const listEl = document.getElementById('vlessCheckboxList');
+      listEl.innerHTML = nodes.map(n => \`
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px 0;">
+          <input type="checkbox" class="vless-chk" value="\${n.index}" data-port="\${n.port}">
+          <span>\${n.name} (\${n.server}:\${n.port})</span>
+        </label>
+      \`).join('');
+      document.getElementById('vlessSelectorWrapper').style.display = 'block';
+    }
+
+    async function generateArgo() {
+      const raw = document.getElementById('urlInput').value.trim();
+      const checkboxes = document.querySelectorAll('.vless-chk:checked');
+      if (checkboxes.length === 0) return showToast('請至少選擇一個節點', false);
+
+      const indices = Array.from(checkboxes).map(cb => parseInt(cb.value));
+      const port = document.getElementById('argoLocalPort').value.trim() || '8080';
+      const cleanIp = document.getElementById('argoCleanIp').value.trim();
+      const token = document.getElementById('argoTunnelToken').value.trim();
+      const domain = document.getElementById('argoCustomDomain').value.trim();
+
+      const resp = await fetch('/api/argo-generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: raw, indices, port, cleanIp, token, domain })
+      });
+      const res = await resp.json();
+      const host = window.location.origin;
+
+      if (res.scriptId) {
+        document.getElementById('argoCurlCmd').value = \`curl -sSL \${host}/argo/sh/\${res.scriptId} | bash\`;
+      }
+      document.getElementById('argoBase64Sub').value = res.argoNodes.map(x => x.link).join('\\n');
+      document.getElementById('argoResults').classList.add('show');
+      showToast('Argo 部署指令與節點已生成！');
+    }
+
+    function copyResult(id) {
+      const el = document.getElementById(id);
+      navigator.clipboard.writeText(el.value).then(() => showToast('已複製連結'));
+    }
+    function copyText(id) {
+      const el = document.getElementById(id);
+      navigator.clipboard.writeText(el.value).then(() => showToast('已成功複製到剪貼簿！'));
+    }
+    function showToast(msg, isSuccess = true) {
+      const t = document.getElementById('toast');
+      document.getElementById('toastMsg').textContent = msg;
+      t.className = 'toast show' + (isSuccess ? ' success' : '');
+      setTimeout(() => t.classList.remove('show'), 3000);
+    }
+    function openModal() { 
+      document.getElementById('modalTitle').textContent = '新增配置';
+      document.getElementById('favName').value = '';
+      document.getElementById('favUrl').value = '';
+      document.getElementById('favInclude').value = '';
+      document.getElementById('favExclude').value = '';
+      document.getElementById('favRename').value = '';
+      delete document.getElementById('modal').dataset.edit;
+      document.getElementById('modal').classList.add('show'); 
+    }
+    function closeModal() { document.getElementById('modal').classList.remove('show'); }
+    
+    loadFavs();
+  </script>
+</body>
+</html>
+`;
+````
+
+## File: src/types.ts
+````ts
+export interface Env {
+  SUB_CACHE: KVNamespace;
+  PAGE_PASSWORD?: string;
+}
+
+export interface WireGuardConfig {
+  privateKey: string;
+  localAddress: string[];
+  publicKey?: string;
+  presharedKey?: string;
+  mtu?: number;
+  reserved?: number[];
+}
+
+export interface ProxyNode {
+  type: string;
+  name: string;
+  server: string;
+  port: number;
+  uuid?: string;
+  password?: string;
+  cipher?: string;
+  udp?: boolean;
+  tls?: boolean;
+  sni?: string;
+  alpn?: string[];
+  fingerprint?: string;
+  flow?: string;
+  network?: string;
+  wsPath?: string;
+  wsHeaders?: Record<string, string>;
+  reality?: { publicKey: string; shortId: string };
+  obfs?: string;
+  obfsPassword?: string;
+  skipCertVerify?: boolean;
+  singboxObj?: Record<string, unknown>;
+  clashObj?: Record<string, unknown>;
+  congestion_control?: string;
+  udp_relay_mode?: string;
+  // VLESS SplitHTTP (xhttp)
+  xhttpPath?: string;
+  xhttpHost?: string;
+  xhttpMode?: string;
+  // WireGuard / WARP
+  wireguard?: WireGuardConfig;
+  // ECH (Encrypted Client Hello)
+  ech?: boolean;
+  // 標籤特徵
+  multiplier?: number;
+  isIplc?: boolean;
+}
+
+export interface CachedTemplate {
+  content: string;
+  updatedAt: number;
+}
+
+````
+
 ## File: src/utils.ts
 ````ts
 import { ProxyNode } from "./types";
@@ -3477,78 +3914,162 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
 
 ````
 
-## File: package.json
-````json
+## File: Sing-Box_Rules.JSON
+````JSON
 {
-  "name": "cf-sub-converter",
-  "version": "3.1.2",
-  "private": true,
-  "scripts": {
-    "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
-    "start": "wrangler dev",
-    "argo": "tsx scripts/argo-converter.ts"
+  "log": {
+    "level": "info",
+    "timestamp": true
   },
-  "dependencies": {
-    "js-yaml": "^4.1.0"
+  "http_clients": [
+    {
+      "tag": "default"
+    }
+  ],
+  "dns": {
+    "servers": [
+      {
+        "tag": "remote-dns",
+        "type": "https",
+        "server": "8.8.8.8",
+        "detour": "🚀 節點選擇"
+      },
+      {
+        "tag": "local-dns",
+        "type": "udp",
+        "server": "223.5.5.5"
+      },
+      {
+        "tag": "system-dns",
+        "type": "local"
+      },
+      {
+        "tag": "fakeip-dns",
+        "type": "fakeip",
+        "inet4_range": "198.18.0.0/15",
+        "inet6_range": "fc00::/18"
+      }
+    ],
+    "rules": [
+      { "clash_mode": "Direct", "server": "system-dns" },
+      { "clash_mode": "Global", "server": "fakeip-dns" },
+      { "rule_set": "rs-ads", "action": "reject" },
+      {
+        "domain": [
+          "github.com",
+          "raw.githubusercontent.com",
+          "githubusercontent.com",
+          "gh-proxy.com"
+        ],
+        "server": "local-dns"
+      },
+      {
+        "rule_set": [
+          "rs-cn",
+          "rs-private"
+        ],
+        "server": "local-dns",
+        "disable_cache": true
+      },
+      {
+        "rule_set": [
+          "rs-apple"
+        ],
+        "server": "system-dns",
+        "disable_cache": true
+      },
+      {
+        "rule_set": [
+          "rs-geolocation-!cn",
+          "rs-ai"
+        ],
+        "server": "fakeip-dns"
+      }
+    ],
+    "final": "local-dns",
+    "strategy": "ipv4_only"
   },
-  "devDependencies": {
-    "@cloudflare/workers-types": "^4.20240208.0",
-    "@types/js-yaml": "^4.0.9",
-    "tsx": "^4.7.1",
-    "typescript": "^5.3.3",
-    "wrangler": "^3.28.1"
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "interface_name": "tun0",
+      "address": [
+        "172.19.0.1/30",
+        "fd00::1/126"
+      ],
+      "stack": "mixed",
+      "auto_route": true,
+      "strict_route": true
+    }
+  ],
+  "outbounds": [
+    { "type": "selector", "tag": "🚀 節點選擇", "outbounds": ["⚡ 自動選擇", "direct"] },
+    { "type": "urltest", "tag": "⚡ 自動選擇", "outbounds": [], "url": "https://www.gstatic.com/generate_204", "interval": "3m", "tolerance": 50 },
+    { "type": "selector", "tag": "💬 AI 服務", "outbounds": ["⚡ 自動選擇", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🍎 蘋果服務", "outbounds": ["direct", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "Ⓜ️ 微軟服務", "outbounds": ["direct", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🎮 遊戲平台", "outbounds": ["direct", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🌐 非中國", "outbounds": ["🚀 節點選擇", "direct"] },
+    { "type": "selector", "tag": "🇨🇳 國內服務", "outbounds": ["direct", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🏠 私有網絡", "outbounds": ["direct"] },
+    { "type": "selector", "tag": "🐟 漏網之魚", "outbounds": ["🚀 節點選擇", "direct"] },
+    { "type": "selector", "tag": "🛑 廣告攔截", "outbounds": ["block", "direct"] },
+    
+    { "type": "direct", "tag": "direct" },
+    { "type": "direct", "tag": "DIRECT" },
+    { "type": "block", "tag": "block" },
+    { "type": "block", "tag": "REJECT" }
+  ],
+  "route": {
+    "default_domain_resolver": "local-dns",
+    "default_http_client": "default",
+    "rule_set": [
+      { "type": "remote", "tag": "rs-ai", "format": "binary", "url": "https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.srs" },
+      { "type": "remote", "tag": "rs-apple", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/apple.srs" },
+      { "type": "remote", "tag": "rs-microsoft", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/microsoft.srs" },
+      { "type": "remote", "tag": "rs-steam", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/steam.srs" },
+      { "type": "remote", "tag": "rs-epicgames", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/epicgames.srs" },
+      { "type": "remote", "tag": "rs-ea", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/ea.srs" },
+      { "type": "remote", "tag": "rs-ubisoft", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/ubisoft.srs" },
+      { "type": "remote", "tag": "rs-blizzard", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/blizzard.srs" },
+      { "type": "remote", "tag": "rs-geolocation-!cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/geolocation-!cn.srs" },
+      { "type": "remote", "tag": "rs-cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs" },
+      { "type": "remote", "tag": "ip-cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/cn.srs" },
+      { "type": "remote", "tag": "rs-ads", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ads-all.srs" },
+      { "type": "remote", "tag": "rs-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/private.srs" },
+      { "type": "remote", "tag": "ip-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs" }
+    ],
+    "rules": [
+      { "action": "sniff" },
+      { "protocol": "dns", "action": "hijack-dns" },
+      { "clash_mode": "Direct", "outbound": "direct" },
+      { "clash_mode": "Global", "outbound": "🚀 節點選擇" },
+      { "rule_set": "rs-ads", "outbound": "block" },
+      { "rule_set": ["rs-private", "ip-private"], "outbound": "🏠 私有網絡" },
+      { "rule_set": "rs-ai", "outbound": "💬 AI 服務" },
+      { "rule_set": "rs-microsoft", "outbound": "Ⓜ️ 微軟服務" },
+      { "rule_set": ["rs-steam", "rs-epicgames", "rs-ea", "rs-ubisoft", "rs-blizzard"], "outbound": "🎮 遊戲平台" },
+      { "rule_set": "rs-geolocation-!cn", "outbound": "🌐 非中國" },
+      { "rule_set": "rs-apple", "outbound": "🍎 蘋果服務" },
+      { "rule_set": ["rs-cn", "ip-cn"], "outbound": "🇨🇳 國內服務" },
+      { "outbound": "🐟 漏網之魚" }
+    ],
+    "auto_detect_interface": true
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "store_fakeip": true
+    },
+    "clash_api": {
+      "external_controller": "127.0.0.1:9090",
+      "external_ui": "ui",
+      "secret": "",
+      "default_mode": "rule"
+    }
   }
 }
-
-````
-
-## File: .github/workflows/deploy.yml
-````yml
-# .github/workflows/deploy.yml
-name: Deploy to Cloudflare Workers
-
-on:
-  # 1. 當推送到 main 或 master 分支時自動執行
-  push:
-    branches:
-      - main
-      - master
-  
-  # 2. 保留手動執行按鈕
-  workflow_dispatch:
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    name: Deploy
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-      
-      # 已將 Node.js 環境升級至 Node 24 以消除棄用警告
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          # 暫時移除 cache: 'npm'，避免因缺少 package-lock.json 報錯
-
-      # 替換成相容無鎖定檔的普通安裝（加入 --prefer-offline 稍微加速）
-      - name: Install dependencies
-        run: npm install --prefer-offline
-
-      # 替換 KV ID
-      - name: Inject KV ID from Secrets
-        run: |
-          sed -i 's/KV_ID_PLACEHOLDER/${{ secrets.CF_KV_ID }}/g' wrangler.toml
-
-      # 部署步驟
-      - name: Deploy
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-
 ````
 
 ## File: .github/workflows/combine-code.yml
@@ -3632,549 +4153,51 @@ jobs:
 
 ````
 
-## File: README.md
-````md
-# ⚡ CF Sub Converter Pro
-
-基於 Cloudflare Workers 的全能 Serverless 訂閱轉換與節點中樞。擁有現代深色 UI、SWR 高可用快取容災架構、智慧倍率/專線分組、國旗萬國對齊系統，以及 **Argo 隧道 2.0 自動化生成器**。支援將各類代理節點一鍵轉換為 **Sing-Box / Clash Meta (Mihomo) / Surge 5 / Quantumult X / Loon / Base64** 格式，亦可作為第三方轉換前端（如 `sub-web`）的標準後端。
-
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sammy0101/cf-sub-converter)
-
----
-
-## 🌟 核心特性
-
-### 1. 🔌 全主流與新興協議深度解析
-- 完整支援 **VLESS**（含最新 `xhttp` / `splithttp`、`Reality`、`Vision`、`WebSocket`、`gRPC`）。
-- 完整支援 **WireGuard** / **Cloudflare WARP**（雙棧 IPv4/IPv6、Reserved 欄位相容）。
-- 完整支援 **Shadowsocks-2022**（`2022-blake3-*` 多端口與密鑰）、**Trojan**、**VMess**、**Hysteria 2 (`hy2`)**、**TUIC**、**AnyTLS**。
-
-### 2. 📱 全生態客戶端格式適配
-- **自適應識別 (Adaptive)**：自動依據請求客戶端的 `User-Agent` 回傳對應格式。
-- **Clash Meta (Mihomo)**：YAML 格式，內建流量嗅探、Fake-IP、DoH 分流與動態策略組。
-- **Sing-Box**：標準 JSON 格式，支援 Mixed TUN 堆疊、獨立 DNS 規則與出站映射。
-- **Surge 5**：標準 `.conf` 格式，支援 Proxy、Proxy Group 與分流規則。
-- **Quantumult X**：標準 `server_remote` 節點清單格式。
-- **Loon**：標準 `[Proxy]` 格式。
-- **Base64**：通用明文與編碼格式，適用於 v2rayNG、PassWall、Shadowrocket 等。
-
-### 3. 🛡️ 99.99% 高可用 SWR 容災架構 (Zero Downtime)
-- **Stale-While-Revalidate + KV 快取**：遠端規則模板自動在邊緣快取，背景非同步靜默更新。
-- **三重容災降級保證**：`KV 快取優先` ➔ `GitHub 即時獲取` ➔ `內嵌應急模板兜底`，徹底杜絕因 GitHub 429 限流或網路波動導致轉換失敗。
-
-### 4. 🏎️ 智慧倍率與專線動態策略組
-- **倍率辨識**：自動識別節點名稱中的倍率特徵（如 `0.1x`、`0.5X`、`0.2倍`），並在 Sing-Box 與 Clash Meta 中動態建立「🏎️ 低倍率節點」策略組。
-- **專線辨識**：自動擷取 `IPLC`、`IEPL`、`專線`、`內網` 特徵，動態生成「⚡ 專線加速」策略組。
-
-### 5. 🌀 Argo 隧道 2.0 一鍵生成器
-- **優選 IP / 官方域名注入**：支援填入 Cloudflare Clean IP（如 `104.16.80.1`）或優選網域，自動完成連接伺服器與 SNI/Host 映射，顯著降低延遲。
-- **極簡 VPS 命令**：腳本自動上傳至 KV 快取，透過 `curl -sSL ... | bash` 極速完成部署。
-- **智慧探測與修復**：VPS 端自動探測 443 / 80 本地監聽連接埠、TLS 狀態與 Host Header 重寫。
-
-### 6. 🔍 智慧篩選、名稱替換與黃金國旗排版
-- **雙向過濾**：支援「僅保留」與「排除」規則（多組用 `|` 隔開，如 `HK|TW` 或 `5x`），內建 `x`/`X`/`×` 字符相容匹配。
-- **名稱替換**：支援 `DEL-關鍵字`（刪除）、`尋找-替換`，以及 `ALL-新名稱`（一鍵統改所有節點名稱）。
-- **黃金 22 地區國旗排序**：自動為節點補上國旗 Emoji，依亞太核心（港、台、日、星、韓）➔ 歐美主流（美、英、加、澳）順序緊密分群，並自動對重複節點編號。
-
-### 7. 📊 流量與到期日加總透傳
-- 自動從上游多個機場擷取並加總上傳、下載與總流量，計算最近的到期時間，透過標準 `subscription-userinfo` 標頭透傳，完美點亮客戶端流量資訊條。
-
----
-
-## 🚀 部署教學
-
-### 方法一：一鍵按鈕快速部署 (最推薦、零設定自動託管)
-
-點擊本說明文件上方的 **Deploy to Cloudflare Workers** 藍色按鈕。
-
-* **零設定自動託管**：Cloudflare 網頁部署精靈會引導您登入，並**在背景全自動為您建立並對接好所需的 KV 命名空間（`SUB_CACHE`）**，完全不需要您手動至儀表板綁定。
-* **自建 CI/CD (Workers Builds)**：Cloudflare 會在您的 GitHub 下自動建立此專案的複製倉庫。未來只要在 GitHub 修改並 `git push`，Cloudflare 就會自動在端點編譯部署，**此模式完全不需要設定 GitHub Secrets 密鑰**。
-
----
-
-### 方法二：手動 Fork 本專案並使用 GitHub Actions 自動部署 (需設定 Secrets)
-
-如果您選擇**手動 Fork 本項目**並利用倉庫內建的 GitHub Actions 自動進行 CI/CD 部署，請依照以下步驟操作：
-
-1. **Fork 本專案**：
-   點擊本倉庫右上角的 **`Fork`** 按鈕，將專案複製一份到您的 GitHub 帳號下。
-
-2. **建立 Cloudflare KV 命名空間**：
-   - 登入 [Cloudflare Dashboard](https://dash.cloudflare.com/)。
-   - 點擊左側選單的 **`Storage & Databases` (儲存與資料庫)** ➔ **`KV`**。
-   - 點擊 **`Create a namespace`**，輸入名稱（例如 `SUB_CACHE`），建立完成後複製其 **Namespace ID**。
-
-3. **設定 GitHub Repository Secrets**：
-   前往您 Fork 出來的 GitHub 倉庫頁面，依次點擊：
-   **`Settings`** ➔ **`Secrets and variables`** ➔ **`Actions`** ➔ **`New repository secret`**，添加以下三個密鑰：
-
-   | 密鑰名稱 (Secret Name) | 說明與獲取方式 |
-   | :--- | :--- |
-   | **`CF_API_TOKEN`** | **Cloudflare API 權杖**<br>獲取方式：Cloudflare 首頁 ➔ 右上角「我的個人資料」➔「API 權杖」➔「建立權杖」➔ 選擇「編輯 Cloudflare Workers」模板（需具備 Workers 與 KV 的編輯權限）。 |
-   | **`CF_ACCOUNT_ID`** | **Cloudflare 帳戶 ID**<br>獲取方式：登入 Cloudflare ➔ 點擊任意網域或 Worker 頁面，在右側欄位即可找到「帳戶 ID (Account ID)」。 |
-   | **`CF_KV_ID`** | **KV 命名空間 ID**<br>獲取方式：填入步驟 2 中建立的 `SUB_CACHE` 命名空間 ID。 |
-
-4. **觸發自動部署**：
-   - 前往 GitHub 倉庫的 **`Actions`** 標籤頁。
-   - 點擊左側的 **`Deploy to Cloudflare Workers`** 工作流，點擊 **`Run workflow`** 手動執行部署。
-   - 後續只要您對 `main` 或 `master` 分支推送（Push）任何代碼變更，GitHub Actions 就會全自動為您編譯並發布至 Cloudflare Workers。
-
----
-
-### 方法三：本地手動編譯部署 (Wrangler CLI)
-
-1. **克隆專案並安裝依賴**：
-   ```bash
-   git clone https://github.com/sammy0101/cf-sub-converter.git
-   cd cf-sub-converter
-   npm install
-   ```
-
-2. **建立 KV 命名空間**：
-   ```bash
-   wrangler kv:namespace create SUB_CACHE
-   ```
-   *將終端機回傳的 `id` 替換至 `wrangler.toml` 中的 `KV_ID_PLACEHOLDER`。*
-
-3. **發布至 Cloudflare**：
-   ```bash
-   npm run deploy
-   ```
-
----
-
-## 📖 使用指南
-
-### 1. 視覺化 Web 面板
-訪問您部署完成的 Workers 網址：
-- **資料來源設定**：貼上機場訂閱連結或各類協議節點（支援多行混合輸入）。
-- **過濾與替換**：設定保留/排除關鍵字或名稱替換規則。
-- **短連結雲端儲存**：設定自訂短代碼，規則將自動打包存入 KV。
-- **多平台訂閱面板**：一鍵複製對應客戶端連結，或點擊 QR Code 按鈕掃描行動條碼。
-- **配置收藏管理**：可隨時儲存、編輯、一鍵載入常用配置，卡片上直觀顯示「保 / 排 / 替」規則標籤。
-
----
-
-### 2. Argo 隧道 2.0 部署步驟
-
-1. 在網頁主輸入框貼入您的 VLESS / VMess 節點內容。
-2. 點擊 **「第一步：解析並載入目前輸入的 VLESS / VMess 節點」**。
-3. 勾選欲轉換之節點，系統會自動匹配原埠號。
-4. （選填）填入 **Cloudflare 優選 IP**（例如 `104.16.80.1`）以加速連線。
-5. （選填）填入固定 Tunnel Token 與自訂綁定域名（若留空則為臨時隨機隧道）。
-6. 點擊 **「第二步：生成 Argo 一鍵部署指令與節點」**。
-7. 將產生的 `curl -sSL ... | bash` 指令複製至 VPS（以 root 權限執行）。
-8. 部署成功後：
-   - **固定域名模式**：下方文字框直接複製已轉換好的 `_Argo_優選` 節點。
-   - **臨時隨機模式**：VPS 終端機將動態輸出最終分配的節點連結。
-
----
-
-### 3. API 調用與外部前端對接
-
-#### 當作標準 SubConverter 後端使用
-本專案內建標準 `/sub` 與 `/version` 端點，可直接填入任何開源 `sub-web` 前端的「後端地址 (Backend URL)」：
-```text
-https://your-worker.workers.dev
-```
-
-#### URL 參數手動轉換
-
-| 參數 | 說明 | 範例 |
-| :--- | :--- | :--- |
-| `url` | 原始訂閱連結或節點內容（需 URL 編碼） | `https://example.com/sub` |
-| `target` | 目標格式：`clash` / `singbox` / `surge` / `quanx` / `loon` / `base64` | `target=clash` |
-| `include` | 僅保留符合正則之節點 | `include=HK\|TW` |
-| `exclude` | 排除符合正則之節點（自動相容乘號 `×`） | `exclude=5x\|官網` |
-| `rename` | 名稱替換（刪除：`DEL-字串`、替換：`A-B`、統改：`ALL-名稱`） | `rename=DEL-[69云]\|ALL-JP` |
-
-**完整調用範例**：
-```http
-# 轉換原始訂閱為 Clash Meta 格式，僅保留香港，並刪除廣告名稱
-https://your-worker.workers.dev/sub?url=<URL編碼>&target=clash&include=HK&rename=DEL-[廣告]
-
-# 讀取已存於雲端 KV 的短連結配置
-https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox
-```
-
----
-
-## 🛡️ 內建分流群組 (Sing-Box / Clash Meta)
-
-| 圖示 | 策略組名稱 | 路由邏輯 |
-| :--- | :--- | :--- |
-| 🏎️ | 低倍率節點 | 自動彙整倍率 `< 1.0x` 的節點（省流專用） |
-| ⚡ | 專線加速 | 自動彙整包含 `IPLC` / `IEPL` / `專線` 的低延遲節點 |
-| 🚀 | 節點選擇 | 手動指定出站節點 |
-| ⚡ | 自動選擇 | URL Test 自動測速切換最低延遲節點 |
-| 💬 | AI 服務 | 針對 OpenAI / Claude / Gemini 專屬分流 |
-| 🍎 | 蘋果服務 | Apple 相關服務直連或代理 |
-| Ⓜ️ | 微軟服務 | Microsoft 服務直連或代理 |
-| 🎮 | 遊戲平台 | Steam / Epic / EA / Ubisoft / Blizzard |
-| 🌐 | 非中國 | 全球主流網站（Google、Telegram、YouTube 等） |
-| 🇨🇳 | 國內服務 | 中國大陸 IP 與網域自動精準直連 |
-| 🏠 | 私有網絡 | 區域網路 (LAN) 直連 |
-| 🛑 | 廣告攔截 | 阻擋常見廣告與追蹤器 (AdBlock) |
-| 🐟 | 漏網之魚 | Final Match 未命中規則之預設路由 |
-
----
-
-## 📁 專案架構
-
-```text
-cf-sub-converter/
-├── src/
-│   ├── index.ts          # Worker 核心路由、並發請求控制、User-Agent 辨識與 API 接口
-│   ├── constants.ts      # 響應式深色 UI 模板、QR Code 生成器與 SWR 內嵌降級規則
-│   ├── parser.ts         # 萬能節點解析器 (VLESS SplitHTTP, WireGuard, SS-2022, Hy2, TUIC 等)
-│   ├── generator.ts      # 多平台格式生成器 (Sing-Box, Clash, Surge 5, QuanX, Loon, Base64)
-│   ├── utils.ts          # 倍率與專線特徵提取、Base64 安全編碼、萬國國旗對齊演算法
-│   └── types.ts          # 嚴格 TypeScript 類型定義
-├── argo.sh               # VPS Argo 隧道 2.0 一鍵安裝與自我修復通用腳本
-├── Sing-Box_Rules.JSON   # 遠端 Sing-Box 混合 TUN 規則模板
-├── Clash_Rules.YAML      # 遠端 Clash Meta (Mihomo) 規則模板
-├── wrangler.toml         # Cloudflare Workers 配置檔
-└── .github/workflows/
-    └── deploy.yml        # GitHub Actions 自動化部署工作流
-```
-
----
-
-## ⚠️ 免責聲明
-
-本專案僅供網路安全、分散式架構學習與技術交流使用，不提供任何代理伺服器或節點服務。請使用者自覺遵守當地法律法規，切勿用於任何非法用途。
-
-````
-
-## File: scripts/argo-converter.ts
-````ts
-// scripts/argo-converter.ts
-import fs from 'fs';
-import path from 'path';
-import readline from 'readline';
-import { Buffer } from 'buffer';
-
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout
-});
-
-const question = (query: string): Promise<string> => {
-  return new Promise((resolve) => rl.question(query, resolve));
-};
-
-interface VlessNode {
-  originalLink: string;
-  uuid: string;
-  server: string;
-  port: string;
-  type: string;
-  path: string;
-  host: string;
-  sni: string;
-  name: string;
-}
-
-// 簡易 VLESS 連結解析器
-function parseVlessLink(link: string): VlessNode | null {
-  try {
-    const urlStr = link.replace('vless://', 'http://');
-    const url = new URL(urlStr);
-    const params = url.searchParams;
-    return {
-      originalLink: link,
-      uuid: url.username,
-      server: url.hostname,
-      port: url.port,
-      type: params.get('type') || 'ws',
-      path: params.get('path') || '/',
-      host: params.get('host') || params.get('sni') || url.hostname,
-      sni: params.get('sni') || url.hostname,
-      name: decodeURIComponent(url.hash.slice(1)) || 'VLESS Node'
-    };
-  } catch (e) {
-    return null;
-  }
-}
-
-// 獲取並解析訂閱
-async function fetchAndParse(input: string): Promise<VlessNode[]> {
-  let content = input.trim();
-  if (input.startsWith('http')) {
-    console.log('正在獲取網址內容...');
-    try {
-      const res = await fetch(input, {
-        headers: { 'User-Agent': 'v2rayNG/1.8.5' }
-      });
-      if (!res.ok) throw new Error(`HTTP 狀態碼 ${res.status}`);
-      content = await res.text();
-    } catch (e: any) {
-      console.log(`獲取訂閱失敗: ${e.message}`);
-      return [];
-    }
-  }
-
-  // 嘗試 Base64 解碼
-  let decoded = content;
-  try {
-    const cleaned = content.replace(/[\s\r\n]+/g, '');
-    decoded = Buffer.from(cleaned, 'base64').toString('utf8');
-  } catch (e) {
-    // 解碼失敗則視為純文字
-  }
-
-  const lines = decoded.split(/\r?\n/);
-  const vlessNodes: VlessNode[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('vless://')) {
-      const parsed = parseVlessLink(trimmed);
-      if (parsed) vlessNodes.push(parsed);
-    }
-  }
-  return vlessNodes;
-}
-
-// 生成 VPS 安裝腳本模板
-function generateVpsScript(node: VlessNode, port: string, token: string, domain: string): string {
-  return `#!/bin/bash
-# Cloudflare Argo Tunnel 一鍵部署腳本 (由 cf-sub-converter 自動生成)
-# 適用於已使用 mack-a v2ray-agent 部署之 Xray/Sing-box 環境
-
-GREEN='\\033[0;32m'
-RED='\\033[0;31m'
-NC='\\033[0m'
-
-echo -e "\${GREEN}=== 開始部署 Cloudflare Argo 隧道 ===\${NC}"
-
-if [ "$EUID" -ne 0 ]; then
-  echo -e "\${RED}錯誤: 請使用 root 權限執行此腳本！\${NC}"
-  exit 1
-fi
-
-# 節點參數配置
-VLESS_UUID="${node.uuid}"
-VLESS_PATH="${node.path}"
-VLESS_TYPE="${node.type}"
-VLESS_PORT="${port}"
-NODE_NAME="${node.name}"
-TUNNEL_TOKEN="${token.trim()}"
-CUSTOM_DOMAIN="${domain.trim()}"
-
-# 下載安裝 cloudflared
-if ! command -v cloudflared &> /dev/null; then
-    echo "正在下載安裝 cloudflared..."
-    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
-    chmod +x /usr/local/bin/cloudflared
-    echo "cloudflared 安裝完成！"
-else
-    echo "cloudflared 已存在，跳過安裝。"
-fi
-
-# 判斷是否使用固定隧道
-if [ -n "$TUNNEL_TOKEN" ]; then
-    echo -e "\${GREEN}【固定隧道模式】正在配置服務...\${NC}"
-    cloudflared service uninstall &> /dev/null
-    cloudflared service install "$TUNNEL_TOKEN"
-    systemctl daemon-reload
-    systemctl enable cloudflared
-    systemctl restart cloudflared
-    
-    echo -e "\${GREEN}部署成功！\${NC}"
-    echo "請確保已在 Cloudflare Dashboard 中將網域 '$CUSTOM_DOMAIN' 指向本地 'http://localhost:$VLESS_PORT'"
-    
-    # 輸出用戶端連結
-    FINAL_LINK="vless://$VLESS_UUID@$CUSTOM_DOMAIN:443?encryption=none&security=tls&type=$VLESS_TYPE&host=$CUSTOM_DOMAIN"
-    if [ "$VLESS_TYPE" = "ws" ]; then
-        FINAL_LINK="$FINAL_LINK&path=$(echo -n "$VLESS_PATH" | jq -s -R -r @uri 2>/dev/null || echo -n "$VLESS_PATH")"
-    fi
-    FINAL_LINK="$FINAL_LINK#Argo-$NODE_NAME"
-    echo -e "\n\${GREEN}您的 Argo VLESS 訂閱連結為:\${NC}"
-    echo -e "\${GREEN}$FINAL_LINK\${NC}\n"
-else
-    echo -e "\${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...\${NC}"
-    systemctl stop cloudflared-argo &> /dev/null
-    
-    # 寫入 systemd 臨時隧道服務
-    cat <<EOF > /etc/systemd/system/cloudflared-argo.service
-[Unit]
-Description=Cloudflare Argo Temporary Tunnel for VLESS
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/cloudflared tunnel --url http://127.0.0.1:$VLESS_PORT
-Restart=always
-RestartSec=5
-StandardOutput=file:/var/log/cloudflared-argo.log
-StandardError=file:/var/log/cloudflared-argo.log
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    touch /var/log/cloudflared-argo.log
-    systemctl daemon-reload
-    systemctl enable cloudflared-argo
-    systemctl start cloudflared-argo
-    
-    echo "正在等待 Cloudflare 分配臨時域名 (約需 10-15 秒)..."
-    TEMP_DOMAIN=""
-    for i in {1..15}; do
-        sleep 1
-        TEMP_DOMAIN=$(grep -oE 'https://[a-zA-Z0-9-]+\\.trycloudflare\\.com' /var/log/cloudflared-argo.log | head -n 1 | sed 's/https:\\/\\///')
-        if [ -n "$TEMP_DOMAIN" ]; then
-            break
-        fi
-    done
-    
-    if [ -n "$TEMP_DOMAIN" ]; then
-        echo -e "\${GREEN}獲取域名成功: \$TEMP_DOMAIN\${NC}"
-        FINAL_LINK="vless://$VLESS_UUID@\$TEMP_DOMAIN:443?encryption=none&security=tls&type=$VLESS_TYPE&host=\$TEMP_DOMAIN"
-        if [ "$VLESS_TYPE" = "ws" ]; then
-            FINAL_LINK="$FINAL_LINK&path=$(echo -n "$VLESS_PATH" | jq -s -R -r @uri 2>/dev/null || echo -n "$VLESS_PATH")"
-        fi
-        FINAL_LINK="$FINAL_LINK#Argo-Temp-$NODE_NAME"
-        
-        echo -e "\n\${GREEN}=== 部署成功 ===\${NC}"
-        echo -e "原節點名稱: $NODE_NAME"
-        echo -e "轉發連接埠: $VLESS_PORT"
-        echo -e "您的臨時 Argo 節點 VLESS 連結為 (注意：VPS 重啟或重開服務後域名會刷新):"
-        echo -e "\${GREEN}\$FINAL_LINK\${NC}\n"
-    else
-        echo -e "\${RED}錯誤: 獲取臨時域名超時！請執行 'cat /var/log/cloudflared-argo.log' 檢查日誌。\${NC}"
-    fi
-fi
-`;
-}
-
-async function main() {
-  console.log('==============================================');
-  console.log('      VLESS -> Cloudflare Argo 轉換工具');
-  console.log('==============================================');
-
-  const input = await question('請輸入訂閱地址、多個 VLESS 節點、或儲存配置的訂閱網址:\n> ');
-  if (!input.trim()) {
-    console.log('輸入不能為空。');
-    rl.close();
-    return;
-  }
-
-  const nodes = await fetchAndParse(input);
-  if (nodes.length === 0) {
-    console.log('未找到任何有效的 VLESS 節點。');
-    rl.close();
-    return;
-  }
-
-  console.log(`\n成功解析出 ${nodes.length} 個 VLESS 節點:`);
-  nodes.forEach((node, i) => {
-    console.log(`  [${i + 1}] ${node.name} (${node.server}:${node.port}, 傳輸協定: ${node.type})`);
-  });
-
-  const select = await question('\n請選擇要複製並轉換的節點 (輸入數字並用逗號隔開，例如: 1,3 ；或輸入 all 代表全部):\n> ');
-  let selectedNodes: VlessNode[] = [];
-  if (select.trim().toLowerCase() === 'all') {
-    selectedNodes = nodes;
-  } else {
-    const indices = select.split(',').map(s => parseInt(s.trim()) - 1);
-    selectedNodes = indices.map(idx => nodes[idx]).filter(Boolean);
-  }
-
-  if (selectedNodes.length === 0) {
-    console.log('選擇無效，程式結束。');
-    rl.close();
-    return;
-  }
-
-  console.log(`\n已選擇 ${selectedNodes.length} 個節點進行轉換...`);
-
-  // 本地連接埠設定
-  const port = await question('\n1. 請輸入該 VLESS 節點在 VPS 上監聽的本地連接埠 (預設 8080，請與 mack-a 配置一致):\n> ') || '8080';
-
-  // Argo Tunnel 授權設定
-  console.log('\n2. 隧道設定（直接斷行即代表隨機生成臨時隧道）：');
-  const token = await question('   請貼上您的 Cloudflare Tunnel Token (選填):\n   > ');
-
-  let domain = '';
-  if (token.trim()) {
-    domain = await question('   請輸入該隧道綁定的自訂域名 (例如: vless.domain.com):\n   > ');
-    if (!domain.trim()) {
-      console.log('   錯誤: 固定隧道模式必須提供自訂域名。');
-      rl.close();
-      return;
-    }
-  }
-
-  // 建立腳本存放目錄
-  const outputDir = path.join(process.cwd(), 'argo_outputs');
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir);
-  }
-
-  const generatedNodes: string[] = [];
-
-  for (const node of selectedNodes) {
-    // 保留原本節點
-    generatedNodes.push(node.originalLink);
-
-    // 生成並寫入一鍵 VPS 腳本
-    const vpsScript = generateVpsScript(node, port, token, domain);
-    const safeNodeName = node.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
-    const scriptPath = path.join(outputDir, `argo-install-${safeNodeName}.sh`);
-    
-    fs.writeFileSync(scriptPath, vpsScript, { encoding: 'utf8', mode: 0o755 });
-    console.log(`\n[✓] 成功生成 VPS 安裝腳本: ${scriptPath}`);
-
-    // 如果是固定隧道，可以直接在本地計算出新的 Argo 節點
-    if (token.trim() && domain.trim()) {
-      const argoLink = `vless://${node.uuid}@${domain.trim()}:443?encryption=none&security=tls&type=${node.type}&host=${domain.trim()}${node.type === 'ws' ? `&path=${encodeURIComponent(node.path)}` : ''}#Argo-${node.name}`;
-      generatedNodes.push(argoLink);
-      console.log(`    └─ 同步生成 Argo 節點連結: ${argoLink}`);
-    } else {
-      console.log(`    └─ 臨時隧道模式：節點連結需在 VPS 上執行腳本後動態輸出。`);
-    }
-  }
-
-  // 如果有生成固定隧道的節點，將新舊節點整合寫入訂閱文件
-  if (generatedNodes.length > selectedNodes.length) {
-    const subPath = path.join(outputDir, 'argo_subscription.txt');
-    fs.writeFileSync(subPath, generatedNodes.join('\n'), 'utf8');
-    const base64Sub = Buffer.from(generatedNodes.join('\n')).toString('base64');
-    fs.writeFileSync(path.join(outputDir, 'argo_subscription_base64.txt'), base64Sub, 'utf8');
-    
-    console.log(`\n[✓] 整合訂閱已生成（含原節點 + 新 Argo 節點）:`);
-    console.log(`    - 明文列表: ${path.join(outputDir, 'argo_subscription.txt')}`);
-    console.log(`    - Base64 格式: ${path.join(outputDir, 'argo_subscription_base64.txt')}`);
-  }
-
-  console.log('\n==============================================');
-  console.log('部署說明：');
-  console.log('1. 請將 argo_outputs 目錄內對應的 .sh 腳本上傳至您的 VPS。');
-  console.log('2. 執行命令賦予執行權限並啟動：');
-  console.log('   chmod +x argo-install-*.sh && ./argo-install-*.sh');
-  console.log('==============================================');
-
-  rl.close();
-}
-
-main();
-
-````
-
-## File: wrangler.toml
-````toml
-name = "my-sub-converter"
-main = "src/index.ts"
-compatibility_date = "2024-04-01"
-
-[placement]
-mode = "smart"
-
-[[kv_namespaces]]
-binding = "SUB_CACHE"
-id = "KV_ID_PLACEHOLDER"
+## File: .github/workflows/deploy.yml
+````yml
+# .github/workflows/deploy.yml
+name: Deploy to Cloudflare Workers
+
+on:
+  # 1. 當推送到 main 或 master 分支時自動執行
+  push:
+    branches:
+      - main
+      - master
+  
+  # 2. 保留手動執行按鈕
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      # 已將 Node.js 環境升級至 Node 24 以消除棄用警告
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          # 暫時移除 cache: 'npm'，避免因缺少 package-lock.json 報錯
+
+      # 替換成相容無鎖定檔的普通安裝（加入 --prefer-offline 稍微加速）
+      - name: Install dependencies
+        run: npm install --prefer-offline
+
+      # 替換 KV ID
+      - name: Inject KV ID from Secrets
+        run: |
+          sed -i 's/KV_ID_PLACEHOLDER/${{ secrets.CF_KV_ID }}/g' wrangler.toml
+
+      # 部署步驟
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
 
 ````
 

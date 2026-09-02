@@ -1,130 +1,22 @@
 # Complete Project Codebase
-Generated on: Wed Sep  2 13:57:27 UTC 2026
+Generated on: Wed Sep  2 13:58:24 UTC 2026
 
-## File: argo.sh
-````sh
-#!/bin/bash
-# Cloudflare Argo Tunnel 一鍵部署腳本 (增強版 2.0)
-# 專案網址: https://github.com/sammy0101/cf-sub-converter
+## File: wrangler.toml
+````toml
+name = "my-sub-converter"
+main = "src/index.ts"
+compatibility_date = "2024-04-01"
 
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-NC='\033[0m'
+[placement]
+mode = "smart"
 
-NODE_TYPE="{{NODE_TYPE}}"
-VLESS_UUID="{{VLESS_UUID}}"
-VLESS_PATH="{{VLESS_PATH}}"
-VLESS_TYPE="{{VLESS_TYPE}}"
-VLESS_PORT="{{VLESS_PORT}}"
-NODE_NAME="{{NODE_NAME}}"
-TUNNEL_TOKEN="{{TUNNEL_TOKEN}}"
-CUSTOM_DOMAIN="{{CUSTOM_DOMAIN}}"
-VLESS_TLS="{{VLESS_TLS}}"
-ORIGIN_HOST="{{ORIGIN_HOST}}"
+[[kv_namespaces]]
+binding = "SUB_CACHE"
+id = "KV_ID_PLACEHOLDER"
 
-echo -e "${GREEN}=== 開始部署 Cloudflare Argo 隧道 (${NODE_NAME}) ===${NC}"
-
-if [ "$EUID" -ne 0 ]; then
-  echo -e "${RED}錯誤: 請使用 root 權限執行此腳本！${NC}"
-  exit 1
-fi
-
-# 1. 安裝 cloudflared
-if ! command -v cloudflared &> /dev/null; then
-    echo "正在下載安裝 cloudflared..."
-    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
-    chmod +x /usr/local/bin/cloudflared
-else
-    echo "cloudflared 已存在，跳過安裝。"
-fi
-
-SAFE_NODE_NAME=$(echo "$NODE_NAME" | sed 's/[^a-zA-Z0-9]/_/g')
-
-# 2. 自動探測與修正連接埠
-DETECTED_PORT="$VLESS_PORT"
-if command -v ss &> /dev/null; then
-    if ! ss -tln | grep -qE ":$VLESS_PORT([[:space:]]|$)"; then
-        echo -e "${RED}警告: 本地轉發埠 $VLESS_PORT 未監聽，正在探測...${NC}"
-        if ss -tln | grep -qE ":443([[:space:]]|$)"; then
-            echo -e "${GREEN}自動修正：轉發目標為 443 埠。${NC}"
-            DETECTED_PORT="443"
-        elif ss -tln | grep -qE ":80([[:space:]]|$)"; then
-            echo -e "${GREEN}自動修正：轉發目標為 80 埠。${NC}"
-            DETECTED_PORT="80"
-        fi
-    fi
-fi
-
-# 3. 智慧探測 TLS
-DETECTED_TLS="false"
-if curl -s -k --connect-timeout 2 "https://127.0.0.1:$DETECTED_PORT" &>/dev/null; then
-    echo "偵測到本地為 HTTPS 加密埠，開啟 TLS 轉發與 SNI 對齊。"
-    DETECTED_TLS="true"
-fi
-
-LOCAL_URL="http://127.0.0.1:$DETECTED_PORT"
-EXTRA_ARGS=""
-if [ "$DETECTED_TLS" = "true" ]; then
-    LOCAL_URL="https://127.0.0.1:$DETECTED_PORT"
-    EXTRA_ARGS="--no-tls-verify"
-fi
-
-if [ -n "$ORIGIN_HOST" ]; then
-    EXTRA_ARGS="$EXTRA_ARGS --http-host-header $ORIGIN_HOST"
-    if [ "$DETECTED_TLS" = "true" ]; then
-        EXTRA_ARGS="$EXTRA_ARGS --origin-server-name $ORIGIN_HOST"
-    fi
-fi
-
-# 4. 啟動隧道
-if [ -n "$TUNNEL_TOKEN" ]; then
-    echo -e "${GREEN}【固定隧道模式】正在啟動服務...${NC}"
-    cloudflared service uninstall &> /dev/null
-    cloudflared service install "$TUNNEL_TOKEN"
-    systemctl daemon-reload
-    systemctl enable cloudflared
-    systemctl restart cloudflared
-    echo -e "${GREEN}固定域名隧道部署完成！${NC}"
-else
-    echo -e "${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...${NC}"
-    systemctl stop cloudflared-argo-${SAFE_NODE_NAME} &> /dev/null
-    
-    cat <<EOF > /etc/systemd/system/cloudflared-argo-${SAFE_NODE_NAME}.service
-[Unit]
-Description=Cloudflare Argo Tunnel for ${NODE_NAME}
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/cloudflared tunnel --url $LOCAL_URL $EXTRA_ARGS
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    systemctl daemon-reload
-    systemctl enable cloudflared-argo-${SAFE_NODE_NAME}
-    systemctl start cloudflared-argo-${SAFE_NODE_NAME}
-    
-    echo "正在等待 Cloudflare 分配臨時域名..."
-    TEMP_DOMAIN=""
-    for i in {1..15}; do
-        sleep 1
-        TEMP_DOMAIN=$(journalctl -u cloudflared-argo-${SAFE_NODE_NAME} -n 50 --no-pager 2>/dev/null | grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' | tail -n 1 | cut -d'/' -f3)
-        if [ -n "$TEMP_DOMAIN" ]; then
-            break
-        fi
-    done
-    
-    if [ -n "$TEMP_DOMAIN" ]; then
-        echo -e "${GREEN}獲取臨時域名成功: $TEMP_DOMAIN${NC}"
-    else
-        echo -e "${RED}超時未獲取到域名，請手動檢查 journalctl -u cloudflared-argo-${SAFE_NODE_NAME}${NC}"
-    fi
-fi
+[vars]
+# 💥 私密管理密碼（選填）：設定後將保護「已儲存的配置」管理區域，避免他人檢視或竄改
+# PAGE_PASSWORD = "your_secret_password"
 
 ````
 
@@ -463,162 +355,688 @@ rules:
 
 ````
 
-## File: Sing-Box_Rules.JSON
-````JSON
-{
-  "log": {
-    "level": "info",
-    "timestamp": true
-  },
-  "http_clients": [
-    {
-      "tag": "default"
-    }
-  ],
-  "dns": {
-    "servers": [
-      {
-        "tag": "remote-dns",
-        "type": "https",
-        "server": "8.8.8.8",
-        "detour": "🚀 節點選擇"
-      },
-      {
-        "tag": "local-dns",
-        "type": "udp",
-        "server": "223.5.5.5"
-      },
-      {
-        "tag": "system-dns",
-        "type": "local"
-      },
-      {
-        "tag": "fakeip-dns",
-        "type": "fakeip",
-        "inet4_range": "198.18.0.0/15",
-        "inet6_range": "fc00::/18"
-      }
-    ],
-    "rules": [
-      { "clash_mode": "Direct", "server": "system-dns" },
-      { "clash_mode": "Global", "server": "fakeip-dns" },
-      { "rule_set": "rs-ads", "action": "reject" },
-      {
-        "domain": [
-          "github.com",
-          "raw.githubusercontent.com",
-          "githubusercontent.com",
-          "gh-proxy.com"
-        ],
-        "server": "local-dns"
-      },
-      {
-        "rule_set": [
-          "rs-cn",
-          "rs-private"
-        ],
-        "server": "local-dns",
-        "disable_cache": true
-      },
-      {
-        "rule_set": [
-          "rs-apple"
-        ],
-        "server": "system-dns",
-        "disable_cache": true
-      },
-      {
-        "rule_set": [
-          "rs-geolocation-!cn",
-          "rs-ai"
-        ],
-        "server": "fakeip-dns"
-      }
-    ],
-    "final": "local-dns",
-    "strategy": "ipv4_only"
-  },
-  "inbounds": [
-    {
-      "type": "tun",
-      "tag": "tun-in",
-      "interface_name": "tun0",
-      "address": [
-        "172.19.0.1/30",
-        "fd00::1/126"
-      ],
-      "stack": "mixed",
-      "auto_route": true,
-      "strict_route": true
-    }
-  ],
-  "outbounds": [
-    { "type": "selector", "tag": "🚀 節點選擇", "outbounds": ["⚡ 自動選擇", "direct"] },
-    { "type": "urltest", "tag": "⚡ 自動選擇", "outbounds": [], "url": "https://www.gstatic.com/generate_204", "interval": "3m", "tolerance": 50 },
-    { "type": "selector", "tag": "💬 AI 服務", "outbounds": ["⚡ 自動選擇", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🍎 蘋果服務", "outbounds": ["direct", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "Ⓜ️ 微軟服務", "outbounds": ["direct", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🎮 遊戲平台", "outbounds": ["direct", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🌐 非中國", "outbounds": ["🚀 節點選擇", "direct"] },
-    { "type": "selector", "tag": "🇨🇳 國內服務", "outbounds": ["direct", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🏠 私有網絡", "outbounds": ["direct"] },
-    { "type": "selector", "tag": "🐟 漏網之魚", "outbounds": ["🚀 節點選擇", "direct"] },
-    { "type": "selector", "tag": "🛑 廣告攔截", "outbounds": ["block", "direct"] },
+## File: argo.sh
+````sh
+#!/bin/bash
+# Cloudflare Argo Tunnel 一鍵部署腳本 (增強版 2.0)
+# 專案網址: https://github.com/sammy0101/cf-sub-converter
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+NODE_TYPE="{{NODE_TYPE}}"
+VLESS_UUID="{{VLESS_UUID}}"
+VLESS_PATH="{{VLESS_PATH}}"
+VLESS_TYPE="{{VLESS_TYPE}}"
+VLESS_PORT="{{VLESS_PORT}}"
+NODE_NAME="{{NODE_NAME}}"
+TUNNEL_TOKEN="{{TUNNEL_TOKEN}}"
+CUSTOM_DOMAIN="{{CUSTOM_DOMAIN}}"
+VLESS_TLS="{{VLESS_TLS}}"
+ORIGIN_HOST="{{ORIGIN_HOST}}"
+
+echo -e "${GREEN}=== 開始部署 Cloudflare Argo 隧道 (${NODE_NAME}) ===${NC}"
+
+if [ "$EUID" -ne 0 ]; then
+  echo -e "${RED}錯誤: 請使用 root 權限執行此腳本！${NC}"
+  exit 1
+fi
+
+# 1. 安裝 cloudflared
+if ! command -v cloudflared &> /dev/null; then
+    echo "正在下載安裝 cloudflared..."
+    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+    chmod +x /usr/local/bin/cloudflared
+else
+    echo "cloudflared 已存在，跳過安裝。"
+fi
+
+SAFE_NODE_NAME=$(echo "$NODE_NAME" | sed 's/[^a-zA-Z0-9]/_/g')
+
+# 2. 自動探測與修正連接埠
+DETECTED_PORT="$VLESS_PORT"
+if command -v ss &> /dev/null; then
+    if ! ss -tln | grep -qE ":$VLESS_PORT([[:space:]]|$)"; then
+        echo -e "${RED}警告: 本地轉發埠 $VLESS_PORT 未監聽，正在探測...${NC}"
+        if ss -tln | grep -qE ":443([[:space:]]|$)"; then
+            echo -e "${GREEN}自動修正：轉發目標為 443 埠。${NC}"
+            DETECTED_PORT="443"
+        elif ss -tln | grep -qE ":80([[:space:]]|$)"; then
+            echo -e "${GREEN}自動修正：轉發目標為 80 埠。${NC}"
+            DETECTED_PORT="80"
+        fi
+    fi
+fi
+
+# 3. 智慧探測 TLS
+DETECTED_TLS="false"
+if curl -s -k --connect-timeout 2 "https://127.0.0.1:$DETECTED_PORT" &>/dev/null; then
+    echo "偵測到本地為 HTTPS 加密埠，開啟 TLS 轉發與 SNI 對齊。"
+    DETECTED_TLS="true"
+fi
+
+LOCAL_URL="http://127.0.0.1:$DETECTED_PORT"
+EXTRA_ARGS=""
+if [ "$DETECTED_TLS" = "true" ]; then
+    LOCAL_URL="https://127.0.0.1:$DETECTED_PORT"
+    EXTRA_ARGS="--no-tls-verify"
+fi
+
+if [ -n "$ORIGIN_HOST" ]; then
+    EXTRA_ARGS="$EXTRA_ARGS --http-host-header $ORIGIN_HOST"
+    if [ "$DETECTED_TLS" = "true" ]; then
+        EXTRA_ARGS="$EXTRA_ARGS --origin-server-name $ORIGIN_HOST"
+    fi
+fi
+
+# 4. 啟動隧道
+if [ -n "$TUNNEL_TOKEN" ]; then
+    echo -e "${GREEN}【固定隧道模式】正在啟動服務...${NC}"
+    cloudflared service uninstall &> /dev/null
+    cloudflared service install "$TUNNEL_TOKEN"
+    systemctl daemon-reload
+    systemctl enable cloudflared
+    systemctl restart cloudflared
+    echo -e "${GREEN}固定域名隧道部署完成！${NC}"
+else
+    echo -e "${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...${NC}"
+    systemctl stop cloudflared-argo-${SAFE_NODE_NAME} &> /dev/null
     
-    { "type": "direct", "tag": "direct" },
-    { "type": "direct", "tag": "DIRECT" },
-    { "type": "block", "tag": "block" },
-    { "type": "block", "tag": "REJECT" }
-  ],
-  "route": {
-    "default_domain_resolver": "local-dns",
-    "default_http_client": "default",
-    "rule_set": [
-      { "type": "remote", "tag": "rs-ai", "format": "binary", "url": "https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.srs" },
-      { "type": "remote", "tag": "rs-apple", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/apple.srs" },
-      { "type": "remote", "tag": "rs-microsoft", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/microsoft.srs" },
-      { "type": "remote", "tag": "rs-steam", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/steam.srs" },
-      { "type": "remote", "tag": "rs-epicgames", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/epicgames.srs" },
-      { "type": "remote", "tag": "rs-ea", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/ea.srs" },
-      { "type": "remote", "tag": "rs-ubisoft", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/ubisoft.srs" },
-      { "type": "remote", "tag": "rs-blizzard", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/blizzard.srs" },
-      { "type": "remote", "tag": "rs-geolocation-!cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/geolocation-!cn.srs" },
-      { "type": "remote", "tag": "rs-cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs" },
-      { "type": "remote", "tag": "ip-cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/cn.srs" },
-      { "type": "remote", "tag": "rs-ads", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ads-all.srs" },
-      { "type": "remote", "tag": "rs-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/private.srs" },
-      { "type": "remote", "tag": "ip-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs" }
-    ],
-    "rules": [
-      { "action": "sniff" },
-      { "protocol": "dns", "action": "hijack-dns" },
-      { "clash_mode": "Direct", "outbound": "direct" },
-      { "clash_mode": "Global", "outbound": "🚀 節點選擇" },
-      { "rule_set": "rs-ads", "outbound": "block" },
-      { "rule_set": ["rs-private", "ip-private"], "outbound": "🏠 私有網絡" },
-      { "rule_set": "rs-ai", "outbound": "💬 AI 服務" },
-      { "rule_set": "rs-microsoft", "outbound": "Ⓜ️ 微軟服務" },
-      { "rule_set": ["rs-steam", "rs-epicgames", "rs-ea", "rs-ubisoft", "rs-blizzard"], "outbound": "🎮 遊戲平台" },
-      { "rule_set": "rs-geolocation-!cn", "outbound": "🌐 非中國" },
-      { "rule_set": "rs-apple", "outbound": "🍎 蘋果服務" },
-      { "rule_set": ["rs-cn", "ip-cn"], "outbound": "🇨🇳 國內服務" },
-      { "outbound": "🐟 漏網之魚" }
-    ],
-    "auto_detect_interface": true
+    cat <<EOF > /etc/systemd/system/cloudflared-argo-${SAFE_NODE_NAME}.service
+[Unit]
+Description=Cloudflare Argo Tunnel for ${NODE_NAME}
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/cloudflared tunnel --url $LOCAL_URL $EXTRA_ARGS
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable cloudflared-argo-${SAFE_NODE_NAME}
+    systemctl start cloudflared-argo-${SAFE_NODE_NAME}
+    
+    echo "正在等待 Cloudflare 分配臨時域名..."
+    TEMP_DOMAIN=""
+    for i in {1..15}; do
+        sleep 1
+        TEMP_DOMAIN=$(journalctl -u cloudflared-argo-${SAFE_NODE_NAME} -n 50 --no-pager 2>/dev/null | grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' | tail -n 1 | cut -d'/' -f3)
+        if [ -n "$TEMP_DOMAIN" ]; then
+            break
+        fi
+    done
+    
+    if [ -n "$TEMP_DOMAIN" ]; then
+        echo -e "${GREEN}獲取臨時域名成功: $TEMP_DOMAIN${NC}"
+    else
+        echo -e "${RED}超時未獲取到域名，請手動檢查 journalctl -u cloudflared-argo-${SAFE_NODE_NAME}${NC}"
+    fi
+fi
+
+````
+
+## File: package.json
+````json
+{
+  "name": "cf-sub-converter",
+  "version": "3.1.2",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "start": "wrangler dev",
+    "argo": "tsx scripts/argo-converter.ts"
   },
-  "experimental": {
-    "cache_file": {
-      "enabled": true,
-      "store_fakeip": true
-    },
-    "clash_api": {
-      "external_controller": "127.0.0.1:9090",
-      "external_ui": "ui",
-      "secret": "",
-      "default_mode": "rule"
-    }
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240208.0",
+    "@types/js-yaml": "^4.0.9",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3",
+    "wrangler": "^3.28.1"
   }
 }
+
+````
+
+## File: scripts/argo-converter.ts
+````ts
+// scripts/argo-converter.ts
+import fs from 'fs';
+import path from 'path';
+import readline from 'readline';
+import { Buffer } from 'buffer';
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
+
+const question = (query: string): Promise<string> => {
+  return new Promise((resolve) => rl.question(query, resolve));
+};
+
+interface VlessNode {
+  originalLink: string;
+  uuid: string;
+  server: string;
+  port: string;
+  type: string;
+  path: string;
+  host: string;
+  sni: string;
+  name: string;
+}
+
+// 簡易 VLESS 連結解析器
+function parseVlessLink(link: string): VlessNode | null {
+  try {
+    const urlStr = link.replace('vless://', 'http://');
+    const url = new URL(urlStr);
+    const params = url.searchParams;
+    return {
+      originalLink: link,
+      uuid: url.username,
+      server: url.hostname,
+      port: url.port,
+      type: params.get('type') || 'ws',
+      path: params.get('path') || '/',
+      host: params.get('host') || params.get('sni') || url.hostname,
+      sni: params.get('sni') || url.hostname,
+      name: decodeURIComponent(url.hash.slice(1)) || 'VLESS Node'
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+// 獲取並解析訂閱
+async function fetchAndParse(input: string): Promise<VlessNode[]> {
+  let content = input.trim();
+  if (input.startsWith('http')) {
+    console.log('正在獲取網址內容...');
+    try {
+      const res = await fetch(input, {
+        headers: { 'User-Agent': 'v2rayNG/1.8.5' }
+      });
+      if (!res.ok) throw new Error(`HTTP 狀態碼 ${res.status}`);
+      content = await res.text();
+    } catch (e: any) {
+      console.log(`獲取訂閱失敗: ${e.message}`);
+      return [];
+    }
+  }
+
+  // 嘗試 Base64 解碼
+  let decoded = content;
+  try {
+    const cleaned = content.replace(/[\s\r\n]+/g, '');
+    decoded = Buffer.from(cleaned, 'base64').toString('utf8');
+  } catch (e) {
+    // 解碼失敗則視為純文字
+  }
+
+  const lines = decoded.split(/\r?\n/);
+  const vlessNodes: VlessNode[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('vless://')) {
+      const parsed = parseVlessLink(trimmed);
+      if (parsed) vlessNodes.push(parsed);
+    }
+  }
+  return vlessNodes;
+}
+
+// 生成 VPS 安裝腳本模板
+function generateVpsScript(node: VlessNode, port: string, token: string, domain: string): string {
+  return `#!/bin/bash
+# Cloudflare Argo Tunnel 一鍵部署腳本 (由 cf-sub-converter 自動生成)
+# 適用於已使用 mack-a v2ray-agent 部署之 Xray/Sing-box 環境
+
+GREEN='\\033[0;32m'
+RED='\\033[0;31m'
+NC='\\033[0m'
+
+echo -e "\${GREEN}=== 開始部署 Cloudflare Argo 隧道 ===\${NC}"
+
+if [ "$EUID" -ne 0 ]; then
+  echo -e "\${RED}錯誤: 請使用 root 權限執行此腳本！\${NC}"
+  exit 1
+fi
+
+# 節點參數配置
+VLESS_UUID="${node.uuid}"
+VLESS_PATH="${node.path}"
+VLESS_TYPE="${node.type}"
+VLESS_PORT="${port}"
+NODE_NAME="${node.name}"
+TUNNEL_TOKEN="${token.trim()}"
+CUSTOM_DOMAIN="${domain.trim()}"
+
+# 下載安裝 cloudflared
+if ! command -v cloudflared &> /dev/null; then
+    echo "正在下載安裝 cloudflared..."
+    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+    chmod +x /usr/local/bin/cloudflared
+    echo "cloudflared 安裝完成！"
+else
+    echo "cloudflared 已存在，跳過安裝。"
+fi
+
+# 判斷是否使用固定隧道
+if [ -n "$TUNNEL_TOKEN" ]; then
+    echo -e "\${GREEN}【固定隧道模式】正在配置服務...\${NC}"
+    cloudflared service uninstall &> /dev/null
+    cloudflared service install "$TUNNEL_TOKEN"
+    systemctl daemon-reload
+    systemctl enable cloudflared
+    systemctl restart cloudflared
+    
+    echo -e "\${GREEN}部署成功！\${NC}"
+    echo "請確保已在 Cloudflare Dashboard 中將網域 '$CUSTOM_DOMAIN' 指向本地 'http://localhost:$VLESS_PORT'"
+    
+    # 輸出用戶端連結
+    FINAL_LINK="vless://$VLESS_UUID@$CUSTOM_DOMAIN:443?encryption=none&security=tls&type=$VLESS_TYPE&host=$CUSTOM_DOMAIN"
+    if [ "$VLESS_TYPE" = "ws" ]; then
+        FINAL_LINK="$FINAL_LINK&path=$(echo -n "$VLESS_PATH" | jq -s -R -r @uri 2>/dev/null || echo -n "$VLESS_PATH")"
+    fi
+    FINAL_LINK="$FINAL_LINK#Argo-$NODE_NAME"
+    echo -e "\n\${GREEN}您的 Argo VLESS 訂閱連結為:\${NC}"
+    echo -e "\${GREEN}$FINAL_LINK\${NC}\n"
+else
+    echo -e "\${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...\${NC}"
+    systemctl stop cloudflared-argo &> /dev/null
+    
+    # 寫入 systemd 臨時隧道服務
+    cat <<EOF > /etc/systemd/system/cloudflared-argo.service
+[Unit]
+Description=Cloudflare Argo Temporary Tunnel for VLESS
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/cloudflared tunnel --url http://127.0.0.1:$VLESS_PORT
+Restart=always
+RestartSec=5
+StandardOutput=file:/var/log/cloudflared-argo.log
+StandardError=file:/var/log/cloudflared-argo.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    touch /var/log/cloudflared-argo.log
+    systemctl daemon-reload
+    systemctl enable cloudflared-argo
+    systemctl start cloudflared-argo
+    
+    echo "正在等待 Cloudflare 分配臨時域名 (約需 10-15 秒)..."
+    TEMP_DOMAIN=""
+    for i in {1..15}; do
+        sleep 1
+        TEMP_DOMAIN=$(grep -oE 'https://[a-zA-Z0-9-]+\\.trycloudflare\\.com' /var/log/cloudflared-argo.log | head -n 1 | sed 's/https:\\/\\///')
+        if [ -n "$TEMP_DOMAIN" ]; then
+            break
+        fi
+    done
+    
+    if [ -n "$TEMP_DOMAIN" ]; then
+        echo -e "\${GREEN}獲取域名成功: \$TEMP_DOMAIN\${NC}"
+        FINAL_LINK="vless://$VLESS_UUID@\$TEMP_DOMAIN:443?encryption=none&security=tls&type=$VLESS_TYPE&host=\$TEMP_DOMAIN"
+        if [ "$VLESS_TYPE" = "ws" ]; then
+            FINAL_LINK="$FINAL_LINK&path=$(echo -n "$VLESS_PATH" | jq -s -R -r @uri 2>/dev/null || echo -n "$VLESS_PATH")"
+        fi
+        FINAL_LINK="$FINAL_LINK#Argo-Temp-$NODE_NAME"
+        
+        echo -e "\n\${GREEN}=== 部署成功 ===\${NC}"
+        echo -e "原節點名稱: $NODE_NAME"
+        echo -e "轉發連接埠: $VLESS_PORT"
+        echo -e "您的臨時 Argo 節點 VLESS 連結為 (注意：VPS 重啟或重開服務後域名會刷新):"
+        echo -e "\${GREEN}\$FINAL_LINK\${NC}\n"
+    else
+        echo -e "\${RED}錯誤: 獲取臨時域名超時！請執行 'cat /var/log/cloudflared-argo.log' 檢查日誌。\${NC}"
+    fi
+fi
+`;
+}
+
+async function main() {
+  console.log('==============================================');
+  console.log('      VLESS -> Cloudflare Argo 轉換工具');
+  console.log('==============================================');
+
+  const input = await question('請輸入訂閱地址、多個 VLESS 節點、或儲存配置的訂閱網址:\n> ');
+  if (!input.trim()) {
+    console.log('輸入不能為空。');
+    rl.close();
+    return;
+  }
+
+  const nodes = await fetchAndParse(input);
+  if (nodes.length === 0) {
+    console.log('未找到任何有效的 VLESS 節點。');
+    rl.close();
+    return;
+  }
+
+  console.log(`\n成功解析出 ${nodes.length} 個 VLESS 節點:`);
+  nodes.forEach((node, i) => {
+    console.log(`  [${i + 1}] ${node.name} (${node.server}:${node.port}, 傳輸協定: ${node.type})`);
+  });
+
+  const select = await question('\n請選擇要複製並轉換的節點 (輸入數字並用逗號隔開，例如: 1,3 ；或輸入 all 代表全部):\n> ');
+  let selectedNodes: VlessNode[] = [];
+  if (select.trim().toLowerCase() === 'all') {
+    selectedNodes = nodes;
+  } else {
+    const indices = select.split(',').map(s => parseInt(s.trim()) - 1);
+    selectedNodes = indices.map(idx => nodes[idx]).filter(Boolean);
+  }
+
+  if (selectedNodes.length === 0) {
+    console.log('選擇無效，程式結束。');
+    rl.close();
+    return;
+  }
+
+  console.log(`\n已選擇 ${selectedNodes.length} 個節點進行轉換...`);
+
+  // 本地連接埠設定
+  const port = await question('\n1. 請輸入該 VLESS 節點在 VPS 上監聽的本地連接埠 (預設 8080，請與 mack-a 配置一致):\n> ') || '8080';
+
+  // Argo Tunnel 授權設定
+  console.log('\n2. 隧道設定（直接斷行即代表隨機生成臨時隧道）：');
+  const token = await question('   請貼上您的 Cloudflare Tunnel Token (選填):\n   > ');
+
+  let domain = '';
+  if (token.trim()) {
+    domain = await question('   請輸入該隧道綁定的自訂域名 (例如: vless.domain.com):\n   > ');
+    if (!domain.trim()) {
+      console.log('   錯誤: 固定隧道模式必須提供自訂域名。');
+      rl.close();
+      return;
+    }
+  }
+
+  // 建立腳本存放目錄
+  const outputDir = path.join(process.cwd(), 'argo_outputs');
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir);
+  }
+
+  const generatedNodes: string[] = [];
+
+  for (const node of selectedNodes) {
+    // 保留原本節點
+    generatedNodes.push(node.originalLink);
+
+    // 生成並寫入一鍵 VPS 腳本
+    const vpsScript = generateVpsScript(node, port, token, domain);
+    const safeNodeName = node.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
+    const scriptPath = path.join(outputDir, `argo-install-${safeNodeName}.sh`);
+    
+    fs.writeFileSync(scriptPath, vpsScript, { encoding: 'utf8', mode: 0o755 });
+    console.log(`\n[✓] 成功生成 VPS 安裝腳本: ${scriptPath}`);
+
+    // 如果是固定隧道，可以直接在本地計算出新的 Argo 節點
+    if (token.trim() && domain.trim()) {
+      const argoLink = `vless://${node.uuid}@${domain.trim()}:443?encryption=none&security=tls&type=${node.type}&host=${domain.trim()}${node.type === 'ws' ? `&path=${encodeURIComponent(node.path)}` : ''}#Argo-${node.name}`;
+      generatedNodes.push(argoLink);
+      console.log(`    └─ 同步生成 Argo 節點連結: ${argoLink}`);
+    } else {
+      console.log(`    └─ 臨時隧道模式：節點連結需在 VPS 上執行腳本後動態輸出。`);
+    }
+  }
+
+  // 如果有生成固定隧道的節點，將新舊節點整合寫入訂閱文件
+  if (generatedNodes.length > selectedNodes.length) {
+    const subPath = path.join(outputDir, 'argo_subscription.txt');
+    fs.writeFileSync(subPath, generatedNodes.join('\n'), 'utf8');
+    const base64Sub = Buffer.from(generatedNodes.join('\n')).toString('base64');
+    fs.writeFileSync(path.join(outputDir, 'argo_subscription_base64.txt'), base64Sub, 'utf8');
+    
+    console.log(`\n[✓] 整合訂閱已生成（含原節點 + 新 Argo 節點）:`);
+    console.log(`    - 明文列表: ${path.join(outputDir, 'argo_subscription.txt')}`);
+    console.log(`    - Base64 格式: ${path.join(outputDir, 'argo_subscription_base64.txt')}`);
+  }
+
+  console.log('\n==============================================');
+  console.log('部署說明：');
+  console.log('1. 請將 argo_outputs 目錄內對應的 .sh 腳本上傳至您的 VPS。');
+  console.log('2. 執行命令賦予執行權限並啟動：');
+  console.log('   chmod +x argo-install-*.sh && ./argo-install-*.sh');
+  console.log('==============================================');
+
+  rl.close();
+}
+
+main();
+
+````
+
+## File: README.md
+````md
+# ⚡ CF Sub Converter Pro
+
+基於 Cloudflare Workers 的全能 Serverless 訂閱轉換與節點中樞。擁有現代深色 UI、SWR 高可用快取容災架構、智慧倍率/專線分組、國旗萬國對齊系統，以及 **Argo 隧道 2.0 自動化生成器**。支援將各類代理節點一鍵轉換為 **Sing-Box / Clash Meta (Mihomo) / Surge 5 / Quantumult X / Loon / Base64** 格式，亦可作為第三方轉換前端（如 `sub-web`）的標準後端。
+
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sammy0101/cf-sub-converter)
+
+---
+
+## 🌟 核心特性
+
+### 1. 🔌 全主流與新興協議深度解析
+- 完整支援 **VLESS**（含最新 `xhttp` / `splithttp`、`Reality`、`Vision`、`WebSocket`、`gRPC`）。
+- 完整支援 **WireGuard** / **Cloudflare WARP**（雙棧 IPv4/IPv6、Reserved 欄位相容）。
+- 完整支援 **Shadowsocks-2022**（`2022-blake3-*` 多端口與密鑰）、**Trojan**、**VMess**、**Hysteria 2 (`hy2`)**、**TUIC**、**AnyTLS**。
+
+### 2. 📱 全生態客戶端格式適配
+- **自適應識別 (Adaptive)**：自動依據請求客戶端的 `User-Agent` 回傳對應格式。
+- **Clash Meta (Mihomo)**：YAML 格式，內建流量嗅探、Fake-IP、DoH 分流與動態策略組。
+- **Sing-Box**：標準 JSON 格式，支援 Mixed TUN 堆疊、獨立 DNS 規則與出站映射。
+- **Surge 5**：標準 `.conf` 格式，支援 Proxy、Proxy Group 與分流規則。
+- **Quantumult X**：標準 `server_remote` 節點清單格式。
+- **Loon**：標準 `[Proxy]` 格式。
+- **Base64**：通用明文與編碼格式，適用於 v2rayNG、PassWall、Shadowrocket 等。
+
+### 3. 🛡️ 99.99% 高可用 SWR 容災架構 (Zero Downtime)
+- **Stale-While-Revalidate + KV 快取**：遠端規則模板自動在邊緣快取，背景非同步靜默更新。
+- **三重容災降級保證**：`KV 快取優先` ➔ `GitHub 即時獲取` ➔ `內嵌應急模板兜底`，徹底杜絕因 GitHub 429 限流或網路波動導致轉換失敗。
+
+### 4. 🏎️ 智慧倍率與專線動態策略組
+- **倍率辨識**：自動識別節點名稱中的倍率特徵（如 `0.1x`、`0.5X`、`0.2倍`），並在 Sing-Box 與 Clash Meta 中動態建立「🏎️ 低倍率節點」策略組。
+- **專線辨識**：自動擷取 `IPLC`、`IEPL`、`專線`、`內網` 特徵，動態生成「⚡ 專線加速」策略組。
+
+### 5. 🌀 Argo 隧道 2.0 一鍵生成器
+- **優選 IP / 官方域名注入**：支援填入 Cloudflare Clean IP（如 `104.16.80.1`）或優選網域，自動完成連接伺服器與 SNI/Host 映射，顯著降低延遲。
+- **極簡 VPS 命令**：腳本自動上傳至 KV 快取，透過 `curl -sSL ... | bash` 極速完成部署。
+- **智慧探測與修復**：VPS 端自動探測 443 / 80 本地監聽連接埠、TLS 狀態與 Host Header 重寫。
+
+### 6. 🔍 智慧篩選、名稱替換與黃金國旗排版
+- **雙向過濾**：支援「僅保留」與「排除」規則（多組用 `|` 隔開，如 `HK|TW` 或 `5x`），內建 `x`/`X`/`×` 字符相容匹配。
+- **名稱替換**：支援 `DEL-關鍵字`（刪除）、`尋找-替換`，以及 `ALL-新名稱`（一鍵統改所有節點名稱）。
+- **黃金 22 地區國旗排序**：自動為節點補上國旗 Emoji，依亞太核心（港、台、日、星、韓）➔ 歐美主流（美、英、加、澳）順序緊密分群，並自動對重複節點編號。
+
+### 7. 📊 流量與到期日加總透傳
+- 自動從上游多個機場擷取並加總上傳、下載與總流量，計算最近的到期時間，透過標準 `subscription-userinfo` 標頭透傳，完美點亮客戶端流量資訊條。
+
+---
+
+## 🚀 部署教學
+
+### 方法一：一鍵按鈕快速部署 (最推薦、零設定自動託管)
+
+點擊本說明文件上方的 **Deploy to Cloudflare Workers** 藍色按鈕。
+
+* **零設定自動託管**：Cloudflare 網頁部署精靈會引導您登入，並**在背景全自動為您建立並對接好所需的 KV 命名空間（`SUB_CACHE`）**，完全不需要您手動至儀表板綁定。
+* **自建 CI/CD (Workers Builds)**：Cloudflare 會在您的 GitHub 下自動建立此專案的複製倉庫。未來只要在 GitHub 修改並 `git push`，Cloudflare 就會自動在端點編譯部署，**此模式完全不需要設定 GitHub Secrets 密鑰**。
+
+---
+
+### 方法二：手動 Fork 本專案並使用 GitHub Actions 自動部署 (需設定 Secrets)
+
+如果您選擇**手動 Fork 本項目**並利用倉庫內建的 GitHub Actions 自動進行 CI/CD 部署，請依照以下步驟操作：
+
+1. **Fork 本專案**：
+   點擊本倉庫右上角的 **`Fork`** 按鈕，將專案複製一份到您的 GitHub 帳號下。
+
+2. **建立 Cloudflare KV 命名空間**：
+   - 登入 [Cloudflare Dashboard](https://dash.cloudflare.com/)。
+   - 點擊左側選單的 **`Storage & Databases` (儲存與資料庫)** ➔ **`KV`**。
+   - 點擊 **`Create a namespace`**，輸入名稱（例如 `SUB_CACHE`），建立完成後複製其 **Namespace ID**。
+
+3. **設定 GitHub Repository Secrets**：
+   前往您 Fork 出來的 GitHub 倉庫頁面，依次點擊：
+   **`Settings`** ➔ **`Secrets and variables`** ➔ **`Actions`** ➔ **`New repository secret`**，添加以下三個密鑰：
+
+   | 密鑰名稱 (Secret Name) | 說明與獲取方式 |
+   | :--- | :--- |
+   | **`CF_API_TOKEN`** | **Cloudflare API 權杖**<br>獲取方式：Cloudflare 首頁 ➔ 右上角「我的個人資料」➔「API 權杖」➔「建立權杖」➔ 選擇「編輯 Cloudflare Workers」模板（需具備 Workers 與 KV 的編輯權限）。 |
+   | **`CF_ACCOUNT_ID`** | **Cloudflare 帳戶 ID**<br>獲取方式：登入 Cloudflare ➔ 點擊任意網域或 Worker 頁面，在右側欄位即可找到「帳戶 ID (Account ID)」。 |
+   | **`CF_KV_ID`** | **KV 命名空間 ID**<br>獲取方式：填入步驟 2 中建立的 `SUB_CACHE` 命名空間 ID。 |
+
+4. **觸發自動部署**：
+   - 前往 GitHub 倉庫的 **`Actions`** 標籤頁。
+   - 點擊左側的 **`Deploy to Cloudflare Workers`** 工作流，點擊 **`Run workflow`** 手動執行部署。
+   - 後續只要您對 `main` 或 `master` 分支推送（Push）任何代碼變更，GitHub Actions 就會全自動為您編譯並發布至 Cloudflare Workers。
+
+---
+
+### 方法三：本地手動編譯部署 (Wrangler CLI)
+
+1. **克隆專案並安裝依賴**：
+   ```bash
+   git clone https://github.com/sammy0101/cf-sub-converter.git
+   cd cf-sub-converter
+   npm install
+   ```
+
+2. **建立 KV 命名空間**：
+   ```bash
+   wrangler kv:namespace create SUB_CACHE
+   ```
+   *將終端機回傳的 `id` 替換至 `wrangler.toml` 中的 `KV_ID_PLACEHOLDER`。*
+
+3. **發布至 Cloudflare**：
+   ```bash
+   npm run deploy
+   ```
+
+---
+
+## 📖 使用指南
+
+### 1. 視覺化 Web 面板
+訪問您部署完成的 Workers 網址：
+- **資料來源設定**：貼上機場訂閱連結或各類協議節點（支援多行混合輸入）。
+- **過濾與替換**：設定保留/排除關鍵字或名稱替換規則。
+- **短連結雲端儲存**：設定自訂短代碼，規則將自動打包存入 KV。
+- **多平台訂閱面板**：一鍵複製對應客戶端連結，或點擊 QR Code 按鈕掃描行動條碼。
+- **配置收藏管理**：可隨時儲存、編輯、一鍵載入常用配置，卡片上直觀顯示「保 / 排 / 替」規則標籤。
+
+---
+
+### 2. Argo 隧道 2.0 部署步驟
+
+1. 在網頁主輸入框貼入您的 VLESS / VMess 節點內容。
+2. 點擊 **「第一步：解析並載入目前輸入的 VLESS / VMess 節點」**。
+3. 勾選欲轉換之節點，系統會自動匹配原埠號。
+4. （選填）填入 **Cloudflare 優選 IP**（例如 `104.16.80.1`）以加速連線。
+5. （選填）填入固定 Tunnel Token 與自訂綁定域名（若留空則為臨時隨機隧道）。
+6. 點擊 **「第二步：生成 Argo 一鍵部署指令與節點」**。
+7. 將產生的 `curl -sSL ... | bash` 指令複製至 VPS（以 root 權限執行）。
+8. 部署成功後：
+   - **固定域名模式**：下方文字框直接複製已轉換好的 `_Argo_優選` 節點。
+   - **臨時隨機模式**：VPS 終端機將動態輸出最終分配的節點連結。
+
+---
+
+### 3. API 調用與外部前端對接
+
+#### 當作標準 SubConverter 後端使用
+本專案內建標準 `/sub` 與 `/version` 端點，可直接填入任何開源 `sub-web` 前端的「後端地址 (Backend URL)」：
+```text
+https://your-worker.workers.dev
+```
+
+#### URL 參數手動轉換
+
+| 參數 | 說明 | 範例 |
+| :--- | :--- | :--- |
+| `url` | 原始訂閱連結或節點內容（需 URL 編碼） | `https://example.com/sub` |
+| `target` | 目標格式：`clash` / `singbox` / `surge` / `quanx` / `loon` / `base64` | `target=clash` |
+| `include` | 僅保留符合正則之節點 | `include=HK\|TW` |
+| `exclude` | 排除符合正則之節點（自動相容乘號 `×`） | `exclude=5x\|官網` |
+| `rename` | 名稱替換（刪除：`DEL-字串`、替換：`A-B`、統改：`ALL-名稱`） | `rename=DEL-[69云]\|ALL-JP` |
+
+**完整調用範例**：
+```http
+# 轉換原始訂閱為 Clash Meta 格式，僅保留香港，並刪除廣告名稱
+https://your-worker.workers.dev/sub?url=<URL編碼>&target=clash&include=HK&rename=DEL-[廣告]
+
+# 讀取已存於雲端 KV 的短連結配置
+https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox
+```
+
+---
+
+## 🛡️ 內建分流群組 (Sing-Box / Clash Meta)
+
+| 圖示 | 策略組名稱 | 路由邏輯 |
+| :--- | :--- | :--- |
+| 🏎️ | 低倍率節點 | 自動彙整倍率 `< 1.0x` 的節點（省流專用） |
+| ⚡ | 專線加速 | 自動彙整包含 `IPLC` / `IEPL` / `專線` 的低延遲節點 |
+| 🚀 | 節點選擇 | 手動指定出站節點 |
+| ⚡ | 自動選擇 | URL Test 自動測速切換最低延遲節點 |
+| 💬 | AI 服務 | 針對 OpenAI / Claude / Gemini 專屬分流 |
+| 🍎 | 蘋果服務 | Apple 相關服務直連或代理 |
+| Ⓜ️ | 微軟服務 | Microsoft 服務直連或代理 |
+| 🎮 | 遊戲平台 | Steam / Epic / EA / Ubisoft / Blizzard |
+| 🌐 | 非中國 | 全球主流網站（Google、Telegram、YouTube 等） |
+| 🇨🇳 | 國內服務 | 中國大陸 IP 與網域自動精準直連 |
+| 🏠 | 私有網絡 | 區域網路 (LAN) 直連 |
+| 🛑 | 廣告攔截 | 阻擋常見廣告與追蹤器 (AdBlock) |
+| 🐟 | 漏網之魚 | Final Match 未命中規則之預設路由 |
+
+---
+
+## 📁 專案架構
+
+```text
+cf-sub-converter/
+├── src/
+│   ├── index.ts          # Worker 核心路由、並發請求控制、User-Agent 辨識與 API 接口
+│   ├── constants.ts      # 響應式深色 UI 模板、QR Code 生成器與 SWR 內嵌降級規則
+│   ├── parser.ts         # 萬能節點解析器 (VLESS SplitHTTP, WireGuard, SS-2022, Hy2, TUIC 等)
+│   ├── generator.ts      # 多平台格式生成器 (Sing-Box, Clash, Surge 5, QuanX, Loon, Base64)
+│   ├── utils.ts          # 倍率與專線特徵提取、Base64 安全編碼、萬國國旗對齊演算法
+│   └── types.ts          # 嚴格 TypeScript 類型定義
+├── argo.sh               # VPS Argo 隧道 2.0 一鍵安裝與自我修復通用腳本
+├── Sing-Box_Rules.JSON   # 遠端 Sing-Box 混合 TUN 規則模板
+├── Clash_Rules.YAML      # 遠端 Clash Meta (Mihomo) 規則模板
+├── wrangler.toml         # Cloudflare Workers 配置檔
+└── .github/workflows/
+    └── deploy.yml        # GitHub Actions 自動化部署工作流
+```
+
+---
+
+## ⚠️ 免責聲明
+
+本專案僅供網路安全、分散式架構學習與技術交流使用，不提供任何代理伺服器或節點服務。請使用者自覺遵守當地法律法規，切勿用於任何非法用途。
+
 ````
 
 ## File: src/index.ts
@@ -1246,6 +1664,1237 @@ export default {
   }
 };
 
+````
+
+## File: src/parser.ts
+````ts
+// src/parser.ts
+import { ProxyNode, WireGuardConfig } from "./types";
+import { safeBase64Decode, tryDecodeURIComponent } from "./utils";
+
+// --- 安全的通用代理 URI 正則解析器 ---
+interface ParsedUri {
+  protocol: string;
+  username: string;
+  password?: string;
+  hostname: string;
+  port: number;
+  params: URLSearchParams;
+  hash: string;
+}
+
+function parseProxyUri(urlStr: string, defaultPort = 443): ParsedUri | null {
+  try {
+    const trimmed = urlStr.trim();
+    const match = trimmed.match(/^([a-zA-Z0-9_-]+):\/\/(?:([^:@/?#]+)(?::([^@/?#]*))?@)?(\[[a-fA-F0-9:]+\]|[^:/?#]+)(?::([0-9]+))?(?:\?([^#]*))?(?:#(.*))?$/);
+    if (!match) return null;
+
+    const protocol = match[1].toLowerCase();
+    const username = match[2] ? decodeURIComponent(match[2]) : '';
+    const password = match[3] ? decodeURIComponent(match[3]) : undefined;
+    let hostname = match[4];
+    if (hostname.startsWith('[') && hostname.endsWith(']')) {
+      hostname = hostname.slice(1, -1);
+    }
+    const port = match[5] ? parseInt(match[5], 10) : defaultPort;
+    const query = match[6] || '';
+    const hash = match[7] ? tryDecodeURIComponent(match[7]) : '';
+
+    const params = new URLSearchParams(query);
+    return { protocol, username, password, hostname, port, params, hash };
+  } catch {
+    return null;
+  }
+}
+
+function parsePluginParams(str: string): Record<string, string> {
+  const params: Record<string, string> = {};
+  str.split(';').forEach(p => {
+    const [k, v] = p.split('=');
+    if (k && v) params[k] = v;
+  });
+  return params;
+}
+
+function isIpAddress(host: string): boolean {
+  return /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(host) || /^[a-fA-F0-9:]+$/.test(host);
+}
+
+// --- 解析 Shadowsocks ---
+function parseShadowsocks(urlStr: string): ProxyNode | null {
+  try {
+    const getParam = (str: string, key: string): string => {
+      const regex = new RegExp(`[?&]${key}=([^&#]*)`, 'i');
+      const match = str.match(regex);
+      return match ? tryDecodeURIComponent(match[1]) : '';
+    };
+
+    let raw = urlStr.replace('ss://', '');
+    const hashIndex = raw.indexOf('#');
+    let name = 'Shadowsocks';
+    if (hashIndex !== -1) {
+      name = tryDecodeURIComponent(raw.substring(hashIndex + 1));
+      raw = raw.substring(0, hashIndex);
+    }
+    if (raw.includes('?')) { raw = raw.split('?')[0]; }
+
+    let method = '';
+    let password = '';
+    let server = '';
+    let portStr = '';
+    
+    if (raw.includes('@')) {
+      const parts = raw.split('@');
+      const serverPart = parts[parts.length - 1];
+      const userPart = parts.slice(0, parts.length - 1).join('@');
+      const lastColonIndex = serverPart.lastIndexOf(':');
+      if (lastColonIndex === -1) return null;
+      server = serverPart.substring(0, lastColonIndex);
+      portStr = serverPart.substring(lastColonIndex + 1);
+      if (server.startsWith('[') && server.endsWith(']')) server = server.slice(1, -1);
+      try {
+        const decoded = safeBase64Decode(userPart);
+        if (decoded && decoded.includes(':')) { 
+          const up = decoded.split(':');
+          method = up[0];
+          password = up.slice(1).join(':');
+        } else {
+          const up = userPart.split(':');
+          method = up[0];
+          password = up.slice(1).join(':');
+        }
+      } catch {
+        const up = userPart.split(':');
+        method = up[0];
+        password = up.slice(1).join(':');
+      }
+    } else {
+      const decoded = safeBase64Decode(raw);
+      if (!decoded) return null;
+      const atIndex = decoded.lastIndexOf('@');
+      if (atIndex === -1) return null;
+      const userPart = decoded.substring(0, atIndex);
+      const serverPart = decoded.substring(atIndex + 1);
+      const lastColonIndex = serverPart.lastIndexOf(':');
+      if (lastColonIndex === -1) return null;
+      server = serverPart.substring(0, lastColonIndex);
+      portStr = serverPart.substring(lastColonIndex + 1);
+      if (server.startsWith('[') && server.endsWith(']')) server = server.slice(1, -1);
+      const firstColonIndex = userPart.indexOf(':');
+      if (firstColonIndex === -1) return null;
+      method = userPart.substring(0, firstColonIndex);
+      password = userPart.substring(firstColonIndex + 1);
+    }
+
+    if (!server || !portStr || !method || !password) return null;
+    const port = parseInt(portStr, 10);
+    if (isNaN(port)) return null;
+
+    const pluginStr = getParam(urlStr, 'plugin');
+    const security = getParam(urlStr, 'security');
+    const sni = getParam(urlStr, 'sni') || getParam(urlStr, 'host') || server;
+    const alpnStr = getParam(urlStr, 'alpn');
+    const fp = getParam(urlStr, 'fp') || 'chrome';
+    const isEch = Boolean(getParam(urlStr, 'ech'));
+
+    const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0) || isEch;
+    const alpn = alpnStr ? alpnStr.split(',') : undefined;
+    const isSs2022 = method.toLowerCase().includes('2022');
+
+    const node: ProxyNode = {
+      type: 'shadowsocks', name, server, port, cipher: method, password, udp: true,
+      tls: isTls, sni, alpn, fingerprint: fp, ech: isEch
+    };
+
+    const sb: Record<string, unknown> = {
+      tag: name,
+      type: 'shadowsocks',
+      server: node.server,
+      server_port: node.port,
+      method: node.cipher,
+      password: node.password
+    };
+    if (isSs2022) {
+      sb.udp_over_tcp = true;
+    }
+    node.singboxObj = sb;
+
+    const cl: Record<string, unknown> = {
+      name,
+      type: 'ss',
+      server: node.server,
+      port: node.port,
+      cipher: node.cipher,
+      password: node.password,
+      udp: true,
+      plugin: pluginStr ? pluginStr.split(';')[0] : undefined,
+      'plugin-opts': pluginStr ? parsePluginParams(pluginStr.split(';').slice(1).join(';')) : undefined
+    };
+    if (isTls) {
+      cl.smux = { enabled: true };
+    }
+    if (isEch) {
+      cl['ech-opts'] = { enable: true };
+    }
+    node.clashObj = cl;
+
+    return node;
+  } catch {
+    return null;
+  }
+}
+
+// --- 解析 VLESS (修復純 IP 搭配 ECH 在 Sing-Box 的解析死鎖) ---
+function parseVless(urlStr: string): ProxyNode | null {
+  try {
+    const parsed = parseProxyUri(urlStr, 443);
+    if (!parsed) return null;
+
+    const params = parsed.params;
+    const name = parsed.hash || 'VLESS';
+    
+    let rawPath = params.get('path') || '';
+    
+    const explicitNet = (params.get('type') || params.get('net') || params.get('network') || params.get('transport') || '').toLowerCase();
+    let netType = explicitNet;
+    if (!netType) {
+      if (rawPath || params.has('ed') || params.has('host')) {
+        netType = 'ws';
+      } else {
+        netType = 'tcp';
+      }
+    }
+
+    if (netType === 'ws' && !rawPath) {
+      rawPath = '/';
+    }
+    if (rawPath && !rawPath.startsWith('/')) {
+      rawPath = '/' + rawPath;
+    }
+
+    let earlyDataLength: number | undefined = undefined;
+    const edMatch = rawPath.match(/[?&]ed=([0-9]+)/) || (params.get('ed') ? [null, params.get('ed')] : null);
+    if (edMatch && edMatch[1]) {
+      earlyDataLength = parseInt(edMatch[1], 10);
+    }
+
+    const cleanPath = rawPath ? (rawPath.replace(/[?&]ed=[0-9]+/g, '').replace(/\?$/, '') || '/') : '/';
+
+    const isXhttp = netType === 'xhttp' || netType === 'splithttp';
+    const isGrpc = netType === 'grpc';
+    const isEch = Boolean(params.get('ech'));
+
+    const security = params.get('security') || (params.get('tls') === '1' || params.get('tls') === 'tls' || isEch ? 'tls' : (parsed.port === 443 ? 'tls' : 'none'));
+    const isTls = security === 'tls' || security === 'reality' || isEch;
+    const hostHeader = params.get('host') || params.get('sni') || parsed.hostname;
+    const sniHost = params.get('sni') || params.get('host') || parsed.hostname;
+
+    const customAlpn = params.get('alpn') ? params.get('alpn')!.split(',') : (netType === 'ws' ? ['http/1.1'] : undefined);
+
+    // 💥 核心智慧修復：在 Sing-Box 中，若啟用了 ECH 且 server 是純 IP，Sing-Box 無法從 IP 查詢 ECH 記錄。
+    // 將 Sing-Box 連線目標的 server 指向 SNI 網域名稱（如 tt.swim.qzz.io），從而解鎖 ECH 查詢！
+    const singboxServer = (isEch && isIpAddress(parsed.hostname) && sniHost) ? sniHost : parsed.hostname;
+
+    const node: ProxyNode = {
+      type: 'vless',
+      name,
+      server: parsed.hostname,
+      port: parsed.port,
+      uuid: parsed.username,
+      tls: isTls,
+      flow: params.get('flow') || undefined,
+      network: netType,
+      sni: sniHost,
+      alpn: customAlpn,
+      fingerprint: params.get('fp') || 'chrome',
+      skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1',
+      ech: isEch
+    };
+
+    if (security === 'reality') {
+      node.reality = {
+        publicKey: params.get('pbk') || '',
+        shortId: params.get('sid') || ''
+      };
+      if (!node.sni) node.sni = node.server;
+    }
+
+    if (node.network === 'ws') {
+      node.wsPath = cleanPath;
+      node.wsHeaders = { Host: hostHeader };
+    }
+
+    if (isXhttp) {
+      node.xhttpPath = cleanPath;
+      node.xhttpHost = hostHeader;
+      node.xhttpMode = params.get('mode') || 'auto';
+    }
+    
+    // Sing-Box Outbound 構建
+    const sb: Record<string, unknown> = {
+      tag: name,
+      type: 'vless',
+      server: singboxServer,
+      server_port: node.port,
+      uuid: node.uuid,
+      packet_encoding: 'xudp'
+    };
+
+    if (node.tls) {
+      const tlsObj: Record<string, unknown> = {
+        enabled: true,
+        server_name: node.sni || node.server,
+        alpn: node.alpn || (node.network === 'ws' ? ['http/1.1'] : undefined),
+        insecure: node.skipCertVerify,
+        utls: { enabled: true, fingerprint: node.fingerprint }
+      };
+
+      if (node.ech) {
+        tlsObj.ech = { enabled: true };
+      }
+
+      if (node.reality) {
+        tlsObj.reality = {
+          enabled: true,
+          public_key: node.reality.publicKey,
+          short_id: node.reality.shortId
+        };
+      }
+      sb.tls = tlsObj;
+    }
+
+    if (node.flow) sb.flow = node.flow;
+
+    if (node.network === 'ws') {
+      const wsTransport: Record<string, unknown> = {
+        type: 'ws',
+        path: cleanPath,
+        headers: node.wsHeaders
+      };
+      if (earlyDataLength) {
+        wsTransport.max_early_data = earlyDataLength;
+        wsTransport.early_data_header_name = 'Sec-WebSocket-Protocol';
+      }
+      sb.transport = wsTransport;
+    } else if (isXhttp) {
+      sb.transport = {
+        type: 'splithttp',
+        path: cleanPath,
+        headers: { Host: node.xhttpHost },
+        mode: node.xhttpMode
+      };
+    } else if (isGrpc) {
+      sb.transport = {
+        type: 'grpc',
+        service_name: params.get('serviceName') || ''
+      };
+    }
+    node.singboxObj = sb;
+    
+    // Clash Meta Outbound 構建
+    const cl: Record<string, unknown> = {
+      name,
+      type: 'vless',
+      server: node.server,
+      port: node.port,
+      uuid: node.uuid,
+      udp: true,
+      tls: node.tls,
+      servername: node.sni || node.server,
+      alpn: node.alpn,
+      'skip-cert-verify': node.skipCertVerify,
+      'client-fingerprint': node.fingerprint
+    };
+    if (node.ech) {
+      cl['ech-opts'] = { enable: true };
+    }
+    if (node.flow) cl.flow = node.flow; 
+    if (node.reality) {
+      cl.reality = true;
+      cl['reality-opts'] = { 'public-key': node.reality.publicKey, 'short-id': node.reality.shortId };
+    }
+    if (node.network === 'ws') {
+      cl.network = 'ws';
+      cl['ws-opts'] = {
+        path: cleanPath,
+        headers: node.wsHeaders,
+        'max-early-data': earlyDataLength,
+        'early-data-header-name': earlyDataLength ? 'Sec-WebSocket-Protocol' : undefined
+      };
+    } else if (isXhttp) {
+      cl.network = 'xhttp';
+      cl['xhttp-opts'] = { path: cleanPath, host: node.xhttpHost, mode: node.xhttpMode };
+    } else if (isGrpc) {
+      cl.network = 'grpc';
+      cl['grpc-opts'] = { 'grpc-service-name': params.get('serviceName') || '' };
+    }
+    node.clashObj = cl;
+
+    return node;
+  } catch {
+    return null;
+  }
+}
+
+// --- 解析 WireGuard / WARP ---
+function parseWireGuard(urlStr: string): ProxyNode | null {
+  try {
+    const parsed = parseProxyUri(urlStr, 2408);
+    if (!parsed) return null;
+
+    const params = parsed.params;
+    const name = parsed.hash || 'WireGuard';
+
+    const privateKey = parsed.username;
+    const localIps = (params.get('ip') || params.get('address') || '172.16.0.2/32,fd00::2/128').split(',');
+    const publicKey = params.get('public_key') || params.get('pk') || '';
+    const presharedKey = params.get('preshared_key') || params.get('psk') || undefined;
+    const mtu = parseInt(params.get('mtu') || '1420', 10);
+    const reserved = params.get('reserved') ? params.get('reserved')!.split(',').map(n => parseInt(n.trim(), 10)) : undefined;
+
+    const wgConfig: WireGuardConfig = {
+      privateKey,
+      localAddress: localIps,
+      publicKey,
+      presharedKey,
+      mtu,
+      reserved
+    };
+
+    const node: ProxyNode = {
+      type: 'wireguard',
+      name,
+      server: parsed.hostname,
+      port: parsed.port,
+      udp: true,
+      wireguard: wgConfig
+    };
+
+    node.singboxObj = {
+      tag: name,
+      type: 'wireguard',
+      server: node.server,
+      server_port: node.port,
+      system_interface: false,
+      interface_name: 'wg0',
+      local_address: localIps,
+      private_key: privateKey,
+      peer_public_key: publicKey,
+      pre_shared_key: presharedKey,
+      reserved,
+      mtu
+    };
+
+    node.clashObj = {
+      name,
+      type: 'wireguard',
+      server: node.server,
+      port: node.port,
+      ip: localIps[0]?.split('/')[0],
+      ipv6: localIps[1]?.split('/')[0],
+      'public-key': publicKey,
+      'private-key': privateKey,
+      'preshared-key': presharedKey,
+      reserved,
+      mtu,
+      udp: true
+    };
+
+    return node;
+  } catch {
+    return null;
+  }
+}
+
+// --- 解析 Hysteria2 ---
+function parseHysteria2(urlStr: string): ProxyNode | null {
+  try {
+    const parsed = parseProxyUri(urlStr, 443);
+    if (!parsed) return null;
+
+    const params = parsed.params;
+    const name = parsed.hash || 'Hy2';
+    
+    const node: ProxyNode = {
+      type: 'hysteria2',
+      name,
+      server: parsed.hostname,
+      port: parsed.port,
+      password: parsed.username,
+      tls: true,
+      sni: params.get('sni') || parsed.hostname,
+      skipCertVerify: params.get('insecure') === '1' || params.get('allowInsecure') === '1',
+      obfs: params.get('obfs') || undefined,
+      obfsPassword: params.get('obfs-password') || undefined
+    };
+
+    const sb: Record<string, unknown> = {
+      tag: name,
+      type: 'hysteria2',
+      server: node.server,
+      server_port: node.port,
+      password: node.password,
+      tls: { enabled: true, server_name: node.sni, insecure: node.skipCertVerify }
+    };
+    if (node.obfs) {
+      sb.obfs = { type: node.obfs, password: node.obfsPassword };
+    }
+    node.singboxObj = sb;
+
+    const cl: Record<string, unknown> = {
+      name,
+      type: 'hysteria2',
+      server: node.server,
+      port: node.port,
+      password: node.password,
+      sni: node.sni,
+      'skip-cert-verify': node.skipCertVerify
+    };
+    if (node.obfs) {
+      cl.obfs = node.obfs;
+      cl['obfs-password'] = node.obfsPassword;
+    }
+    node.clashObj = cl;
+
+    return node;
+  } catch {
+    return null;
+  }
+}
+
+// --- 解析 TUIC ---
+function parseTuic(urlStr: string): ProxyNode | null {
+  try {
+    const parsed = parseProxyUri(urlStr, 443);
+    if (!parsed) return null;
+
+    const params = parsed.params;
+    const name = parsed.hash || 'TUIC';
+
+    const congestion_control = params.get('congestion_control') || 'bbr';
+    const udp_relay_mode = params.get('udp_relay_mode') || 'native';
+    const alpnStr = params.get('alpn');
+    const skipCertVerify = params.get('allow_insecure') === '1' || params.get('insecure') === '1';
+
+    const node: ProxyNode = {
+      type: 'tuic',
+      name,
+      server: parsed.hostname,
+      port: parsed.port,
+      uuid: parsed.username,
+      password: parsed.password || '',
+      tls: true,
+      sni: params.get('sni') || parsed.hostname,
+      alpn: alpnStr ? alpnStr.split(',') : ['h3'],
+      skipCertVerify,
+      congestion_control,
+      udp_relay_mode
+    };
+
+    node.singboxObj = {
+      tag: name,
+      type: 'tuic',
+      server: node.server,
+      server_port: node.port,
+      uuid: node.uuid,
+      password: node.password,
+      congestion_control: node.congestion_control,
+      udp_relay_mode: node.udp_relay_mode,
+      tls: { enabled: true, server_name: node.sni, alpn: node.alpn, insecure: node.skipCertVerify }
+    };
+
+    node.clashObj = {
+      name,
+      type: 'tuic',
+      server: node.server,
+      port: node.port,
+      uuid: node.uuid,
+      password: node.password,
+      sni: node.sni,
+      alpn: node.alpn,
+      'skip-cert-verify': node.skipCertVerify,
+      'congestion-controller': node.congestion_control,
+      'udp-relay-mode': node.udp_relay_mode
+    };
+
+    return node;
+  } catch {
+    return null;
+  }
+}
+
+// --- 解析 AnyTLS ---
+function parseAnytls(urlStr: string): ProxyNode | null {
+  try {
+    const parsed = parseProxyUri(urlStr, 443);
+    if (!parsed) return null;
+
+    const params = parsed.params;
+    const name = parsed.hash || 'AnyTLS';
+    const uuid = parsed.username;
+    const skipCertVerify = params.get('allowInsecure') === '1' || params.get('insecure') === '1';
+    const alpnStr = params.get('alpn');
+
+    const node: ProxyNode = {
+      type: 'anytls',
+      name,
+      server: parsed.hostname,
+      port: parsed.port,
+      uuid,
+      password: uuid,
+      tls: true,
+      sni: params.get('sni') || parsed.hostname,
+      fingerprint: params.get('fp') || 'chrome',
+      skipCertVerify,
+      alpn: alpnStr ? alpnStr.split(',') : undefined
+    };
+
+    node.singboxObj = { 
+      tag: name, 
+      type: 'anytls', 
+      server: node.server, 
+      server_port: node.port, 
+      password: node.password, 
+      tls: { 
+        enabled: true, 
+        server_name: node.sni, 
+        insecure: node.skipCertVerify, 
+        utls: { enabled: true, fingerprint: node.fingerprint } 
+      } 
+    };
+    if (node.alpn) (node.singboxObj.tls as Record<string, unknown>).alpn = node.alpn;
+
+    node.clashObj = {
+      name,
+      type: 'anytls',
+      server: node.server,
+      port: node.port,
+      password: node.password,
+      sni: node.sni,
+      'skip-cert-verify': node.skipCertVerify,
+      'client-fingerprint': node.fingerprint,
+      udp: true
+    };
+    if (node.alpn) node.clashObj.alpn = node.alpn;
+
+    return node;
+  } catch {
+    return null;
+  }
+}
+
+// --- 解析 VMess ---
+function parseVmess(vmessUrl: string): ProxyNode | null {
+  try {
+    const b64 = vmessUrl.replace('vmess://', '');
+    const jsonStr = safeBase64Decode(b64);
+    const config = JSON.parse(jsonStr);
+    const name = config.ps || 'VMess';
+    let rawPath = config.path || '';
+
+    const explicitNet = (config.net || '').toLowerCase();
+    let netType = explicitNet;
+    if (!netType) {
+      netType = rawPath ? 'ws' : 'tcp';
+    }
+
+    if (netType === 'ws' && !rawPath) rawPath = '/';
+    if (rawPath && !rawPath.startsWith('/')) rawPath = '/' + rawPath;
+
+    let earlyDataLength: number | undefined = undefined;
+    const edMatch = rawPath.match(/[?&]ed=([0-9]+)/);
+    if (edMatch && edMatch[1]) {
+      earlyDataLength = parseInt(edMatch[1], 10);
+    }
+    const cleanPath = rawPath ? (rawPath.replace(/[?&]ed=[0-9]+/g, '').replace(/\?$/, '') || '/') : '/';
+
+    const isTls = config.tls === 'tls';
+
+    const node: ProxyNode = {
+      type: 'vmess',
+      name,
+      server: config.add,
+      port: parseInt(config.port, 10) || (isTls ? 443 : 80),
+      uuid: config.id,
+      cipher: 'auto',
+      tls: isTls,
+      sni: config.sni || config.host,
+      network: netType,
+      wsPath: cleanPath,
+      wsHeaders: config.host ? { Host: config.host } : undefined,
+      skipCertVerify: true
+    };
+    
+    const sb: Record<string, unknown> = {
+      tag: name,
+      type: 'vmess',
+      server: node.server,
+      server_port: node.port,
+      uuid: node.uuid,
+      security: 'auto',
+      packet_encoding: 'xudp'
+    };
+
+    if (node.tls) {
+      sb.tls = {
+        enabled: true,
+        server_name: node.sni || node.server,
+        alpn: netType === 'ws' ? ['http/1.1'] : undefined,
+        insecure: true
+      };
+    }
+    if (node.network === 'ws') {
+      const wsTransport: Record<string, unknown> = { type: 'ws', path: cleanPath, headers: node.wsHeaders };
+      if (earlyDataLength) {
+        wsTransport.max_early_data = earlyDataLength;
+        wsTransport.early_data_header_name = 'Sec-WebSocket-Protocol';
+      }
+      sb.transport = wsTransport;
+    }
+    node.singboxObj = sb;
+    
+    const cl: Record<string, unknown> = {
+      name,
+      type: 'vmess',
+      server: node.server,
+      port: node.port,
+      uuid: node.uuid,
+      alterId: parseInt(config.aid, 10) || 0,
+      cipher: config.scy || 'auto',
+      udp: true,
+      tls: node.tls,
+      servername: node.sni || config.host || node.server,
+      network: node.network
+    };
+    if (node.network === 'ws') {
+      cl['ws-opts'] = {
+        path: cleanPath,
+        headers: node.wsHeaders,
+        'max-early-data': earlyDataLength,
+        'early-data-header-name': earlyDataLength ? 'Sec-WebSocket-Protocol' : undefined
+      };
+    }
+    node.clashObj = cl;
+
+    return node;
+  } catch {
+    return null;
+  }
+}
+
+// --- 解析 Trojan ---
+function parseTrojan(urlStr: string): ProxyNode | null {
+  try {
+    const parsed = parseProxyUri(urlStr, 443);
+    if (!parsed) return null;
+
+    const params = parsed.params;
+    const name = parsed.hash || 'Trojan';
+    const isEch = Boolean(params.get('ech'));
+
+    const node: ProxyNode = {
+      type: 'trojan',
+      name,
+      server: parsed.hostname,
+      port: parsed.port,
+      password: parsed.username,
+      tls: true,
+      sni: params.get('sni') || params.get('peer') || parsed.hostname,
+      skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1',
+      ech: isEch
+    };
+
+    const tlsObj: Record<string, unknown> = {
+      enabled: true,
+      server_name: node.sni,
+      insecure: node.skipCertVerify
+    };
+    if (node.ech) {
+      tlsObj.ech = { enabled: true };
+    }
+
+    node.singboxObj = {
+      tag: name,
+      type: 'trojan',
+      server: node.server,
+      server_port: node.port,
+      password: node.password,
+      tls: tlsObj
+    };
+
+    const cl: Record<string, unknown> = {
+      name,
+      type: 'trojan',
+      server: node.server,
+      port: node.port,
+      password: node.password,
+      sni: node.sni,
+      'skip-cert-verify': node.skipCertVerify,
+      udp: true
+    };
+    if (node.ech) {
+      cl['ech-opts'] = { enable: true };
+    }
+    node.clashObj = cl;
+
+    return node;
+  } catch {
+    return null;
+  }
+}
+
+// --- 主解析入口 ---
+export async function parseContent(content: string): Promise<ProxyNode[]> {
+  let plainText = content.replace(/^\uFEFF/, '').trim(); 
+  
+  const protocols = ['ss://', 'vmess://', 'vless://', 'trojan://', 'tuic://', 'hysteria2://', 'hy2://', 'anytls://', 'wireguard://', 'warp://'];
+  const firstLine = plainText.split(/\r?\n/)[0].trim();
+  const isPlainText = protocols.some(p => firstLine.startsWith(p));
+  
+  if (!isPlainText) { 
+    try {
+      let b64 = plainText.replace(/[\s\r\n]+/g, '').replace(/-/g, '+').replace(/_/g, '/');
+      b64 = b64.replace(/=+$/, '');
+      while (b64.length % 4 > 0) b64 += '=';
+      
+      const binaryStr = atob(b64);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      const decoded = new TextDecoder('utf-8').decode(bytes);
+      
+      if (decoded && protocols.some(p => decoded.includes(p))) {
+        plainText = decoded.replace(/^\uFEFF/, '').trim(); 
+      } else {
+        throw new Error("Base64 解碼成功，但內容並非有效的代理節點。");
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Base64 暴力解碼失敗: ${msg}`);
+    }
+  }
+  
+  const lines = plainText.split(/\r?\n/); 
+  const nodes: ProxyNode[] = [];
+  
+  for (const line of lines) { 
+    const l = line.replace(/^[\s\uFEFF\xA0\u200B\u200C\u200D\u200E\u200F]+|[\s\uFEFF\xA0\u200B\u200C\u200D\u200E\u200F]+$/g, ''); 
+    if (!l) continue;
+    
+    if (l.startsWith('ss://')) { const n = parseShadowsocks(l); if (n) nodes.push(n); } 
+    else if (l.startsWith('vless://')) { const n = parseVless(l); if (n) nodes.push(n); } 
+    else if (l.startsWith('hysteria2://') || l.startsWith('hy2://')) { const n = parseHysteria2(l); if (n) nodes.push(n); } 
+    else if (l.startsWith('vmess://')) { const n = parseVmess(l); if (n) nodes.push(n); } 
+    else if (l.startsWith('tuic://')) { const n = parseTuic(l); if (n) nodes.push(n); } 
+    else if (l.startsWith('anytls://')) { const n = parseAnytls(l); if (n) nodes.push(n); } 
+    else if (l.startsWith('trojan://')) { const n = parseTrojan(l); if (n) nodes.push(n); }
+    else if (l.startsWith('wireguard://') || l.startsWith('warp://')) { const n = parseWireGuard(l); if (n) nodes.push(n); }
+  } 
+  
+  if (nodes.length === 0) {
+    throw new Error("資料獲取成功，但未能成功配對到任何支援的節點格式。");
+  }
+  
+  return nodes;
+}
+````
+
+## File: src/generator.ts
+````ts
+// src/generator.ts
+// @ts-ignore
+import packageJson from '../package.json';
+import yaml from 'js-yaml';
+import { Env, ProxyNode } from './types';
+import { REMOTE_CONFIG, FALLBACK_SINGBOX_RULES, FALLBACK_CLASH_RULES } from './constants';
+import { utf8ToBase64 } from './utils';
+
+const version = packageJson.version || '3.5.0';
+
+// --- 明文 URI 格式導出 ---
+export function toRawLinks(nodes: ProxyNode[]): string {
+  const links = nodes.map(node => {
+    try {
+      if (node.type === 'vless') {
+        const params = new URLSearchParams();
+        params.set('security', node.reality ? 'reality' : (node.tls ? 'tls' : 'none'));
+        params.set('type', node.network || 'tcp');
+        if (node.flow) params.set('flow', node.flow);
+        if (node.sni) params.set('sni', node.sni);
+        if (node.fingerprint) params.set('fp', node.fingerprint);
+        if (node.ech) params.set('ech', 'https://cloudflare-dns.com/dns-query');
+        if (node.reality) { params.set('pbk', node.reality.publicKey); params.set('sid', node.reality.shortId); }
+        if (node.network === 'ws') { if (node.wsPath) params.set('path', node.wsPath); if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host); }
+        if (node.network === 'xhttp' || node.network === 'splithttp') {
+          if (node.xhttpPath) params.set('path', node.xhttpPath);
+          if (node.xhttpHost) params.set('host', node.xhttpHost);
+          if (node.xhttpMode) params.set('mode', node.xhttpMode);
+        }
+        return `vless://${node.uuid}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+      }
+      if (node.type === 'hysteria2') {
+        const params = new URLSearchParams();
+        if (node.sni) params.set('sni', node.sni);
+        if (node.obfs) { params.set('obfs', node.obfs); if (node.obfsPassword) params.set('obfs-password', node.obfsPassword); }
+        if (node.skipCertVerify) params.set('insecure', '1');
+        return `hysteria2://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+      }
+      if (node.type === 'vmess') {
+        const vmessObj = {
+          v: "2", ps: node.name, add: node.server, port: node.port, id: node.uuid,
+          aid: (node.clashObj as Record<string, unknown>)?.alterId || 0, scy: "auto", net: node.network, type: "none",
+          host: node.wsHeaders?.Host || "", path: node.wsPath || "",
+          tls: node.tls ? "tls" : "", sni: node.sni || ""
+        };
+        return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
+      }
+      if (node.type === 'shadowsocks') {
+        const method = encodeURIComponent(node.cipher || '');
+        const pass = encodeURIComponent(node.password || '');
+        const params = new URLSearchParams();
+        if (node.tls) {
+          params.set('security', 'tls');
+          if (node.sni) params.set('sni', node.sni);
+          if (node.alpn) params.set('alpn', node.alpn.join(','));
+          if (node.fingerprint) params.set('fp', node.fingerprint);
+          if (node.ech) params.set('ech', '1');
+          params.set('type', node.network || 'tcp');
+        }
+        const clashPlugin = (node.clashObj as Record<string, unknown>)?.plugin as string | undefined;
+        if (clashPlugin && !node.tls) {
+          const pluginOpts = (node.clashObj as Record<string, unknown>)?.['plugin-opts'] as Record<string, string> | undefined;
+          const optStr = pluginOpts ? ';' + new URLSearchParams(pluginOpts).toString().replace(/&/g, ';') : '';
+          params.set('plugin', clashPlugin + optStr);
+        }
+        const query = params.toString();
+        return `ss://${method}:${pass}@${node.server}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
+      }
+      if (node.type === 'tuic') {
+        const params = new URLSearchParams();
+        if (node.sni) params.set('sni', node.sni);
+        if (node.congestion_control) params.set('congestion_control', node.congestion_control);
+        if (node.udp_relay_mode) params.set('udp_relay_mode', node.udp_relay_mode);
+        if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
+        if (node.skipCertVerify) params.set('allow_insecure', '1');
+        return `tuic://${node.uuid || ''}:${node.password || ''}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+      }
+      if (node.type === 'anytls') {
+        const params = new URLSearchParams();
+        params.set('security', 'tls');
+        if (node.sni) params.set('sni', node.sni);
+        params.set('insecure', node.skipCertVerify ? '1' : '0');
+        if (node.fingerprint) params.set('fp', node.fingerprint);
+        if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
+        params.set('type', 'tcp'); 
+        return `anytls://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+      }
+      if (node.type === 'trojan') {
+        const params = new URLSearchParams();
+        if (node.sni) params.set('sni', node.sni);
+        if (node.skipCertVerify) params.set('allowInsecure', '1');
+        if (node.ech) params.set('ech', '1');
+        return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+      }
+      if (node.type === 'wireguard' && node.wireguard) {
+        const wg = node.wireguard;
+        const params = new URLSearchParams();
+        params.set('ip', wg.localAddress.join(','));
+        if (wg.publicKey) params.set('public_key', wg.publicKey);
+        if (wg.presharedKey) params.set('psk', wg.presharedKey);
+        if (wg.reserved) params.set('reserved', wg.reserved.join(','));
+        if (wg.mtu) params.set('mtu', String(wg.mtu));
+        return `wireguard://${encodeURIComponent(wg.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }).filter((l): l is string => Boolean(l));
+
+  return links.join('\n');
+}
+
+// 導出 Base64 訂閱
+export function toBase64(nodes: ProxyNode[]): string {
+  const rawLinks = toRawLinks(nodes);
+  return utf8ToBase64(rawLinks);
+}
+
+// --- 動態 SWR 模板拉取機制 ---
+async function fetchTemplateWithSWR(
+  url: string,
+  cacheType: 'singbox' | 'clash',
+  fallbackJsonStr: string,
+  env?: Env,
+  forceRefresh = false
+): Promise<string> {
+  const dynamicKey = `tpl:${cacheType}:${version}`;
+
+  if (!forceRefresh && env?.SUB_CACHE) {
+    try {
+      const cached = await env.SUB_CACHE.get(dynamicKey);
+      if (cached) {
+        fetch(`${url}?t=${Date.now()}`, {
+          headers: { 'User-Agent': 'v2rayNG/1.8.5' }
+        }).then(async res => {
+          if (res.ok) {
+            const freshText = await res.text();
+            await env.SUB_CACHE.put(dynamicKey, freshText, { expirationTtl: 600 });
+          }
+        }).catch(() => {});
+        return cached;
+      }
+    } catch {}
+  }
+
+  try {
+    const resp = await fetch(`${url}?t=${Date.now()}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+    });
+    if (resp.ok) {
+      const text = await resp.text();
+      if (env?.SUB_CACHE) {
+        await env.SUB_CACHE.put(dynamicKey, text, { expirationTtl: 600 });
+      }
+      return text;
+    }
+  } catch {}
+
+  return fallbackJsonStr;
+}
+
+// --- Sing-Box 配置生成 (含自動語法淨化與規範修正) ---
+export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
+  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox', FALLBACK_SINGBOX_RULES, env, forceRefresh);
+  const config = JSON.parse(text);
+  
+  // 💥 1. 自動補全 Sing-Box 1.14+ 規範之 http_clients (移除 detour: direct 以杜絕 empty direct outbound 錯誤)
+  if (!config.http_clients || !Array.isArray(config.http_clients) || config.http_clients.length === 0) {
+    config.http_clients = [{ tag: 'default' }];
+  } else {
+    config.http_clients.forEach((hc: Record<string, unknown>) => {
+      if (hc.detour === 'direct' || hc.detour === 'DIRECT') {
+        delete hc.detour;
+      }
+    });
+  }
+
+  // 💥 2. 自動淨化 DNS 規範
+  if (config.dns) {
+    config.dns.final = 'local-dns';
+    if (Array.isArray(config.dns.servers)) {
+      config.dns.servers = config.dns.servers.filter((s: Record<string, unknown>) => s.type !== 'rcode');
+      config.dns.servers.forEach((s: Record<string, unknown>) => {
+        if (s.detour === 'direct') delete s.detour;
+      });
+    }
+    if (Array.isArray(config.dns.rules)) {
+      config.dns.rules = config.dns.rules.filter((r: Record<string, unknown>) => !('outbound' in r));
+    }
+  }
+
+  // 💥 3. 自動補充 route.default_domain_resolver 與 default_http_client
+  if (!config.route) config.route = {};
+  config.route.default_domain_resolver = 'local-dns';
+  config.route.default_http_client = 'default';
+  
+  if (Array.isArray(config.route.rule_set)) {
+    config.route.rule_set.forEach((rs: Record<string, unknown>) => {
+      delete rs.download_detour;
+    });
+  }
+
+  // 💥 4. 自動清理 inbounds
+  if (Array.isArray(config.inbounds)) {
+    config.inbounds.forEach((ib: Record<string, unknown>) => {
+      delete ib.sniff;
+      delete ib.sniff_override_destination;
+    });
+  }
+
+  // 💥 5. 確保出站節點的 WebSocket ALPN 正確保留
+  const outbounds = nodes.map(n => {
+    const obj = JSON.parse(JSON.stringify(n.singboxObj));
+    if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {
+      obj.tls.alpn = ['http/1.1'];
+    }
+    return obj;
+  });
+
+  const nodeTags = outbounds.map((o: Record<string, unknown>) => o.tag as string);
+  
+  if (!Array.isArray(config.outbounds)) config.outbounds = [];
+
+  const lowRateTags = nodes.filter(n => n.multiplier !== undefined && n.multiplier < 1.0).map(n => n.name);
+  const iplcTags = nodes.filter(n => n.isIplc).map(n => n.name);
+
+  if (lowRateTags.length > 0) {
+    config.outbounds.unshift({
+      type: 'selector',
+      tag: '🏎️ 低倍率節點',
+      outbounds: lowRateTags
+    });
+  }
+
+  if (iplcTags.length > 0) {
+    config.outbounds.unshift({
+      type: 'selector',
+      tag: '⚡ 專線加速',
+      outbounds: iplcTags
+    });
+  }
+
+  config.outbounds.push(...outbounds);
+
+  config.outbounds.forEach((out: Record<string, unknown>) => {
+    if (out.type === 'selector' || out.type === 'urltest') {
+      if (!Array.isArray(out.outbounds)) out.outbounds = [];
+      const arr = out.outbounds as string[];
+      nodeTags.forEach(tag => {
+        if (!arr.includes(tag)) arr.push(tag);
+      });
+    }
+  });
+
+  return JSON.stringify(config, null, 2);
+}
+
+// --- Clash Meta 配置生成 ---
+export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
+  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.clash, 'clash', FALLBACK_CLASH_RULES, env, forceRefresh);
+  const config = yaml.load(text) as Record<string, unknown>;
+  
+  const proxies = nodes.map(n => {
+    const obj = JSON.parse(JSON.stringify(n.clashObj));
+    Object.keys(obj).forEach(key => obj[key] === undefined && delete obj[key]);
+    return obj;
+  });
+  const proxyNames = proxies.map((p: Record<string, unknown>) => p.name as string);
+
+  if (!Array.isArray(config.proxies)) config.proxies = [];
+  config.proxies.push(...proxies);
+
+  const lowRateNames = nodes.filter(n => n.multiplier !== undefined && n.multiplier < 1.0).map(n => n.name);
+  const iplcNames = nodes.filter(n => n.isIplc).map(n => n.name);
+
+  if (Array.isArray(config['proxy-groups'])) {
+    const groups = config['proxy-groups'] as Array<Record<string, unknown>>;
+
+    if (lowRateNames.length > 0) {
+      groups.unshift({
+        name: '🏎️ 低倍率節點',
+        type: 'select',
+        proxies: lowRateNames
+      });
+    }
+
+    if (iplcNames.length > 0) {
+      groups.unshift({
+        name: '⚡ 專線加速',
+        type: 'select',
+        proxies: iplcNames
+      });
+    }
+
+    groups.forEach(group => {
+      if (!Array.isArray(group.proxies)) group.proxies = [];
+      const arr = group.proxies as string[];
+      proxyNames.forEach(name => {
+        if (!arr.includes(name)) arr.push(name);
+      });
+    });
+  }
+
+  return yaml.dump(config, { indent: 2, noRefs: true });
+}
+
+// --- Surge 5 配置生成 ---
+export function toSurge(nodes: ProxyNode[]): string {
+  const lines: string[] = ['[Proxy]'];
+  const nodeNames: string[] = [];
+
+  for (const node of nodes) {
+    let line = '';
+    const name = node.name.replace(/,/g, '');
+    if (node.type === 'shadowsocks') {
+      line = `${name} = ss, ${node.server}, ${node.port}, encrypt-method=${node.cipher}, password=${node.password}, udp-relay=true`;
+      if (node.sni) line += `, sni=${node.sni}`;
+    } else if (node.type === 'trojan') {
+      line = `${name} = trojan, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
+    } else if (node.type === 'vless') {
+      line = `${name} = vless, ${node.server}, ${node.port}, username=${node.uuid}, tls=${node.tls ? 'true' : 'false'}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
+      if (node.network === 'ws') line += `, ws=true, ws-path=${node.wsPath || '/'}`;
+    } else if (node.type === 'hysteria2') {
+      line = `${name} = hysteria2, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
+    }
+
+    if (line) {
+      lines.push(line);
+      nodeNames.push(name);
+    }
+  }
+
+  lines.push('\n[Proxy Group]');
+  lines.push(`🚀 節點選擇 = select, ⚡ 自動選擇, DIRECT, ${nodeNames.join(', ')}`);
+  lines.push(`⚡ 自動選擇 = url-test, ${nodeNames.join(', ')}, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50`);
+  lines.push(`🐟 漏網之魚 = select, 🚀 節點選擇, DIRECT`);
+
+  lines.push('\n[Rule]');
+  lines.push('GEOIP,CN,DIRECT');
+  lines.push('FINAL,🐟 漏網之魚');
+
+  return lines.join('\n');
+}
+
+// --- Quantumult X (server_remote) ---
+export function toQuantumultX(nodes: ProxyNode[]): string {
+  const lines: string[] = [];
+
+  for (const node of nodes) {
+    if (node.type === 'shadowsocks') {
+      lines.push(`shadowsocks=${node.server}:${node.port}, method=${node.cipher}, password=${node.password}, fast-open=false, udp-relay=true, tag=${node.name}`);
+    } else if (node.type === 'trojan') {
+      lines.push(`trojan=${node.server}:${node.port}, password=${node.password}, over-tls=true, tls-host=${node.sni || node.server}, fast-open=false, udp-relay=true, tag=${node.name}`);
+    } else if (node.type === 'vmess') {
+      let vmessLine = `vmess=${node.server}:${node.port}, method=none, password=${node.uuid}, fast-open=false, udp-relay=true, tag=${node.name}`;
+      if (node.tls) vmessLine += `, over-tls=true, tls-host=${node.sni || node.server}`;
+      if (node.network === 'ws') vmessLine += `, obfs=ws, obfs-uri=${node.wsPath || '/'}`;
+      lines.push(vmessLine);
+    } else if (node.type === 'hysteria2') {
+      lines.push(`hysteria2=${node.server}:${node.port}, password=${node.password}, tls-host=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, tag=${node.name}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// --- Loon 格式生成 ---
+export function toLoon(nodes: ProxyNode[]): string {
+  const lines: string[] = ['[Proxy]'];
+
+  for (const node of nodes) {
+    const name = node.name.replace(/,/g, '');
+    if (node.type === 'shadowsocks') {
+      lines.push(`${name} = Shadowsocks,${node.server},${node.port},${node.cipher},"${node.password}",fast-open=false,udp=true`);
+    } else if (node.type === 'trojan') {
+      lines.push(`${name} = Trojan,${node.server},${node.port},"${node.password}",sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`);
+    } else if (node.type === 'vless') {
+      let l = `${name} = Vless,${node.server},${node.port},"${node.uuid}",tls=${node.tls ? 'true' : 'false'},sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`;
+      if (node.network === 'ws') l += `,transport=ws,path=${node.wsPath || '/'}`;
+      lines.push(l);
+    } else if (node.type === 'vmess') {
+      let v = `${name} = vmess,${node.server},${node.port},auto,"${node.uuid}",fast-open=false,udp=true`;
+      if (node.tls) v += `,over-tls=true,tls-name=${node.sni || node.server}`;
+      if (node.network === 'ws') v += `,transport=ws,path=${node.wsPath || '/'}`;
+      lines.push(v);
+    } else if (node.type === 'hysteria2') {
+      lines.push(`${name} = Hysteria2,${node.server},${node.port},password=${node.password},sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`);
+    }
+  }
+
+  return lines.join('\n');
+}
 ````
 
 ## File: src/constants.ts
@@ -2139,840 +3788,6 @@ export const HTML_PAGE = `
 
 ````
 
-## File: src/parser.ts
-````ts
-// src/parser.ts
-import { ProxyNode, WireGuardConfig } from "./types";
-import { safeBase64Decode, tryDecodeURIComponent } from "./utils";
-
-// --- 安全的通用代理 URI 正則解析器 ---
-interface ParsedUri {
-  protocol: string;
-  username: string;
-  password?: string;
-  hostname: string;
-  port: number;
-  params: URLSearchParams;
-  hash: string;
-}
-
-function parseProxyUri(urlStr: string, defaultPort = 443): ParsedUri | null {
-  try {
-    const trimmed = urlStr.trim();
-    const match = trimmed.match(/^([a-zA-Z0-9_-]+):\/\/(?:([^:@/?#]+)(?::([^@/?#]*))?@)?(\[[a-fA-F0-9:]+\]|[^:/?#]+)(?::([0-9]+))?(?:\?([^#]*))?(?:#(.*))?$/);
-    if (!match) return null;
-
-    const protocol = match[1].toLowerCase();
-    const username = match[2] ? decodeURIComponent(match[2]) : '';
-    const password = match[3] ? decodeURIComponent(match[3]) : undefined;
-    let hostname = match[4];
-    if (hostname.startsWith('[') && hostname.endsWith(']')) {
-      hostname = hostname.slice(1, -1);
-    }
-    const port = match[5] ? parseInt(match[5], 10) : defaultPort;
-    const query = match[6] || '';
-    const hash = match[7] ? tryDecodeURIComponent(match[7]) : '';
-
-    const params = new URLSearchParams(query);
-    return { protocol, username, password, hostname, port, params, hash };
-  } catch {
-    return null;
-  }
-}
-
-function parsePluginParams(str: string): Record<string, string> {
-  const params: Record<string, string> = {};
-  str.split(';').forEach(p => {
-    const [k, v] = p.split('=');
-    if (k && v) params[k] = v;
-  });
-  return params;
-}
-
-function isIpAddress(host: string): boolean {
-  return /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(host) || /^[a-fA-F0-9:]+$/.test(host);
-}
-
-// --- 解析 Shadowsocks ---
-function parseShadowsocks(urlStr: string): ProxyNode | null {
-  try {
-    const getParam = (str: string, key: string): string => {
-      const regex = new RegExp(`[?&]${key}=([^&#]*)`, 'i');
-      const match = str.match(regex);
-      return match ? tryDecodeURIComponent(match[1]) : '';
-    };
-
-    let raw = urlStr.replace('ss://', '');
-    const hashIndex = raw.indexOf('#');
-    let name = 'Shadowsocks';
-    if (hashIndex !== -1) {
-      name = tryDecodeURIComponent(raw.substring(hashIndex + 1));
-      raw = raw.substring(0, hashIndex);
-    }
-    if (raw.includes('?')) { raw = raw.split('?')[0]; }
-
-    let method = '';
-    let password = '';
-    let server = '';
-    let portStr = '';
-    
-    if (raw.includes('@')) {
-      const parts = raw.split('@');
-      const serverPart = parts[parts.length - 1];
-      const userPart = parts.slice(0, parts.length - 1).join('@');
-      const lastColonIndex = serverPart.lastIndexOf(':');
-      if (lastColonIndex === -1) return null;
-      server = serverPart.substring(0, lastColonIndex);
-      portStr = serverPart.substring(lastColonIndex + 1);
-      if (server.startsWith('[') && server.endsWith(']')) server = server.slice(1, -1);
-      try {
-        const decoded = safeBase64Decode(userPart);
-        if (decoded && decoded.includes(':')) { 
-          const up = decoded.split(':');
-          method = up[0];
-          password = up.slice(1).join(':');
-        } else {
-          const up = userPart.split(':');
-          method = up[0];
-          password = up.slice(1).join(':');
-        }
-      } catch {
-        const up = userPart.split(':');
-        method = up[0];
-        password = up.slice(1).join(':');
-      }
-    } else {
-      const decoded = safeBase64Decode(raw);
-      if (!decoded) return null;
-      const atIndex = decoded.lastIndexOf('@');
-      if (atIndex === -1) return null;
-      const userPart = decoded.substring(0, atIndex);
-      const serverPart = decoded.substring(atIndex + 1);
-      const lastColonIndex = serverPart.lastIndexOf(':');
-      if (lastColonIndex === -1) return null;
-      server = serverPart.substring(0, lastColonIndex);
-      portStr = serverPart.substring(lastColonIndex + 1);
-      if (server.startsWith('[') && server.endsWith(']')) server = server.slice(1, -1);
-      const firstColonIndex = userPart.indexOf(':');
-      if (firstColonIndex === -1) return null;
-      method = userPart.substring(0, firstColonIndex);
-      password = userPart.substring(firstColonIndex + 1);
-    }
-
-    if (!server || !portStr || !method || !password) return null;
-    const port = parseInt(portStr, 10);
-    if (isNaN(port)) return null;
-
-    const pluginStr = getParam(urlStr, 'plugin');
-    const security = getParam(urlStr, 'security');
-    const sni = getParam(urlStr, 'sni') || getParam(urlStr, 'host') || server;
-    const alpnStr = getParam(urlStr, 'alpn');
-    const fp = getParam(urlStr, 'fp') || 'chrome';
-    const isEch = Boolean(getParam(urlStr, 'ech'));
-
-    const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0) || isEch;
-    const alpn = alpnStr ? alpnStr.split(',') : undefined;
-    const isSs2022 = method.toLowerCase().includes('2022');
-
-    const node: ProxyNode = {
-      type: 'shadowsocks', name, server, port, cipher: method, password, udp: true,
-      tls: isTls, sni, alpn, fingerprint: fp, ech: isEch
-    };
-
-    const sb: Record<string, unknown> = {
-      tag: name,
-      type: 'shadowsocks',
-      server: node.server,
-      server_port: node.port,
-      method: node.cipher,
-      password: node.password
-    };
-    if (isSs2022) {
-      sb.udp_over_tcp = true;
-    }
-    node.singboxObj = sb;
-
-    const cl: Record<string, unknown> = {
-      name,
-      type: 'ss',
-      server: node.server,
-      port: node.port,
-      cipher: node.cipher,
-      password: node.password,
-      udp: true,
-      plugin: pluginStr ? pluginStr.split(';')[0] : undefined,
-      'plugin-opts': pluginStr ? parsePluginParams(pluginStr.split(';').slice(1).join(';')) : undefined
-    };
-    if (isTls) {
-      cl.smux = { enabled: true };
-    }
-    if (isEch) {
-      cl['ech-opts'] = { enable: true };
-    }
-    node.clashObj = cl;
-
-    return node;
-  } catch {
-    return null;
-  }
-}
-
-// --- 解析 VLESS (修復純 IP 搭配 ECH 在 Sing-Box 的解析死鎖) ---
-function parseVless(urlStr: string): ProxyNode | null {
-  try {
-    const parsed = parseProxyUri(urlStr, 443);
-    if (!parsed) return null;
-
-    const params = parsed.params;
-    const name = parsed.hash || 'VLESS';
-    
-    let rawPath = params.get('path') || '';
-    
-    const explicitNet = (params.get('type') || params.get('net') || params.get('network') || params.get('transport') || '').toLowerCase();
-    let netType = explicitNet;
-    if (!netType) {
-      if (rawPath || params.has('ed') || params.has('host')) {
-        netType = 'ws';
-      } else {
-        netType = 'tcp';
-      }
-    }
-
-    if (netType === 'ws' && !rawPath) {
-      rawPath = '/';
-    }
-    if (rawPath && !rawPath.startsWith('/')) {
-      rawPath = '/' + rawPath;
-    }
-
-    let earlyDataLength: number | undefined = undefined;
-    const edMatch = rawPath.match(/[?&]ed=([0-9]+)/) || (params.get('ed') ? [null, params.get('ed')] : null);
-    if (edMatch && edMatch[1]) {
-      earlyDataLength = parseInt(edMatch[1], 10);
-    }
-
-    const cleanPath = rawPath ? (rawPath.replace(/[?&]ed=[0-9]+/g, '').replace(/\?$/, '') || '/') : '/';
-
-    const isXhttp = netType === 'xhttp' || netType === 'splithttp';
-    const isGrpc = netType === 'grpc';
-    const isEch = Boolean(params.get('ech'));
-
-    const security = params.get('security') || (params.get('tls') === '1' || params.get('tls') === 'tls' || isEch ? 'tls' : (parsed.port === 443 ? 'tls' : 'none'));
-    const isTls = security === 'tls' || security === 'reality' || isEch;
-    const hostHeader = params.get('host') || params.get('sni') || parsed.hostname;
-    const sniHost = params.get('sni') || params.get('host') || parsed.hostname;
-
-    const customAlpn = params.get('alpn') ? params.get('alpn')!.split(',') : (netType === 'ws' ? ['http/1.1'] : undefined);
-
-    // 💥 核心智慧修復：在 Sing-Box 中，若啟用了 ECH 且 server 是純 IP，Sing-Box 無法從 IP 查詢 ECH 記錄。
-    // 將 Sing-Box 連線目標的 server 指向 SNI 網域名稱（如 tt.swim.qzz.io），從而解鎖 ECH 查詢！
-    const singboxServer = (isEch && isIpAddress(parsed.hostname) && sniHost) ? sniHost : parsed.hostname;
-
-    const node: ProxyNode = {
-      type: 'vless',
-      name,
-      server: parsed.hostname,
-      port: parsed.port,
-      uuid: parsed.username,
-      tls: isTls,
-      flow: params.get('flow') || undefined,
-      network: netType,
-      sni: sniHost,
-      alpn: customAlpn,
-      fingerprint: params.get('fp') || 'chrome',
-      skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1',
-      ech: isEch
-    };
-
-    if (security === 'reality') {
-      node.reality = {
-        publicKey: params.get('pbk') || '',
-        shortId: params.get('sid') || ''
-      };
-      if (!node.sni) node.sni = node.server;
-    }
-
-    if (node.network === 'ws') {
-      node.wsPath = cleanPath;
-      node.wsHeaders = { Host: hostHeader };
-    }
-
-    if (isXhttp) {
-      node.xhttpPath = cleanPath;
-      node.xhttpHost = hostHeader;
-      node.xhttpMode = params.get('mode') || 'auto';
-    }
-    
-    // Sing-Box Outbound 構建
-    const sb: Record<string, unknown> = {
-      tag: name,
-      type: 'vless',
-      server: singboxServer,
-      server_port: node.port,
-      uuid: node.uuid,
-      packet_encoding: 'xudp'
-    };
-
-    if (node.tls) {
-      const tlsObj: Record<string, unknown> = {
-        enabled: true,
-        server_name: node.sni || node.server,
-        alpn: node.alpn || (node.network === 'ws' ? ['http/1.1'] : undefined),
-        insecure: node.skipCertVerify,
-        utls: { enabled: true, fingerprint: node.fingerprint }
-      };
-
-      if (node.ech) {
-        tlsObj.ech = { enabled: true };
-      }
-
-      if (node.reality) {
-        tlsObj.reality = {
-          enabled: true,
-          public_key: node.reality.publicKey,
-          short_id: node.reality.shortId
-        };
-      }
-      sb.tls = tlsObj;
-    }
-
-    if (node.flow) sb.flow = node.flow;
-
-    if (node.network === 'ws') {
-      const wsTransport: Record<string, unknown> = {
-        type: 'ws',
-        path: cleanPath,
-        headers: node.wsHeaders
-      };
-      if (earlyDataLength) {
-        wsTransport.max_early_data = earlyDataLength;
-        wsTransport.early_data_header_name = 'Sec-WebSocket-Protocol';
-      }
-      sb.transport = wsTransport;
-    } else if (isXhttp) {
-      sb.transport = {
-        type: 'splithttp',
-        path: cleanPath,
-        headers: { Host: node.xhttpHost },
-        mode: node.xhttpMode
-      };
-    } else if (isGrpc) {
-      sb.transport = {
-        type: 'grpc',
-        service_name: params.get('serviceName') || ''
-      };
-    }
-    node.singboxObj = sb;
-    
-    // Clash Meta Outbound 構建
-    const cl: Record<string, unknown> = {
-      name,
-      type: 'vless',
-      server: node.server,
-      port: node.port,
-      uuid: node.uuid,
-      udp: true,
-      tls: node.tls,
-      servername: node.sni || node.server,
-      alpn: node.alpn,
-      'skip-cert-verify': node.skipCertVerify,
-      'client-fingerprint': node.fingerprint
-    };
-    if (node.ech) {
-      cl['ech-opts'] = { enable: true };
-    }
-    if (node.flow) cl.flow = node.flow; 
-    if (node.reality) {
-      cl.reality = true;
-      cl['reality-opts'] = { 'public-key': node.reality.publicKey, 'short-id': node.reality.shortId };
-    }
-    if (node.network === 'ws') {
-      cl.network = 'ws';
-      cl['ws-opts'] = {
-        path: cleanPath,
-        headers: node.wsHeaders,
-        'max-early-data': earlyDataLength,
-        'early-data-header-name': earlyDataLength ? 'Sec-WebSocket-Protocol' : undefined
-      };
-    } else if (isXhttp) {
-      cl.network = 'xhttp';
-      cl['xhttp-opts'] = { path: cleanPath, host: node.xhttpHost, mode: node.xhttpMode };
-    } else if (isGrpc) {
-      cl.network = 'grpc';
-      cl['grpc-opts'] = { 'grpc-service-name': params.get('serviceName') || '' };
-    }
-    node.clashObj = cl;
-
-    return node;
-  } catch {
-    return null;
-  }
-}
-
-// --- 解析 WireGuard / WARP ---
-function parseWireGuard(urlStr: string): ProxyNode | null {
-  try {
-    const parsed = parseProxyUri(urlStr, 2408);
-    if (!parsed) return null;
-
-    const params = parsed.params;
-    const name = parsed.hash || 'WireGuard';
-
-    const privateKey = parsed.username;
-    const localIps = (params.get('ip') || params.get('address') || '172.16.0.2/32,fd00::2/128').split(',');
-    const publicKey = params.get('public_key') || params.get('pk') || '';
-    const presharedKey = params.get('preshared_key') || params.get('psk') || undefined;
-    const mtu = parseInt(params.get('mtu') || '1420', 10);
-    const reserved = params.get('reserved') ? params.get('reserved')!.split(',').map(n => parseInt(n.trim(), 10)) : undefined;
-
-    const wgConfig: WireGuardConfig = {
-      privateKey,
-      localAddress: localIps,
-      publicKey,
-      presharedKey,
-      mtu,
-      reserved
-    };
-
-    const node: ProxyNode = {
-      type: 'wireguard',
-      name,
-      server: parsed.hostname,
-      port: parsed.port,
-      udp: true,
-      wireguard: wgConfig
-    };
-
-    node.singboxObj = {
-      tag: name,
-      type: 'wireguard',
-      server: node.server,
-      server_port: node.port,
-      system_interface: false,
-      interface_name: 'wg0',
-      local_address: localIps,
-      private_key: privateKey,
-      peer_public_key: publicKey,
-      pre_shared_key: presharedKey,
-      reserved,
-      mtu
-    };
-
-    node.clashObj = {
-      name,
-      type: 'wireguard',
-      server: node.server,
-      port: node.port,
-      ip: localIps[0]?.split('/')[0],
-      ipv6: localIps[1]?.split('/')[0],
-      'public-key': publicKey,
-      'private-key': privateKey,
-      'preshared-key': presharedKey,
-      reserved,
-      mtu,
-      udp: true
-    };
-
-    return node;
-  } catch {
-    return null;
-  }
-}
-
-// --- 解析 Hysteria2 ---
-function parseHysteria2(urlStr: string): ProxyNode | null {
-  try {
-    const parsed = parseProxyUri(urlStr, 443);
-    if (!parsed) return null;
-
-    const params = parsed.params;
-    const name = parsed.hash || 'Hy2';
-    
-    const node: ProxyNode = {
-      type: 'hysteria2',
-      name,
-      server: parsed.hostname,
-      port: parsed.port,
-      password: parsed.username,
-      tls: true,
-      sni: params.get('sni') || parsed.hostname,
-      skipCertVerify: params.get('insecure') === '1' || params.get('allowInsecure') === '1',
-      obfs: params.get('obfs') || undefined,
-      obfsPassword: params.get('obfs-password') || undefined
-    };
-
-    const sb: Record<string, unknown> = {
-      tag: name,
-      type: 'hysteria2',
-      server: node.server,
-      server_port: node.port,
-      password: node.password,
-      tls: { enabled: true, server_name: node.sni, insecure: node.skipCertVerify }
-    };
-    if (node.obfs) {
-      sb.obfs = { type: node.obfs, password: node.obfsPassword };
-    }
-    node.singboxObj = sb;
-
-    const cl: Record<string, unknown> = {
-      name,
-      type: 'hysteria2',
-      server: node.server,
-      port: node.port,
-      password: node.password,
-      sni: node.sni,
-      'skip-cert-verify': node.skipCertVerify
-    };
-    if (node.obfs) {
-      cl.obfs = node.obfs;
-      cl['obfs-password'] = node.obfsPassword;
-    }
-    node.clashObj = cl;
-
-    return node;
-  } catch {
-    return null;
-  }
-}
-
-// --- 解析 TUIC ---
-function parseTuic(urlStr: string): ProxyNode | null {
-  try {
-    const parsed = parseProxyUri(urlStr, 443);
-    if (!parsed) return null;
-
-    const params = parsed.params;
-    const name = parsed.hash || 'TUIC';
-
-    const congestion_control = params.get('congestion_control') || 'bbr';
-    const udp_relay_mode = params.get('udp_relay_mode') || 'native';
-    const alpnStr = params.get('alpn');
-    const skipCertVerify = params.get('allow_insecure') === '1' || params.get('insecure') === '1';
-
-    const node: ProxyNode = {
-      type: 'tuic',
-      name,
-      server: parsed.hostname,
-      port: parsed.port,
-      uuid: parsed.username,
-      password: parsed.password || '',
-      tls: true,
-      sni: params.get('sni') || parsed.hostname,
-      alpn: alpnStr ? alpnStr.split(',') : ['h3'],
-      skipCertVerify,
-      congestion_control,
-      udp_relay_mode
-    };
-
-    node.singboxObj = {
-      tag: name,
-      type: 'tuic',
-      server: node.server,
-      server_port: node.port,
-      uuid: node.uuid,
-      password: node.password,
-      congestion_control: node.congestion_control,
-      udp_relay_mode: node.udp_relay_mode,
-      tls: { enabled: true, server_name: node.sni, alpn: node.alpn, insecure: node.skipCertVerify }
-    };
-
-    node.clashObj = {
-      name,
-      type: 'tuic',
-      server: node.server,
-      port: node.port,
-      uuid: node.uuid,
-      password: node.password,
-      sni: node.sni,
-      alpn: node.alpn,
-      'skip-cert-verify': node.skipCertVerify,
-      'congestion-controller': node.congestion_control,
-      'udp-relay-mode': node.udp_relay_mode
-    };
-
-    return node;
-  } catch {
-    return null;
-  }
-}
-
-// --- 解析 AnyTLS ---
-function parseAnytls(urlStr: string): ProxyNode | null {
-  try {
-    const parsed = parseProxyUri(urlStr, 443);
-    if (!parsed) return null;
-
-    const params = parsed.params;
-    const name = parsed.hash || 'AnyTLS';
-    const uuid = parsed.username;
-    const skipCertVerify = params.get('allowInsecure') === '1' || params.get('insecure') === '1';
-    const alpnStr = params.get('alpn');
-
-    const node: ProxyNode = {
-      type: 'anytls',
-      name,
-      server: parsed.hostname,
-      port: parsed.port,
-      uuid,
-      password: uuid,
-      tls: true,
-      sni: params.get('sni') || parsed.hostname,
-      fingerprint: params.get('fp') || 'chrome',
-      skipCertVerify,
-      alpn: alpnStr ? alpnStr.split(',') : undefined
-    };
-
-    node.singboxObj = { 
-      tag: name, 
-      type: 'anytls', 
-      server: node.server, 
-      server_port: node.port, 
-      password: node.password, 
-      tls: { 
-        enabled: true, 
-        server_name: node.sni, 
-        insecure: node.skipCertVerify, 
-        utls: { enabled: true, fingerprint: node.fingerprint } 
-      } 
-    };
-    if (node.alpn) (node.singboxObj.tls as Record<string, unknown>).alpn = node.alpn;
-
-    node.clashObj = {
-      name,
-      type: 'anytls',
-      server: node.server,
-      port: node.port,
-      password: node.password,
-      sni: node.sni,
-      'skip-cert-verify': node.skipCertVerify,
-      'client-fingerprint': node.fingerprint,
-      udp: true
-    };
-    if (node.alpn) node.clashObj.alpn = node.alpn;
-
-    return node;
-  } catch {
-    return null;
-  }
-}
-
-// --- 解析 VMess ---
-function parseVmess(vmessUrl: string): ProxyNode | null {
-  try {
-    const b64 = vmessUrl.replace('vmess://', '');
-    const jsonStr = safeBase64Decode(b64);
-    const config = JSON.parse(jsonStr);
-    const name = config.ps || 'VMess';
-    let rawPath = config.path || '';
-
-    const explicitNet = (config.net || '').toLowerCase();
-    let netType = explicitNet;
-    if (!netType) {
-      netType = rawPath ? 'ws' : 'tcp';
-    }
-
-    if (netType === 'ws' && !rawPath) rawPath = '/';
-    if (rawPath && !rawPath.startsWith('/')) rawPath = '/' + rawPath;
-
-    let earlyDataLength: number | undefined = undefined;
-    const edMatch = rawPath.match(/[?&]ed=([0-9]+)/);
-    if (edMatch && edMatch[1]) {
-      earlyDataLength = parseInt(edMatch[1], 10);
-    }
-    const cleanPath = rawPath ? (rawPath.replace(/[?&]ed=[0-9]+/g, '').replace(/\?$/, '') || '/') : '/';
-
-    const isTls = config.tls === 'tls';
-
-    const node: ProxyNode = {
-      type: 'vmess',
-      name,
-      server: config.add,
-      port: parseInt(config.port, 10) || (isTls ? 443 : 80),
-      uuid: config.id,
-      cipher: 'auto',
-      tls: isTls,
-      sni: config.sni || config.host,
-      network: netType,
-      wsPath: cleanPath,
-      wsHeaders: config.host ? { Host: config.host } : undefined,
-      skipCertVerify: true
-    };
-    
-    const sb: Record<string, unknown> = {
-      tag: name,
-      type: 'vmess',
-      server: node.server,
-      server_port: node.port,
-      uuid: node.uuid,
-      security: 'auto',
-      packet_encoding: 'xudp'
-    };
-
-    if (node.tls) {
-      sb.tls = {
-        enabled: true,
-        server_name: node.sni || node.server,
-        alpn: netType === 'ws' ? ['http/1.1'] : undefined,
-        insecure: true
-      };
-    }
-    if (node.network === 'ws') {
-      const wsTransport: Record<string, unknown> = { type: 'ws', path: cleanPath, headers: node.wsHeaders };
-      if (earlyDataLength) {
-        wsTransport.max_early_data = earlyDataLength;
-        wsTransport.early_data_header_name = 'Sec-WebSocket-Protocol';
-      }
-      sb.transport = wsTransport;
-    }
-    node.singboxObj = sb;
-    
-    const cl: Record<string, unknown> = {
-      name,
-      type: 'vmess',
-      server: node.server,
-      port: node.port,
-      uuid: node.uuid,
-      alterId: parseInt(config.aid, 10) || 0,
-      cipher: config.scy || 'auto',
-      udp: true,
-      tls: node.tls,
-      servername: node.sni || config.host || node.server,
-      network: node.network
-    };
-    if (node.network === 'ws') {
-      cl['ws-opts'] = {
-        path: cleanPath,
-        headers: node.wsHeaders,
-        'max-early-data': earlyDataLength,
-        'early-data-header-name': earlyDataLength ? 'Sec-WebSocket-Protocol' : undefined
-      };
-    }
-    node.clashObj = cl;
-
-    return node;
-  } catch {
-    return null;
-  }
-}
-
-// --- 解析 Trojan ---
-function parseTrojan(urlStr: string): ProxyNode | null {
-  try {
-    const parsed = parseProxyUri(urlStr, 443);
-    if (!parsed) return null;
-
-    const params = parsed.params;
-    const name = parsed.hash || 'Trojan';
-    const isEch = Boolean(params.get('ech'));
-
-    const node: ProxyNode = {
-      type: 'trojan',
-      name,
-      server: parsed.hostname,
-      port: parsed.port,
-      password: parsed.username,
-      tls: true,
-      sni: params.get('sni') || params.get('peer') || parsed.hostname,
-      skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1',
-      ech: isEch
-    };
-
-    const tlsObj: Record<string, unknown> = {
-      enabled: true,
-      server_name: node.sni,
-      insecure: node.skipCertVerify
-    };
-    if (node.ech) {
-      tlsObj.ech = { enabled: true };
-    }
-
-    node.singboxObj = {
-      tag: name,
-      type: 'trojan',
-      server: node.server,
-      server_port: node.port,
-      password: node.password,
-      tls: tlsObj
-    };
-
-    const cl: Record<string, unknown> = {
-      name,
-      type: 'trojan',
-      server: node.server,
-      port: node.port,
-      password: node.password,
-      sni: node.sni,
-      'skip-cert-verify': node.skipCertVerify,
-      udp: true
-    };
-    if (node.ech) {
-      cl['ech-opts'] = { enable: true };
-    }
-    node.clashObj = cl;
-
-    return node;
-  } catch {
-    return null;
-  }
-}
-
-// --- 主解析入口 ---
-export async function parseContent(content: string): Promise<ProxyNode[]> {
-  let plainText = content.replace(/^\uFEFF/, '').trim(); 
-  
-  const protocols = ['ss://', 'vmess://', 'vless://', 'trojan://', 'tuic://', 'hysteria2://', 'hy2://', 'anytls://', 'wireguard://', 'warp://'];
-  const firstLine = plainText.split(/\r?\n/)[0].trim();
-  const isPlainText = protocols.some(p => firstLine.startsWith(p));
-  
-  if (!isPlainText) { 
-    try {
-      let b64 = plainText.replace(/[\s\r\n]+/g, '').replace(/-/g, '+').replace(/_/g, '/');
-      b64 = b64.replace(/=+$/, '');
-      while (b64.length % 4 > 0) b64 += '=';
-      
-      const binaryStr = atob(b64);
-      const bytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
-      }
-      const decoded = new TextDecoder('utf-8').decode(bytes);
-      
-      if (decoded && protocols.some(p => decoded.includes(p))) {
-        plainText = decoded.replace(/^\uFEFF/, '').trim(); 
-      } else {
-        throw new Error("Base64 解碼成功，但內容並非有效的代理節點。");
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`Base64 暴力解碼失敗: ${msg}`);
-    }
-  }
-  
-  const lines = plainText.split(/\r?\n/); 
-  const nodes: ProxyNode[] = [];
-  
-  for (const line of lines) { 
-    const l = line.replace(/^[\s\uFEFF\xA0\u200B\u200C\u200D\u200E\u200F]+|[\s\uFEFF\xA0\u200B\u200C\u200D\u200E\u200F]+$/g, ''); 
-    if (!l) continue;
-    
-    if (l.startsWith('ss://')) { const n = parseShadowsocks(l); if (n) nodes.push(n); } 
-    else if (l.startsWith('vless://')) { const n = parseVless(l); if (n) nodes.push(n); } 
-    else if (l.startsWith('hysteria2://') || l.startsWith('hy2://')) { const n = parseHysteria2(l); if (n) nodes.push(n); } 
-    else if (l.startsWith('vmess://')) { const n = parseVmess(l); if (n) nodes.push(n); } 
-    else if (l.startsWith('tuic://')) { const n = parseTuic(l); if (n) nodes.push(n); } 
-    else if (l.startsWith('anytls://')) { const n = parseAnytls(l); if (n) nodes.push(n); } 
-    else if (l.startsWith('trojan://')) { const n = parseTrojan(l); if (n) nodes.push(n); }
-    else if (l.startsWith('wireguard://') || l.startsWith('warp://')) { const n = parseWireGuard(l); if (n) nodes.push(n); }
-  } 
-  
-  if (nodes.length === 0) {
-    throw new Error("資料獲取成功，但未能成功配對到任何支援的節點格式。");
-  }
-  
-  return nodes;
-}
-````
-
 ## File: src/types.ts
 ````ts
 export interface Env {
@@ -3032,403 +3847,6 @@ export interface CachedTemplate {
   updatedAt: number;
 }
 
-````
-
-## File: src/generator.ts
-````ts
-// src/generator.ts
-// @ts-ignore
-import packageJson from '../package.json';
-import yaml from 'js-yaml';
-import { Env, ProxyNode } from './types';
-import { REMOTE_CONFIG, FALLBACK_SINGBOX_RULES, FALLBACK_CLASH_RULES } from './constants';
-import { utf8ToBase64 } from './utils';
-
-const version = packageJson.version || '3.5.0';
-
-// --- 明文 URI 格式導出 ---
-export function toRawLinks(nodes: ProxyNode[]): string {
-  const links = nodes.map(node => {
-    try {
-      if (node.type === 'vless') {
-        const params = new URLSearchParams();
-        params.set('security', node.reality ? 'reality' : (node.tls ? 'tls' : 'none'));
-        params.set('type', node.network || 'tcp');
-        if (node.flow) params.set('flow', node.flow);
-        if (node.sni) params.set('sni', node.sni);
-        if (node.fingerprint) params.set('fp', node.fingerprint);
-        if (node.ech) params.set('ech', 'https://cloudflare-dns.com/dns-query');
-        if (node.reality) { params.set('pbk', node.reality.publicKey); params.set('sid', node.reality.shortId); }
-        if (node.network === 'ws') { if (node.wsPath) params.set('path', node.wsPath); if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host); }
-        if (node.network === 'xhttp' || node.network === 'splithttp') {
-          if (node.xhttpPath) params.set('path', node.xhttpPath);
-          if (node.xhttpHost) params.set('host', node.xhttpHost);
-          if (node.xhttpMode) params.set('mode', node.xhttpMode);
-        }
-        return `vless://${node.uuid}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-      }
-      if (node.type === 'hysteria2') {
-        const params = new URLSearchParams();
-        if (node.sni) params.set('sni', node.sni);
-        if (node.obfs) { params.set('obfs', node.obfs); if (node.obfsPassword) params.set('obfs-password', node.obfsPassword); }
-        if (node.skipCertVerify) params.set('insecure', '1');
-        return `hysteria2://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-      }
-      if (node.type === 'vmess') {
-        const vmessObj = {
-          v: "2", ps: node.name, add: node.server, port: node.port, id: node.uuid,
-          aid: (node.clashObj as Record<string, unknown>)?.alterId || 0, scy: "auto", net: node.network, type: "none",
-          host: node.wsHeaders?.Host || "", path: node.wsPath || "",
-          tls: node.tls ? "tls" : "", sni: node.sni || ""
-        };
-        return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
-      }
-      if (node.type === 'shadowsocks') {
-        const method = encodeURIComponent(node.cipher || '');
-        const pass = encodeURIComponent(node.password || '');
-        const params = new URLSearchParams();
-        if (node.tls) {
-          params.set('security', 'tls');
-          if (node.sni) params.set('sni', node.sni);
-          if (node.alpn) params.set('alpn', node.alpn.join(','));
-          if (node.fingerprint) params.set('fp', node.fingerprint);
-          if (node.ech) params.set('ech', '1');
-          params.set('type', node.network || 'tcp');
-        }
-        const clashPlugin = (node.clashObj as Record<string, unknown>)?.plugin as string | undefined;
-        if (clashPlugin && !node.tls) {
-          const pluginOpts = (node.clashObj as Record<string, unknown>)?.['plugin-opts'] as Record<string, string> | undefined;
-          const optStr = pluginOpts ? ';' + new URLSearchParams(pluginOpts).toString().replace(/&/g, ';') : '';
-          params.set('plugin', clashPlugin + optStr);
-        }
-        const query = params.toString();
-        return `ss://${method}:${pass}@${node.server}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
-      }
-      if (node.type === 'tuic') {
-        const params = new URLSearchParams();
-        if (node.sni) params.set('sni', node.sni);
-        if (node.congestion_control) params.set('congestion_control', node.congestion_control);
-        if (node.udp_relay_mode) params.set('udp_relay_mode', node.udp_relay_mode);
-        if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
-        if (node.skipCertVerify) params.set('allow_insecure', '1');
-        return `tuic://${node.uuid || ''}:${node.password || ''}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-      }
-      if (node.type === 'anytls') {
-        const params = new URLSearchParams();
-        params.set('security', 'tls');
-        if (node.sni) params.set('sni', node.sni);
-        params.set('insecure', node.skipCertVerify ? '1' : '0');
-        if (node.fingerprint) params.set('fp', node.fingerprint);
-        if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
-        params.set('type', 'tcp'); 
-        return `anytls://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-      }
-      if (node.type === 'trojan') {
-        const params = new URLSearchParams();
-        if (node.sni) params.set('sni', node.sni);
-        if (node.skipCertVerify) params.set('allowInsecure', '1');
-        if (node.ech) params.set('ech', '1');
-        return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-      }
-      if (node.type === 'wireguard' && node.wireguard) {
-        const wg = node.wireguard;
-        const params = new URLSearchParams();
-        params.set('ip', wg.localAddress.join(','));
-        if (wg.publicKey) params.set('public_key', wg.publicKey);
-        if (wg.presharedKey) params.set('psk', wg.presharedKey);
-        if (wg.reserved) params.set('reserved', wg.reserved.join(','));
-        if (wg.mtu) params.set('mtu', String(wg.mtu));
-        return `wireguard://${encodeURIComponent(wg.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  }).filter((l): l is string => Boolean(l));
-
-  return links.join('\n');
-}
-
-// 導出 Base64 訂閱
-export function toBase64(nodes: ProxyNode[]): string {
-  const rawLinks = toRawLinks(nodes);
-  return utf8ToBase64(rawLinks);
-}
-
-// --- 動態 SWR 模板拉取機制 ---
-async function fetchTemplateWithSWR(
-  url: string,
-  cacheType: 'singbox' | 'clash',
-  fallbackJsonStr: string,
-  env?: Env,
-  forceRefresh = false
-): Promise<string> {
-  const dynamicKey = `tpl:${cacheType}:${version}`;
-
-  if (!forceRefresh && env?.SUB_CACHE) {
-    try {
-      const cached = await env.SUB_CACHE.get(dynamicKey);
-      if (cached) {
-        fetch(`${url}?t=${Date.now()}`, {
-          headers: { 'User-Agent': 'v2rayNG/1.8.5' }
-        }).then(async res => {
-          if (res.ok) {
-            const freshText = await res.text();
-            await env.SUB_CACHE.put(dynamicKey, freshText, { expirationTtl: 600 });
-          }
-        }).catch(() => {});
-        return cached;
-      }
-    } catch {}
-  }
-
-  try {
-    const resp = await fetch(`${url}?t=${Date.now()}`, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
-    });
-    if (resp.ok) {
-      const text = await resp.text();
-      if (env?.SUB_CACHE) {
-        await env.SUB_CACHE.put(dynamicKey, text, { expirationTtl: 600 });
-      }
-      return text;
-    }
-  } catch {}
-
-  return fallbackJsonStr;
-}
-
-// --- Sing-Box 配置生成 (含自動語法淨化與規範修正) ---
-export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
-  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox', FALLBACK_SINGBOX_RULES, env, forceRefresh);
-  const config = JSON.parse(text);
-  
-  // 💥 1. 自動補全 Sing-Box 1.14+ 規範之 http_clients (移除 detour: direct 以杜絕 empty direct outbound 錯誤)
-  if (!config.http_clients || !Array.isArray(config.http_clients) || config.http_clients.length === 0) {
-    config.http_clients = [{ tag: 'default' }];
-  } else {
-    config.http_clients.forEach((hc: Record<string, unknown>) => {
-      if (hc.detour === 'direct' || hc.detour === 'DIRECT') {
-        delete hc.detour;
-      }
-    });
-  }
-
-  // 💥 2. 自動淨化 DNS 規範
-  if (config.dns) {
-    config.dns.final = 'local-dns';
-    if (Array.isArray(config.dns.servers)) {
-      config.dns.servers = config.dns.servers.filter((s: Record<string, unknown>) => s.type !== 'rcode');
-      config.dns.servers.forEach((s: Record<string, unknown>) => {
-        if (s.detour === 'direct') delete s.detour;
-      });
-    }
-    if (Array.isArray(config.dns.rules)) {
-      config.dns.rules = config.dns.rules.filter((r: Record<string, unknown>) => !('outbound' in r));
-    }
-  }
-
-  // 💥 3. 自動補充 route.default_domain_resolver 與 default_http_client
-  if (!config.route) config.route = {};
-  config.route.default_domain_resolver = 'local-dns';
-  config.route.default_http_client = 'default';
-  
-  if (Array.isArray(config.route.rule_set)) {
-    config.route.rule_set.forEach((rs: Record<string, unknown>) => {
-      delete rs.download_detour;
-    });
-  }
-
-  // 💥 4. 自動清理 inbounds
-  if (Array.isArray(config.inbounds)) {
-    config.inbounds.forEach((ib: Record<string, unknown>) => {
-      delete ib.sniff;
-      delete ib.sniff_override_destination;
-    });
-  }
-
-  // 💥 5. 確保出站節點的 WebSocket ALPN 正確保留
-  const outbounds = nodes.map(n => {
-    const obj = JSON.parse(JSON.stringify(n.singboxObj));
-    if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {
-      obj.tls.alpn = ['http/1.1'];
-    }
-    return obj;
-  });
-
-  const nodeTags = outbounds.map((o: Record<string, unknown>) => o.tag as string);
-  
-  if (!Array.isArray(config.outbounds)) config.outbounds = [];
-
-  const lowRateTags = nodes.filter(n => n.multiplier !== undefined && n.multiplier < 1.0).map(n => n.name);
-  const iplcTags = nodes.filter(n => n.isIplc).map(n => n.name);
-
-  if (lowRateTags.length > 0) {
-    config.outbounds.unshift({
-      type: 'selector',
-      tag: '🏎️ 低倍率節點',
-      outbounds: lowRateTags
-    });
-  }
-
-  if (iplcTags.length > 0) {
-    config.outbounds.unshift({
-      type: 'selector',
-      tag: '⚡ 專線加速',
-      outbounds: iplcTags
-    });
-  }
-
-  config.outbounds.push(...outbounds);
-
-  config.outbounds.forEach((out: Record<string, unknown>) => {
-    if (out.type === 'selector' || out.type === 'urltest') {
-      if (!Array.isArray(out.outbounds)) out.outbounds = [];
-      const arr = out.outbounds as string[];
-      nodeTags.forEach(tag => {
-        if (!arr.includes(tag)) arr.push(tag);
-      });
-    }
-  });
-
-  return JSON.stringify(config, null, 2);
-}
-
-// --- Clash Meta 配置生成 ---
-export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
-  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.clash, 'clash', FALLBACK_CLASH_RULES, env, forceRefresh);
-  const config = yaml.load(text) as Record<string, unknown>;
-  
-  const proxies = nodes.map(n => {
-    const obj = JSON.parse(JSON.stringify(n.clashObj));
-    Object.keys(obj).forEach(key => obj[key] === undefined && delete obj[key]);
-    return obj;
-  });
-  const proxyNames = proxies.map((p: Record<string, unknown>) => p.name as string);
-
-  if (!Array.isArray(config.proxies)) config.proxies = [];
-  config.proxies.push(...proxies);
-
-  const lowRateNames = nodes.filter(n => n.multiplier !== undefined && n.multiplier < 1.0).map(n => n.name);
-  const iplcNames = nodes.filter(n => n.isIplc).map(n => n.name);
-
-  if (Array.isArray(config['proxy-groups'])) {
-    const groups = config['proxy-groups'] as Array<Record<string, unknown>>;
-
-    if (lowRateNames.length > 0) {
-      groups.unshift({
-        name: '🏎️ 低倍率節點',
-        type: 'select',
-        proxies: lowRateNames
-      });
-    }
-
-    if (iplcNames.length > 0) {
-      groups.unshift({
-        name: '⚡ 專線加速',
-        type: 'select',
-        proxies: iplcNames
-      });
-    }
-
-    groups.forEach(group => {
-      if (!Array.isArray(group.proxies)) group.proxies = [];
-      const arr = group.proxies as string[];
-      proxyNames.forEach(name => {
-        if (!arr.includes(name)) arr.push(name);
-      });
-    });
-  }
-
-  return yaml.dump(config, { indent: 2, noRefs: true });
-}
-
-// --- Surge 5 配置生成 ---
-export function toSurge(nodes: ProxyNode[]): string {
-  const lines: string[] = ['[Proxy]'];
-  const nodeNames: string[] = [];
-
-  for (const node of nodes) {
-    let line = '';
-    const name = node.name.replace(/,/g, '');
-    if (node.type === 'shadowsocks') {
-      line = `${name} = ss, ${node.server}, ${node.port}, encrypt-method=${node.cipher}, password=${node.password}, udp-relay=true`;
-      if (node.sni) line += `, sni=${node.sni}`;
-    } else if (node.type === 'trojan') {
-      line = `${name} = trojan, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
-    } else if (node.type === 'vless') {
-      line = `${name} = vless, ${node.server}, ${node.port}, username=${node.uuid}, tls=${node.tls ? 'true' : 'false'}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
-      if (node.network === 'ws') line += `, ws=true, ws-path=${node.wsPath || '/'}`;
-    } else if (node.type === 'hysteria2') {
-      line = `${name} = hysteria2, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
-    }
-
-    if (line) {
-      lines.push(line);
-      nodeNames.push(name);
-    }
-  }
-
-  lines.push('\n[Proxy Group]');
-  lines.push(`🚀 節點選擇 = select, ⚡ 自動選擇, DIRECT, ${nodeNames.join(', ')}`);
-  lines.push(`⚡ 自動選擇 = url-test, ${nodeNames.join(', ')}, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50`);
-  lines.push(`🐟 漏網之魚 = select, 🚀 節點選擇, DIRECT`);
-
-  lines.push('\n[Rule]');
-  lines.push('GEOIP,CN,DIRECT');
-  lines.push('FINAL,🐟 漏網之魚');
-
-  return lines.join('\n');
-}
-
-// --- Quantumult X (server_remote) ---
-export function toQuantumultX(nodes: ProxyNode[]): string {
-  const lines: string[] = [];
-
-  for (const node of nodes) {
-    if (node.type === 'shadowsocks') {
-      lines.push(`shadowsocks=${node.server}:${node.port}, method=${node.cipher}, password=${node.password}, fast-open=false, udp-relay=true, tag=${node.name}`);
-    } else if (node.type === 'trojan') {
-      lines.push(`trojan=${node.server}:${node.port}, password=${node.password}, over-tls=true, tls-host=${node.sni || node.server}, fast-open=false, udp-relay=true, tag=${node.name}`);
-    } else if (node.type === 'vmess') {
-      let vmessLine = `vmess=${node.server}:${node.port}, method=none, password=${node.uuid}, fast-open=false, udp-relay=true, tag=${node.name}`;
-      if (node.tls) vmessLine += `, over-tls=true, tls-host=${node.sni || node.server}`;
-      if (node.network === 'ws') vmessLine += `, obfs=ws, obfs-uri=${node.wsPath || '/'}`;
-      lines.push(vmessLine);
-    } else if (node.type === 'hysteria2') {
-      lines.push(`hysteria2=${node.server}:${node.port}, password=${node.password}, tls-host=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, tag=${node.name}`);
-    }
-  }
-
-  return lines.join('\n');
-}
-
-// --- Loon 格式生成 ---
-export function toLoon(nodes: ProxyNode[]): string {
-  const lines: string[] = ['[Proxy]'];
-
-  for (const node of nodes) {
-    const name = node.name.replace(/,/g, '');
-    if (node.type === 'shadowsocks') {
-      lines.push(`${name} = Shadowsocks,${node.server},${node.port},${node.cipher},"${node.password}",fast-open=false,udp=true`);
-    } else if (node.type === 'trojan') {
-      lines.push(`${name} = Trojan,${node.server},${node.port},"${node.password}",sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`);
-    } else if (node.type === 'vless') {
-      let l = `${name} = Vless,${node.server},${node.port},"${node.uuid}",tls=${node.tls ? 'true' : 'false'},sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`;
-      if (node.network === 'ws') l += `,transport=ws,path=${node.wsPath || '/'}`;
-      lines.push(l);
-    } else if (node.type === 'vmess') {
-      let v = `${name} = vmess,${node.server},${node.port},auto,"${node.uuid}",fast-open=false,udp=true`;
-      if (node.tls) v += `,over-tls=true,tls-name=${node.sni || node.server}`;
-      if (node.network === 'ws') v += `,transport=ws,path=${node.wsPath || '/'}`;
-      lines.push(v);
-    } else if (node.type === 'hysteria2') {
-      lines.push(`${name} = Hysteria2,${node.server},${node.port},password=${node.password},sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`);
-    }
-  }
-
-  return lines.join('\n');
-}
 ````
 
 ## File: src/utils.ts
@@ -3637,78 +4055,162 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
 
 ````
 
-## File: package.json
-````json
+## File: Sing-Box_Rules.JSON
+````JSON
 {
-  "name": "cf-sub-converter",
-  "version": "3.1.2",
-  "private": true,
-  "scripts": {
-    "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
-    "start": "wrangler dev",
-    "argo": "tsx scripts/argo-converter.ts"
+  "log": {
+    "level": "info",
+    "timestamp": true
   },
-  "dependencies": {
-    "js-yaml": "^4.1.0"
+  "http_clients": [
+    {
+      "tag": "default"
+    }
+  ],
+  "dns": {
+    "servers": [
+      {
+        "tag": "remote-dns",
+        "type": "https",
+        "server": "8.8.8.8",
+        "detour": "🚀 節點選擇"
+      },
+      {
+        "tag": "local-dns",
+        "type": "udp",
+        "server": "223.5.5.5"
+      },
+      {
+        "tag": "system-dns",
+        "type": "local"
+      },
+      {
+        "tag": "fakeip-dns",
+        "type": "fakeip",
+        "inet4_range": "198.18.0.0/15",
+        "inet6_range": "fc00::/18"
+      }
+    ],
+    "rules": [
+      { "clash_mode": "Direct", "server": "system-dns" },
+      { "clash_mode": "Global", "server": "fakeip-dns" },
+      { "rule_set": "rs-ads", "action": "reject" },
+      {
+        "domain": [
+          "github.com",
+          "raw.githubusercontent.com",
+          "githubusercontent.com",
+          "gh-proxy.com"
+        ],
+        "server": "local-dns"
+      },
+      {
+        "rule_set": [
+          "rs-cn",
+          "rs-private"
+        ],
+        "server": "local-dns",
+        "disable_cache": true
+      },
+      {
+        "rule_set": [
+          "rs-apple"
+        ],
+        "server": "system-dns",
+        "disable_cache": true
+      },
+      {
+        "rule_set": [
+          "rs-geolocation-!cn",
+          "rs-ai"
+        ],
+        "server": "fakeip-dns"
+      }
+    ],
+    "final": "local-dns",
+    "strategy": "ipv4_only"
   },
-  "devDependencies": {
-    "@cloudflare/workers-types": "^4.20240208.0",
-    "@types/js-yaml": "^4.0.9",
-    "tsx": "^4.7.1",
-    "typescript": "^5.3.3",
-    "wrangler": "^3.28.1"
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "interface_name": "tun0",
+      "address": [
+        "172.19.0.1/30",
+        "fd00::1/126"
+      ],
+      "stack": "mixed",
+      "auto_route": true,
+      "strict_route": true
+    }
+  ],
+  "outbounds": [
+    { "type": "selector", "tag": "🚀 節點選擇", "outbounds": ["⚡ 自動選擇", "direct"] },
+    { "type": "urltest", "tag": "⚡ 自動選擇", "outbounds": [], "url": "https://www.gstatic.com/generate_204", "interval": "3m", "tolerance": 50 },
+    { "type": "selector", "tag": "💬 AI 服務", "outbounds": ["⚡ 自動選擇", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🍎 蘋果服務", "outbounds": ["direct", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "Ⓜ️ 微軟服務", "outbounds": ["direct", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🎮 遊戲平台", "outbounds": ["direct", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🌐 非中國", "outbounds": ["🚀 節點選擇", "direct"] },
+    { "type": "selector", "tag": "🇨🇳 國內服務", "outbounds": ["direct", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🏠 私有網絡", "outbounds": ["direct"] },
+    { "type": "selector", "tag": "🐟 漏網之魚", "outbounds": ["🚀 節點選擇", "direct"] },
+    { "type": "selector", "tag": "🛑 廣告攔截", "outbounds": ["block", "direct"] },
+    
+    { "type": "direct", "tag": "direct" },
+    { "type": "direct", "tag": "DIRECT" },
+    { "type": "block", "tag": "block" },
+    { "type": "block", "tag": "REJECT" }
+  ],
+  "route": {
+    "default_domain_resolver": "local-dns",
+    "default_http_client": "default",
+    "rule_set": [
+      { "type": "remote", "tag": "rs-ai", "format": "binary", "url": "https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.srs" },
+      { "type": "remote", "tag": "rs-apple", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/apple.srs" },
+      { "type": "remote", "tag": "rs-microsoft", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/microsoft.srs" },
+      { "type": "remote", "tag": "rs-steam", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/steam.srs" },
+      { "type": "remote", "tag": "rs-epicgames", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/epicgames.srs" },
+      { "type": "remote", "tag": "rs-ea", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/ea.srs" },
+      { "type": "remote", "tag": "rs-ubisoft", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/ubisoft.srs" },
+      { "type": "remote", "tag": "rs-blizzard", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/blizzard.srs" },
+      { "type": "remote", "tag": "rs-geolocation-!cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/geolocation-!cn.srs" },
+      { "type": "remote", "tag": "rs-cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs" },
+      { "type": "remote", "tag": "ip-cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/cn.srs" },
+      { "type": "remote", "tag": "rs-ads", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ads-all.srs" },
+      { "type": "remote", "tag": "rs-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/private.srs" },
+      { "type": "remote", "tag": "ip-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs" }
+    ],
+    "rules": [
+      { "action": "sniff" },
+      { "protocol": "dns", "action": "hijack-dns" },
+      { "clash_mode": "Direct", "outbound": "direct" },
+      { "clash_mode": "Global", "outbound": "🚀 節點選擇" },
+      { "rule_set": "rs-ads", "outbound": "block" },
+      { "rule_set": ["rs-private", "ip-private"], "outbound": "🏠 私有網絡" },
+      { "rule_set": "rs-ai", "outbound": "💬 AI 服務" },
+      { "rule_set": "rs-microsoft", "outbound": "Ⓜ️ 微軟服務" },
+      { "rule_set": ["rs-steam", "rs-epicgames", "rs-ea", "rs-ubisoft", "rs-blizzard"], "outbound": "🎮 遊戲平台" },
+      { "rule_set": "rs-geolocation-!cn", "outbound": "🌐 非中國" },
+      { "rule_set": "rs-apple", "outbound": "🍎 蘋果服務" },
+      { "rule_set": ["rs-cn", "ip-cn"], "outbound": "🇨🇳 國內服務" },
+      { "outbound": "🐟 漏網之魚" }
+    ],
+    "auto_detect_interface": true
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "store_fakeip": true
+    },
+    "clash_api": {
+      "external_controller": "127.0.0.1:9090",
+      "external_ui": "ui",
+      "secret": "",
+      "default_mode": "rule"
+    }
   }
 }
-
-````
-
-## File: .github/workflows/deploy.yml
-````yml
-# .github/workflows/deploy.yml
-name: Deploy to Cloudflare Workers
-
-on:
-  # 1. 當推送到 main 或 master 分支時自動執行
-  push:
-    branches:
-      - main
-      - master
-  
-  # 2. 保留手動執行按鈕
-  workflow_dispatch:
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    name: Deploy
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-      
-      # 已將 Node.js 環境升級至 Node 24 以消除棄用警告
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          # 暫時移除 cache: 'npm'，避免因缺少 package-lock.json 報錯
-
-      # 替換成相容無鎖定檔的普通安裝（加入 --prefer-offline 稍微加速）
-      - name: Install dependencies
-        run: npm install --prefer-offline
-
-      # 替換 KV ID
-      - name: Inject KV ID from Secrets
-        run: |
-          sed -i 's/KV_ID_PLACEHOLDER/${{ secrets.CF_KV_ID }}/g' wrangler.toml
-
-      # 部署步驟
-      - name: Deploy
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-
 ````
 
 ## File: .github/workflows/combine-code.yml
@@ -3792,549 +4294,51 @@ jobs:
 
 ````
 
-## File: README.md
-````md
-# ⚡ CF Sub Converter Pro
-
-基於 Cloudflare Workers 的全能 Serverless 訂閱轉換與節點中樞。擁有現代深色 UI、SWR 高可用快取容災架構、智慧倍率/專線分組、國旗萬國對齊系統，以及 **Argo 隧道 2.0 自動化生成器**。支援將各類代理節點一鍵轉換為 **Sing-Box / Clash Meta (Mihomo) / Surge 5 / Quantumult X / Loon / Base64** 格式，亦可作為第三方轉換前端（如 `sub-web`）的標準後端。
-
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sammy0101/cf-sub-converter)
-
----
-
-## 🌟 核心特性
-
-### 1. 🔌 全主流與新興協議深度解析
-- 完整支援 **VLESS**（含最新 `xhttp` / `splithttp`、`Reality`、`Vision`、`WebSocket`、`gRPC`）。
-- 完整支援 **WireGuard** / **Cloudflare WARP**（雙棧 IPv4/IPv6、Reserved 欄位相容）。
-- 完整支援 **Shadowsocks-2022**（`2022-blake3-*` 多端口與密鑰）、**Trojan**、**VMess**、**Hysteria 2 (`hy2`)**、**TUIC**、**AnyTLS**。
-
-### 2. 📱 全生態客戶端格式適配
-- **自適應識別 (Adaptive)**：自動依據請求客戶端的 `User-Agent` 回傳對應格式。
-- **Clash Meta (Mihomo)**：YAML 格式，內建流量嗅探、Fake-IP、DoH 分流與動態策略組。
-- **Sing-Box**：標準 JSON 格式，支援 Mixed TUN 堆疊、獨立 DNS 規則與出站映射。
-- **Surge 5**：標準 `.conf` 格式，支援 Proxy、Proxy Group 與分流規則。
-- **Quantumult X**：標準 `server_remote` 節點清單格式。
-- **Loon**：標準 `[Proxy]` 格式。
-- **Base64**：通用明文與編碼格式，適用於 v2rayNG、PassWall、Shadowrocket 等。
-
-### 3. 🛡️ 99.99% 高可用 SWR 容災架構 (Zero Downtime)
-- **Stale-While-Revalidate + KV 快取**：遠端規則模板自動在邊緣快取，背景非同步靜默更新。
-- **三重容災降級保證**：`KV 快取優先` ➔ `GitHub 即時獲取` ➔ `內嵌應急模板兜底`，徹底杜絕因 GitHub 429 限流或網路波動導致轉換失敗。
-
-### 4. 🏎️ 智慧倍率與專線動態策略組
-- **倍率辨識**：自動識別節點名稱中的倍率特徵（如 `0.1x`、`0.5X`、`0.2倍`），並在 Sing-Box 與 Clash Meta 中動態建立「🏎️ 低倍率節點」策略組。
-- **專線辨識**：自動擷取 `IPLC`、`IEPL`、`專線`、`內網` 特徵，動態生成「⚡ 專線加速」策略組。
-
-### 5. 🌀 Argo 隧道 2.0 一鍵生成器
-- **優選 IP / 官方域名注入**：支援填入 Cloudflare Clean IP（如 `104.16.80.1`）或優選網域，自動完成連接伺服器與 SNI/Host 映射，顯著降低延遲。
-- **極簡 VPS 命令**：腳本自動上傳至 KV 快取，透過 `curl -sSL ... | bash` 極速完成部署。
-- **智慧探測與修復**：VPS 端自動探測 443 / 80 本地監聽連接埠、TLS 狀態與 Host Header 重寫。
-
-### 6. 🔍 智慧篩選、名稱替換與黃金國旗排版
-- **雙向過濾**：支援「僅保留」與「排除」規則（多組用 `|` 隔開，如 `HK|TW` 或 `5x`），內建 `x`/`X`/`×` 字符相容匹配。
-- **名稱替換**：支援 `DEL-關鍵字`（刪除）、`尋找-替換`，以及 `ALL-新名稱`（一鍵統改所有節點名稱）。
-- **黃金 22 地區國旗排序**：自動為節點補上國旗 Emoji，依亞太核心（港、台、日、星、韓）➔ 歐美主流（美、英、加、澳）順序緊密分群，並自動對重複節點編號。
-
-### 7. 📊 流量與到期日加總透傳
-- 自動從上游多個機場擷取並加總上傳、下載與總流量，計算最近的到期時間，透過標準 `subscription-userinfo` 標頭透傳，完美點亮客戶端流量資訊條。
-
----
-
-## 🚀 部署教學
-
-### 方法一：一鍵按鈕快速部署 (最推薦、零設定自動託管)
-
-點擊本說明文件上方的 **Deploy to Cloudflare Workers** 藍色按鈕。
-
-* **零設定自動託管**：Cloudflare 網頁部署精靈會引導您登入，並**在背景全自動為您建立並對接好所需的 KV 命名空間（`SUB_CACHE`）**，完全不需要您手動至儀表板綁定。
-* **自建 CI/CD (Workers Builds)**：Cloudflare 會在您的 GitHub 下自動建立此專案的複製倉庫。未來只要在 GitHub 修改並 `git push`，Cloudflare 就會自動在端點編譯部署，**此模式完全不需要設定 GitHub Secrets 密鑰**。
-
----
-
-### 方法二：手動 Fork 本專案並使用 GitHub Actions 自動部署 (需設定 Secrets)
-
-如果您選擇**手動 Fork 本項目**並利用倉庫內建的 GitHub Actions 自動進行 CI/CD 部署，請依照以下步驟操作：
-
-1. **Fork 本專案**：
-   點擊本倉庫右上角的 **`Fork`** 按鈕，將專案複製一份到您的 GitHub 帳號下。
-
-2. **建立 Cloudflare KV 命名空間**：
-   - 登入 [Cloudflare Dashboard](https://dash.cloudflare.com/)。
-   - 點擊左側選單的 **`Storage & Databases` (儲存與資料庫)** ➔ **`KV`**。
-   - 點擊 **`Create a namespace`**，輸入名稱（例如 `SUB_CACHE`），建立完成後複製其 **Namespace ID**。
-
-3. **設定 GitHub Repository Secrets**：
-   前往您 Fork 出來的 GitHub 倉庫頁面，依次點擊：
-   **`Settings`** ➔ **`Secrets and variables`** ➔ **`Actions`** ➔ **`New repository secret`**，添加以下三個密鑰：
-
-   | 密鑰名稱 (Secret Name) | 說明與獲取方式 |
-   | :--- | :--- |
-   | **`CF_API_TOKEN`** | **Cloudflare API 權杖**<br>獲取方式：Cloudflare 首頁 ➔ 右上角「我的個人資料」➔「API 權杖」➔「建立權杖」➔ 選擇「編輯 Cloudflare Workers」模板（需具備 Workers 與 KV 的編輯權限）。 |
-   | **`CF_ACCOUNT_ID`** | **Cloudflare 帳戶 ID**<br>獲取方式：登入 Cloudflare ➔ 點擊任意網域或 Worker 頁面，在右側欄位即可找到「帳戶 ID (Account ID)」。 |
-   | **`CF_KV_ID`** | **KV 命名空間 ID**<br>獲取方式：填入步驟 2 中建立的 `SUB_CACHE` 命名空間 ID。 |
-
-4. **觸發自動部署**：
-   - 前往 GitHub 倉庫的 **`Actions`** 標籤頁。
-   - 點擊左側的 **`Deploy to Cloudflare Workers`** 工作流，點擊 **`Run workflow`** 手動執行部署。
-   - 後續只要您對 `main` 或 `master` 分支推送（Push）任何代碼變更，GitHub Actions 就會全自動為您編譯並發布至 Cloudflare Workers。
-
----
-
-### 方法三：本地手動編譯部署 (Wrangler CLI)
-
-1. **克隆專案並安裝依賴**：
-   ```bash
-   git clone https://github.com/sammy0101/cf-sub-converter.git
-   cd cf-sub-converter
-   npm install
-   ```
-
-2. **建立 KV 命名空間**：
-   ```bash
-   wrangler kv:namespace create SUB_CACHE
-   ```
-   *將終端機回傳的 `id` 替換至 `wrangler.toml` 中的 `KV_ID_PLACEHOLDER`。*
-
-3. **發布至 Cloudflare**：
-   ```bash
-   npm run deploy
-   ```
-
----
-
-## 📖 使用指南
-
-### 1. 視覺化 Web 面板
-訪問您部署完成的 Workers 網址：
-- **資料來源設定**：貼上機場訂閱連結或各類協議節點（支援多行混合輸入）。
-- **過濾與替換**：設定保留/排除關鍵字或名稱替換規則。
-- **短連結雲端儲存**：設定自訂短代碼，規則將自動打包存入 KV。
-- **多平台訂閱面板**：一鍵複製對應客戶端連結，或點擊 QR Code 按鈕掃描行動條碼。
-- **配置收藏管理**：可隨時儲存、編輯、一鍵載入常用配置，卡片上直觀顯示「保 / 排 / 替」規則標籤。
-
----
-
-### 2. Argo 隧道 2.0 部署步驟
-
-1. 在網頁主輸入框貼入您的 VLESS / VMess 節點內容。
-2. 點擊 **「第一步：解析並載入目前輸入的 VLESS / VMess 節點」**。
-3. 勾選欲轉換之節點，系統會自動匹配原埠號。
-4. （選填）填入 **Cloudflare 優選 IP**（例如 `104.16.80.1`）以加速連線。
-5. （選填）填入固定 Tunnel Token 與自訂綁定域名（若留空則為臨時隨機隧道）。
-6. 點擊 **「第二步：生成 Argo 一鍵部署指令與節點」**。
-7. 將產生的 `curl -sSL ... | bash` 指令複製至 VPS（以 root 權限執行）。
-8. 部署成功後：
-   - **固定域名模式**：下方文字框直接複製已轉換好的 `_Argo_優選` 節點。
-   - **臨時隨機模式**：VPS 終端機將動態輸出最終分配的節點連結。
-
----
-
-### 3. API 調用與外部前端對接
-
-#### 當作標準 SubConverter 後端使用
-本專案內建標準 `/sub` 與 `/version` 端點，可直接填入任何開源 `sub-web` 前端的「後端地址 (Backend URL)」：
-```text
-https://your-worker.workers.dev
-```
-
-#### URL 參數手動轉換
-
-| 參數 | 說明 | 範例 |
-| :--- | :--- | :--- |
-| `url` | 原始訂閱連結或節點內容（需 URL 編碼） | `https://example.com/sub` |
-| `target` | 目標格式：`clash` / `singbox` / `surge` / `quanx` / `loon` / `base64` | `target=clash` |
-| `include` | 僅保留符合正則之節點 | `include=HK\|TW` |
-| `exclude` | 排除符合正則之節點（自動相容乘號 `×`） | `exclude=5x\|官網` |
-| `rename` | 名稱替換（刪除：`DEL-字串`、替換：`A-B`、統改：`ALL-名稱`） | `rename=DEL-[69云]\|ALL-JP` |
-
-**完整調用範例**：
-```http
-# 轉換原始訂閱為 Clash Meta 格式，僅保留香港，並刪除廣告名稱
-https://your-worker.workers.dev/sub?url=<URL編碼>&target=clash&include=HK&rename=DEL-[廣告]
-
-# 讀取已存於雲端 KV 的短連結配置
-https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox
-```
-
----
-
-## 🛡️ 內建分流群組 (Sing-Box / Clash Meta)
-
-| 圖示 | 策略組名稱 | 路由邏輯 |
-| :--- | :--- | :--- |
-| 🏎️ | 低倍率節點 | 自動彙整倍率 `< 1.0x` 的節點（省流專用） |
-| ⚡ | 專線加速 | 自動彙整包含 `IPLC` / `IEPL` / `專線` 的低延遲節點 |
-| 🚀 | 節點選擇 | 手動指定出站節點 |
-| ⚡ | 自動選擇 | URL Test 自動測速切換最低延遲節點 |
-| 💬 | AI 服務 | 針對 OpenAI / Claude / Gemini 專屬分流 |
-| 🍎 | 蘋果服務 | Apple 相關服務直連或代理 |
-| Ⓜ️ | 微軟服務 | Microsoft 服務直連或代理 |
-| 🎮 | 遊戲平台 | Steam / Epic / EA / Ubisoft / Blizzard |
-| 🌐 | 非中國 | 全球主流網站（Google、Telegram、YouTube 等） |
-| 🇨🇳 | 國內服務 | 中國大陸 IP 與網域自動精準直連 |
-| 🏠 | 私有網絡 | 區域網路 (LAN) 直連 |
-| 🛑 | 廣告攔截 | 阻擋常見廣告與追蹤器 (AdBlock) |
-| 🐟 | 漏網之魚 | Final Match 未命中規則之預設路由 |
-
----
-
-## 📁 專案架構
-
-```text
-cf-sub-converter/
-├── src/
-│   ├── index.ts          # Worker 核心路由、並發請求控制、User-Agent 辨識與 API 接口
-│   ├── constants.ts      # 響應式深色 UI 模板、QR Code 生成器與 SWR 內嵌降級規則
-│   ├── parser.ts         # 萬能節點解析器 (VLESS SplitHTTP, WireGuard, SS-2022, Hy2, TUIC 等)
-│   ├── generator.ts      # 多平台格式生成器 (Sing-Box, Clash, Surge 5, QuanX, Loon, Base64)
-│   ├── utils.ts          # 倍率與專線特徵提取、Base64 安全編碼、萬國國旗對齊演算法
-│   └── types.ts          # 嚴格 TypeScript 類型定義
-├── argo.sh               # VPS Argo 隧道 2.0 一鍵安裝與自我修復通用腳本
-├── Sing-Box_Rules.JSON   # 遠端 Sing-Box 混合 TUN 規則模板
-├── Clash_Rules.YAML      # 遠端 Clash Meta (Mihomo) 規則模板
-├── wrangler.toml         # Cloudflare Workers 配置檔
-└── .github/workflows/
-    └── deploy.yml        # GitHub Actions 自動化部署工作流
-```
-
----
-
-## ⚠️ 免責聲明
-
-本專案僅供網路安全、分散式架構學習與技術交流使用，不提供任何代理伺服器或節點服務。請使用者自覺遵守當地法律法規，切勿用於任何非法用途。
-
-````
-
-## File: scripts/argo-converter.ts
-````ts
-// scripts/argo-converter.ts
-import fs from 'fs';
-import path from 'path';
-import readline from 'readline';
-import { Buffer } from 'buffer';
-
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout
-});
-
-const question = (query: string): Promise<string> => {
-  return new Promise((resolve) => rl.question(query, resolve));
-};
-
-interface VlessNode {
-  originalLink: string;
-  uuid: string;
-  server: string;
-  port: string;
-  type: string;
-  path: string;
-  host: string;
-  sni: string;
-  name: string;
-}
-
-// 簡易 VLESS 連結解析器
-function parseVlessLink(link: string): VlessNode | null {
-  try {
-    const urlStr = link.replace('vless://', 'http://');
-    const url = new URL(urlStr);
-    const params = url.searchParams;
-    return {
-      originalLink: link,
-      uuid: url.username,
-      server: url.hostname,
-      port: url.port,
-      type: params.get('type') || 'ws',
-      path: params.get('path') || '/',
-      host: params.get('host') || params.get('sni') || url.hostname,
-      sni: params.get('sni') || url.hostname,
-      name: decodeURIComponent(url.hash.slice(1)) || 'VLESS Node'
-    };
-  } catch (e) {
-    return null;
-  }
-}
-
-// 獲取並解析訂閱
-async function fetchAndParse(input: string): Promise<VlessNode[]> {
-  let content = input.trim();
-  if (input.startsWith('http')) {
-    console.log('正在獲取網址內容...');
-    try {
-      const res = await fetch(input, {
-        headers: { 'User-Agent': 'v2rayNG/1.8.5' }
-      });
-      if (!res.ok) throw new Error(`HTTP 狀態碼 ${res.status}`);
-      content = await res.text();
-    } catch (e: any) {
-      console.log(`獲取訂閱失敗: ${e.message}`);
-      return [];
-    }
-  }
-
-  // 嘗試 Base64 解碼
-  let decoded = content;
-  try {
-    const cleaned = content.replace(/[\s\r\n]+/g, '');
-    decoded = Buffer.from(cleaned, 'base64').toString('utf8');
-  } catch (e) {
-    // 解碼失敗則視為純文字
-  }
-
-  const lines = decoded.split(/\r?\n/);
-  const vlessNodes: VlessNode[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('vless://')) {
-      const parsed = parseVlessLink(trimmed);
-      if (parsed) vlessNodes.push(parsed);
-    }
-  }
-  return vlessNodes;
-}
-
-// 生成 VPS 安裝腳本模板
-function generateVpsScript(node: VlessNode, port: string, token: string, domain: string): string {
-  return `#!/bin/bash
-# Cloudflare Argo Tunnel 一鍵部署腳本 (由 cf-sub-converter 自動生成)
-# 適用於已使用 mack-a v2ray-agent 部署之 Xray/Sing-box 環境
-
-GREEN='\\033[0;32m'
-RED='\\033[0;31m'
-NC='\\033[0m'
-
-echo -e "\${GREEN}=== 開始部署 Cloudflare Argo 隧道 ===\${NC}"
-
-if [ "$EUID" -ne 0 ]; then
-  echo -e "\${RED}錯誤: 請使用 root 權限執行此腳本！\${NC}"
-  exit 1
-fi
-
-# 節點參數配置
-VLESS_UUID="${node.uuid}"
-VLESS_PATH="${node.path}"
-VLESS_TYPE="${node.type}"
-VLESS_PORT="${port}"
-NODE_NAME="${node.name}"
-TUNNEL_TOKEN="${token.trim()}"
-CUSTOM_DOMAIN="${domain.trim()}"
-
-# 下載安裝 cloudflared
-if ! command -v cloudflared &> /dev/null; then
-    echo "正在下載安裝 cloudflared..."
-    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
-    chmod +x /usr/local/bin/cloudflared
-    echo "cloudflared 安裝完成！"
-else
-    echo "cloudflared 已存在，跳過安裝。"
-fi
-
-# 判斷是否使用固定隧道
-if [ -n "$TUNNEL_TOKEN" ]; then
-    echo -e "\${GREEN}【固定隧道模式】正在配置服務...\${NC}"
-    cloudflared service uninstall &> /dev/null
-    cloudflared service install "$TUNNEL_TOKEN"
-    systemctl daemon-reload
-    systemctl enable cloudflared
-    systemctl restart cloudflared
-    
-    echo -e "\${GREEN}部署成功！\${NC}"
-    echo "請確保已在 Cloudflare Dashboard 中將網域 '$CUSTOM_DOMAIN' 指向本地 'http://localhost:$VLESS_PORT'"
-    
-    # 輸出用戶端連結
-    FINAL_LINK="vless://$VLESS_UUID@$CUSTOM_DOMAIN:443?encryption=none&security=tls&type=$VLESS_TYPE&host=$CUSTOM_DOMAIN"
-    if [ "$VLESS_TYPE" = "ws" ]; then
-        FINAL_LINK="$FINAL_LINK&path=$(echo -n "$VLESS_PATH" | jq -s -R -r @uri 2>/dev/null || echo -n "$VLESS_PATH")"
-    fi
-    FINAL_LINK="$FINAL_LINK#Argo-$NODE_NAME"
-    echo -e "\n\${GREEN}您的 Argo VLESS 訂閱連結為:\${NC}"
-    echo -e "\${GREEN}$FINAL_LINK\${NC}\n"
-else
-    echo -e "\${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...\${NC}"
-    systemctl stop cloudflared-argo &> /dev/null
-    
-    # 寫入 systemd 臨時隧道服務
-    cat <<EOF > /etc/systemd/system/cloudflared-argo.service
-[Unit]
-Description=Cloudflare Argo Temporary Tunnel for VLESS
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/cloudflared tunnel --url http://127.0.0.1:$VLESS_PORT
-Restart=always
-RestartSec=5
-StandardOutput=file:/var/log/cloudflared-argo.log
-StandardError=file:/var/log/cloudflared-argo.log
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    touch /var/log/cloudflared-argo.log
-    systemctl daemon-reload
-    systemctl enable cloudflared-argo
-    systemctl start cloudflared-argo
-    
-    echo "正在等待 Cloudflare 分配臨時域名 (約需 10-15 秒)..."
-    TEMP_DOMAIN=""
-    for i in {1..15}; do
-        sleep 1
-        TEMP_DOMAIN=$(grep -oE 'https://[a-zA-Z0-9-]+\\.trycloudflare\\.com' /var/log/cloudflared-argo.log | head -n 1 | sed 's/https:\\/\\///')
-        if [ -n "$TEMP_DOMAIN" ]; then
-            break
-        fi
-    done
-    
-    if [ -n "$TEMP_DOMAIN" ]; then
-        echo -e "\${GREEN}獲取域名成功: \$TEMP_DOMAIN\${NC}"
-        FINAL_LINK="vless://$VLESS_UUID@\$TEMP_DOMAIN:443?encryption=none&security=tls&type=$VLESS_TYPE&host=\$TEMP_DOMAIN"
-        if [ "$VLESS_TYPE" = "ws" ]; then
-            FINAL_LINK="$FINAL_LINK&path=$(echo -n "$VLESS_PATH" | jq -s -R -r @uri 2>/dev/null || echo -n "$VLESS_PATH")"
-        fi
-        FINAL_LINK="$FINAL_LINK#Argo-Temp-$NODE_NAME"
-        
-        echo -e "\n\${GREEN}=== 部署成功 ===\${NC}"
-        echo -e "原節點名稱: $NODE_NAME"
-        echo -e "轉發連接埠: $VLESS_PORT"
-        echo -e "您的臨時 Argo 節點 VLESS 連結為 (注意：VPS 重啟或重開服務後域名會刷新):"
-        echo -e "\${GREEN}\$FINAL_LINK\${NC}\n"
-    else
-        echo -e "\${RED}錯誤: 獲取臨時域名超時！請執行 'cat /var/log/cloudflared-argo.log' 檢查日誌。\${NC}"
-    fi
-fi
-`;
-}
-
-async function main() {
-  console.log('==============================================');
-  console.log('      VLESS -> Cloudflare Argo 轉換工具');
-  console.log('==============================================');
-
-  const input = await question('請輸入訂閱地址、多個 VLESS 節點、或儲存配置的訂閱網址:\n> ');
-  if (!input.trim()) {
-    console.log('輸入不能為空。');
-    rl.close();
-    return;
-  }
-
-  const nodes = await fetchAndParse(input);
-  if (nodes.length === 0) {
-    console.log('未找到任何有效的 VLESS 節點。');
-    rl.close();
-    return;
-  }
-
-  console.log(`\n成功解析出 ${nodes.length} 個 VLESS 節點:`);
-  nodes.forEach((node, i) => {
-    console.log(`  [${i + 1}] ${node.name} (${node.server}:${node.port}, 傳輸協定: ${node.type})`);
-  });
-
-  const select = await question('\n請選擇要複製並轉換的節點 (輸入數字並用逗號隔開，例如: 1,3 ；或輸入 all 代表全部):\n> ');
-  let selectedNodes: VlessNode[] = [];
-  if (select.trim().toLowerCase() === 'all') {
-    selectedNodes = nodes;
-  } else {
-    const indices = select.split(',').map(s => parseInt(s.trim()) - 1);
-    selectedNodes = indices.map(idx => nodes[idx]).filter(Boolean);
-  }
-
-  if (selectedNodes.length === 0) {
-    console.log('選擇無效，程式結束。');
-    rl.close();
-    return;
-  }
-
-  console.log(`\n已選擇 ${selectedNodes.length} 個節點進行轉換...`);
-
-  // 本地連接埠設定
-  const port = await question('\n1. 請輸入該 VLESS 節點在 VPS 上監聽的本地連接埠 (預設 8080，請與 mack-a 配置一致):\n> ') || '8080';
-
-  // Argo Tunnel 授權設定
-  console.log('\n2. 隧道設定（直接斷行即代表隨機生成臨時隧道）：');
-  const token = await question('   請貼上您的 Cloudflare Tunnel Token (選填):\n   > ');
-
-  let domain = '';
-  if (token.trim()) {
-    domain = await question('   請輸入該隧道綁定的自訂域名 (例如: vless.domain.com):\n   > ');
-    if (!domain.trim()) {
-      console.log('   錯誤: 固定隧道模式必須提供自訂域名。');
-      rl.close();
-      return;
-    }
-  }
-
-  // 建立腳本存放目錄
-  const outputDir = path.join(process.cwd(), 'argo_outputs');
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir);
-  }
-
-  const generatedNodes: string[] = [];
-
-  for (const node of selectedNodes) {
-    // 保留原本節點
-    generatedNodes.push(node.originalLink);
-
-    // 生成並寫入一鍵 VPS 腳本
-    const vpsScript = generateVpsScript(node, port, token, domain);
-    const safeNodeName = node.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
-    const scriptPath = path.join(outputDir, `argo-install-${safeNodeName}.sh`);
-    
-    fs.writeFileSync(scriptPath, vpsScript, { encoding: 'utf8', mode: 0o755 });
-    console.log(`\n[✓] 成功生成 VPS 安裝腳本: ${scriptPath}`);
-
-    // 如果是固定隧道，可以直接在本地計算出新的 Argo 節點
-    if (token.trim() && domain.trim()) {
-      const argoLink = `vless://${node.uuid}@${domain.trim()}:443?encryption=none&security=tls&type=${node.type}&host=${domain.trim()}${node.type === 'ws' ? `&path=${encodeURIComponent(node.path)}` : ''}#Argo-${node.name}`;
-      generatedNodes.push(argoLink);
-      console.log(`    └─ 同步生成 Argo 節點連結: ${argoLink}`);
-    } else {
-      console.log(`    └─ 臨時隧道模式：節點連結需在 VPS 上執行腳本後動態輸出。`);
-    }
-  }
-
-  // 如果有生成固定隧道的節點，將新舊節點整合寫入訂閱文件
-  if (generatedNodes.length > selectedNodes.length) {
-    const subPath = path.join(outputDir, 'argo_subscription.txt');
-    fs.writeFileSync(subPath, generatedNodes.join('\n'), 'utf8');
-    const base64Sub = Buffer.from(generatedNodes.join('\n')).toString('base64');
-    fs.writeFileSync(path.join(outputDir, 'argo_subscription_base64.txt'), base64Sub, 'utf8');
-    
-    console.log(`\n[✓] 整合訂閱已生成（含原節點 + 新 Argo 節點）:`);
-    console.log(`    - 明文列表: ${path.join(outputDir, 'argo_subscription.txt')}`);
-    console.log(`    - Base64 格式: ${path.join(outputDir, 'argo_subscription_base64.txt')}`);
-  }
-
-  console.log('\n==============================================');
-  console.log('部署說明：');
-  console.log('1. 請將 argo_outputs 目錄內對應的 .sh 腳本上傳至您的 VPS。');
-  console.log('2. 執行命令賦予執行權限並啟動：');
-  console.log('   chmod +x argo-install-*.sh && ./argo-install-*.sh');
-  console.log('==============================================');
-
-  rl.close();
-}
-
-main();
-
-````
-
-## File: wrangler.toml
-````toml
-name = "my-sub-converter"
-main = "src/index.ts"
-compatibility_date = "2024-04-01"
-
-[placement]
-mode = "smart"
-
-[[kv_namespaces]]
-binding = "SUB_CACHE"
-id = "KV_ID_PLACEHOLDER"
+## File: .github/workflows/deploy.yml
+````yml
+# .github/workflows/deploy.yml
+name: Deploy to Cloudflare Workers
+
+on:
+  # 1. 當推送到 main 或 master 分支時自動執行
+  push:
+    branches:
+      - main
+      - master
+  
+  # 2. 保留手動執行按鈕
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      # 已將 Node.js 環境升級至 Node 24 以消除棄用警告
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          # 暫時移除 cache: 'npm'，避免因缺少 package-lock.json 報錯
+
+      # 替換成相容無鎖定檔的普通安裝（加入 --prefer-offline 稍微加速）
+      - name: Install dependencies
+        run: npm install --prefer-offline
+
+      # 替換 KV ID
+      - name: Inject KV ID from Secrets
+        run: |
+          sed -i 's/KV_ID_PLACEHOLDER/${{ secrets.CF_KV_ID }}/g' wrangler.toml
+
+      # 部署步驟
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
 
 ````
 

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep  2 14:31:14 UTC 2026
+Generated on: Wed Sep  2 14:31:54 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -3730,7 +3730,7 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
 ````json
 {
   "name": "cf-sub-converter",
-  "version": "3.1.2",
+  "version": "3.2.0",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",

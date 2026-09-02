@@ -8,3 +8,7 @@ mode = "smart"
 [[kv_namespaces]]
 binding = "SUB_CACHE"
 id = "KV_ID_PLACEHOLDER"
+
+[vars]
+# 💥 私密管理密碼（選填）：設定後將保護「已儲存的配置」管理區域，避免他人檢視或竄改
+# PAGE_PASSWORD = "your_secret_password"

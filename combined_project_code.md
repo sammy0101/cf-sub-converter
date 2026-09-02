@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep  2 07:37:11 UTC 2026
+Generated on: Wed Sep  2 13:56:31 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -2817,6 +2817,7 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
 ````ts
 export interface Env {
   SUB_CACHE: KVNamespace;
+  PAGE_PASSWORD?: string;
 }
 
 export interface WireGuardConfig {
@@ -2870,6 +2871,7 @@ export interface CachedTemplate {
   content: string;
   updatedAt: number;
 }
+
 ````
 
 ## File: src/generator.ts

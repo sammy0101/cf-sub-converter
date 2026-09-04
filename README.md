@@ -206,7 +206,7 @@ https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox&force=1
 | ⚡ | 專線加速 | 自動彙整包含 `IPLC` / `IEPL` / `專線` 的低延遲節點 |
 | 🚀 | 節點選擇 | 手動指定出站節點 |
 | ⚡ | 自動選擇 | URL Test 自動測速切換最低延遲節點 |
-| 💬 | AI 服務 | 針對 OpenAI / Claude / Gemini / AI Studio 專屬分流 |
+| 💬 | 香港AI 服務 | 針對 OpenAI / Claude / AI Studio 專屬分流 |
 | 🍎 | 蘋果服務 | Apple 相關服務直連或代理 |
 | Ⓜ️ | 微軟服務 | Microsoft 服務直連或代理 |
 | 🎮 | 遊戲平台 | Steam / Epic / EA / Ubisoft / Blizzard |

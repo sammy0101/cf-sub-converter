@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sat Sep  5 16:04:48 UTC 2026
+Generated on: Sat Sep  5 16:09:08 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -2704,7 +2704,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
   const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox', FALLBACK_SINGBOX_RULES, env, forceRefresh);
   const config = JSON.parse(text);
   
-  // 1. 自動補全 Sing-Box 1.14+ 規範之 http_clients
   if (!config.http_clients || !Array.isArray(config.http_clients) || config.http_clients.length === 0) {
     config.http_clients = [{ tag: 'default' }];
   } else {
@@ -2715,7 +2714,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 2. 自動淨化 DNS 規範
   if (config.dns) {
     config.dns.final = 'local-dns';
     if (Array.isArray(config.dns.servers)) {
@@ -2729,7 +2727,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     }
   }
 
-  // 3. 自動補充 route.default_domain_resolver 與 default_http_client
   if (!config.route) config.route = {};
   config.route.default_domain_resolver = 'local-dns';
   config.route.default_http_client = 'default';
@@ -2740,7 +2737,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 4. 自動清理 inbounds
   if (Array.isArray(config.inbounds)) {
     config.inbounds.forEach((ib: Record<string, unknown>) => {
       delete ib.sniff;
@@ -2748,7 +2744,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 5. 確保出站節點的 WebSocket ALPN 正確保留
   const outbounds = nodes.map(n => {
     const obj = JSON.parse(JSON.stringify(n.singboxObj));
     if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {
@@ -2844,7 +2839,7 @@ export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env, forceRe
   return yaml.dump(config, { indent: 2, noRefs: true });
 }
 
-// --- Surge 5 配置生成 (完整無漏節點與分組) ---
+// --- Surge 5 配置生成 ---
 export function toSurge(nodes: ProxyNode[]): string {
   const lines: string[] = ['[Proxy]'];
   const nodeNames: string[] = [];
@@ -2870,7 +2865,6 @@ export function toSurge(nodes: ProxyNode[]): string {
         if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
       }
     } else if (node.type === 'vless') {
-      // 💥 完整保留輸出並確保 ws-headers 齊全
       line = `${name} = vless, ${node.server}, ${node.port}, username=${node.uuid}, tls=${node.tls ? 'true' : 'false'}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
       if (node.network === 'ws') {
         line += `, ws=true, ws-path=${node.wsPath || '/'}`;
@@ -2880,9 +2874,6 @@ export function toSurge(nodes: ProxyNode[]): string {
       line = `${name} = hysteria2, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
     } else if (node.type === 'tuic') {
       line = `${name} = tuic, ${node.server}, ${node.port}, token=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}`;
-    } else if (node.type === 'wireguard' && node.wireguard) {
-      const wg = node.wireguard;
-      line = `${name} = wireguard, section-name=${name}`;
     }
 
     if (line) {
@@ -2891,7 +2882,6 @@ export function toSurge(nodes: ProxyNode[]): string {
     }
   }
 
-  // 💥 策略組完整寫入全部節點清單
   lines.push('\n[Proxy Group]');
   if (nodeNames.length > 0) {
     lines.push(`🚀 節點選擇 = select, ⚡ 自動選擇, DIRECT, ${nodeNames.join(', ')}`);
@@ -2909,23 +2899,38 @@ export function toSurge(nodes: ProxyNode[]): string {
   return lines.join('\n');
 }
 
-// --- Quantumult X (server_remote) ---
+// --- Quantumult X (server_remote) 完整修復版 ---
 export function toQuantumultX(nodes: ProxyNode[]): string {
   const lines: string[] = [];
 
   for (const node of nodes) {
+    const name = node.name.replace(/[,=]/g, '').trim();
+
     if (node.type === 'shadowsocks') {
-      lines.push(`shadowsocks=${node.server}:${node.port}, method=${node.cipher}, password=${node.password}, fast-open=false, udp-relay=true, tag=${node.name}`);
+      lines.push(`shadowsocks=${node.server}:${node.port}, method=${node.cipher}, password=${node.password}, fast-open=false, udp-relay=true, tag=${name}`);
     } else if (node.type === 'trojan') {
-      lines.push(`trojan=${node.server}:${node.port}, password=${node.password}, over-tls=true, tls-host=${node.sni || node.server}, fast-open=false, udp-relay=true, tag=${node.name}`);
+      lines.push(`trojan=${node.server}:${node.port}, password=${node.password}, over-tls=true, tls-host=${node.sni || node.server}, fast-open=false, udp-relay=true, tag=${name}`);
     } else if (node.type === 'vmess') {
-      let vmessLine = `vmess=${node.server}:${node.port}, method=none, password=${node.uuid}, fast-open=false, udp-relay=true, tag=${node.name}`;
+      let vmessLine = `vmess=${node.server}:${node.port}, method=none, password=${node.uuid}, fast-open=false, udp-relay=true, tag=${name}`;
       if (node.tls) vmessLine += `, over-tls=true, tls-host=${node.sni || node.server}`;
       if (node.network === 'ws') vmessLine += `, obfs=ws, obfs-uri=${node.wsPath || '/'}`;
       lines.push(vmessLine);
+    } else if (node.type === 'vless') {
+      // 💥 補全圈 X 格式之 VLESS 相容輸出
+      let vlessLine = `vless=${node.server}:${node.port}, method=none, password=${node.uuid}, fast-open=false, udp-relay=true, tag=${name}`;
+      if (node.tls) vlessLine += `, over-tls=true, tls-host=${node.sni || node.server}`;
+      if (node.network === 'ws') {
+        vlessLine += `, obfs=ws, obfs-uri=${node.wsPath || '/'}`;
+        if (node.wsHeaders?.Host) vlessLine += `, obfs-host=${node.wsHeaders.Host}`;
+      }
+      lines.push(vlessLine);
     } else if (node.type === 'hysteria2') {
-      lines.push(`hysteria2=${node.server}:${node.port}, password=${node.password}, tls-host=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, tag=${node.name}`);
+      lines.push(`hysteria2=${node.server}:${node.port}, password=${node.password}, tls-host=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, tag=${name}`);
     }
+  }
+
+  if (lines.length === 0) {
+    return '# 未在該訂閱中找到相容的節點';
   }
 
   return lines.join('\n');

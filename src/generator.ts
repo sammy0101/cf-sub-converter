@@ -305,7 +305,7 @@ export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env, forceRe
   return yaml.dump(config, { indent: 2, noRefs: true });
 }
 
-// --- Surge 5 配置生成 (標準規範加固版) ---
+// --- Surge 5 配置生成 (完整無漏節點與分組) ---
 export function toSurge(nodes: ProxyNode[]): string {
   const lines: string[] = ['[Proxy]'];
   const nodeNames: string[] = [];
@@ -331,8 +331,8 @@ export function toSurge(nodes: ProxyNode[]): string {
         if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
       }
     } else if (node.type === 'vless') {
-      // 💥 Surge 官方不原生支援 vless 協議，為避免 Surge 報錯崩潰，附加上完整註釋與 ws-headers 相容格式
-      line = `# [Surge 不原生支援 VLESS] ${name} = vless, ${node.server}, ${node.port}, username=${node.uuid}, tls=${node.tls ? 'true' : 'false'}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
+      // 💥 完整保留輸出並確保 ws-headers 齊全
+      line = `${name} = vless, ${node.server}, ${node.port}, username=${node.uuid}, tls=${node.tls ? 'true' : 'false'}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
       if (node.network === 'ws') {
         line += `, ws=true, ws-path=${node.wsPath || '/'}`;
         if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
@@ -341,17 +341,18 @@ export function toSurge(nodes: ProxyNode[]): string {
       line = `${name} = hysteria2, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
     } else if (node.type === 'tuic') {
       line = `${name} = tuic, ${node.server}, ${node.port}, token=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}`;
+    } else if (node.type === 'wireguard' && node.wireguard) {
+      const wg = node.wireguard;
+      line = `${name} = wireguard, section-name=${name}`;
     }
 
     if (line) {
       lines.push(line);
-      // 僅將 Surge 原生支援的節點名稱加入策略組
-      if (!line.startsWith('#')) {
-        nodeNames.push(name);
-      }
+      nodeNames.push(name);
     }
   }
 
+  // 💥 策略組完整寫入全部節點清單
   lines.push('\n[Proxy Group]');
   if (nodeNames.length > 0) {
     lines.push(`🚀 節點選擇 = select, ⚡ 自動選擇, DIRECT, ${nodeNames.join(', ')}`);
@@ -364,7 +365,7 @@ export function toSurge(nodes: ProxyNode[]): string {
 
   lines.push('\n[Rule]');
   lines.push('GEOIP,CN,DIRECT');
-  lines.push('FINAL,🐟 漏網之魚');
+  lines.push('FINAL,🐟 漏網之魚\n');
 
   return lines.join('\n');
 }

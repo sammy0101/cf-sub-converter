@@ -160,12 +160,12 @@ async function fetchTemplateWithSWR(
   return fallbackJsonStr;
 }
 
-// --- Sing-Box 配置生成 (含自動語法淨化與規範修正) ---
+// --- Sing-Box 配置生成 ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
   const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox', FALLBACK_SINGBOX_RULES, env, forceRefresh);
   const config = JSON.parse(text);
   
-  // 💥 1. 自動補全 Sing-Box 1.14+ 規範之 http_clients (移除 detour: direct 以杜絕 empty direct outbound 錯誤)
+  // 1. 自動補全 Sing-Box 1.14+ 規範之 http_clients
   if (!config.http_clients || !Array.isArray(config.http_clients) || config.http_clients.length === 0) {
     config.http_clients = [{ tag: 'default' }];
   } else {
@@ -176,7 +176,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 💥 2. 自動淨化 DNS 規範
+  // 2. 自動淨化 DNS 規範
   if (config.dns) {
     config.dns.final = 'local-dns';
     if (Array.isArray(config.dns.servers)) {
@@ -190,7 +190,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     }
   }
 
-  // 💥 3. 自動補充 route.default_domain_resolver 與 default_http_client
+  // 3. 自動補充 route.default_domain_resolver 與 default_http_client
   if (!config.route) config.route = {};
   config.route.default_domain_resolver = 'local-dns';
   config.route.default_http_client = 'default';
@@ -201,7 +201,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 💥 4. 自動清理 inbounds
+  // 4. 自動清理 inbounds
   if (Array.isArray(config.inbounds)) {
     config.inbounds.forEach((ib: Record<string, unknown>) => {
       delete ib.sniff;
@@ -209,7 +209,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 💥 5. 確保出站節點的 WebSocket ALPN 正確保留
+  // 5. 確保出站節點的 WebSocket ALPN 正確保留
   const outbounds = nodes.map(n => {
     const obj = JSON.parse(JSON.stringify(n.singboxObj));
     if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {
@@ -305,35 +305,61 @@ export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env, forceRe
   return yaml.dump(config, { indent: 2, noRefs: true });
 }
 
-// --- Surge 5 配置生成 ---
+// --- Surge 5 配置生成 (標準規範加固版) ---
 export function toSurge(nodes: ProxyNode[]): string {
   const lines: string[] = ['[Proxy]'];
   const nodeNames: string[] = [];
 
   for (const node of nodes) {
     let line = '';
-    const name = node.name.replace(/,/g, '');
+    const name = node.name.replace(/[,=]/g, '').trim();
+
     if (node.type === 'shadowsocks') {
       line = `${name} = ss, ${node.server}, ${node.port}, encrypt-method=${node.cipher}, password=${node.password}, udp-relay=true`;
       if (node.sni) line += `, sni=${node.sni}`;
     } else if (node.type === 'trojan') {
       line = `${name} = trojan, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
+      if (node.network === 'ws') {
+        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
+        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
+      }
+    } else if (node.type === 'vmess') {
+      line = `${name} = vmess, ${node.server}, ${node.port}, username=${node.uuid}, tls=${node.tls ? 'true' : 'false'}, udp-relay=true`;
+      if (node.sni) line += `, sni=${node.sni}`;
+      if (node.network === 'ws') {
+        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
+        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
+      }
     } else if (node.type === 'vless') {
-      line = `${name} = vless, ${node.server}, ${node.port}, username=${node.uuid}, tls=${node.tls ? 'true' : 'false'}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
-      if (node.network === 'ws') line += `, ws=true, ws-path=${node.wsPath || '/'}`;
+      // 💥 Surge 官方不原生支援 vless 協議，為避免 Surge 報錯崩潰，附加上完整註釋與 ws-headers 相容格式
+      line = `# [Surge 不原生支援 VLESS] ${name} = vless, ${node.server}, ${node.port}, username=${node.uuid}, tls=${node.tls ? 'true' : 'false'}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
+      if (node.network === 'ws') {
+        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
+        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
+      }
     } else if (node.type === 'hysteria2') {
       line = `${name} = hysteria2, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
+    } else if (node.type === 'tuic') {
+      line = `${name} = tuic, ${node.server}, ${node.port}, token=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}`;
     }
 
     if (line) {
       lines.push(line);
-      nodeNames.push(name);
+      // 僅將 Surge 原生支援的節點名稱加入策略組
+      if (!line.startsWith('#')) {
+        nodeNames.push(name);
+      }
     }
   }
 
   lines.push('\n[Proxy Group]');
-  lines.push(`🚀 節點選擇 = select, ⚡ 自動選擇, DIRECT, ${nodeNames.join(', ')}`);
-  lines.push(`⚡ 自動選擇 = url-test, ${nodeNames.join(', ')}, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50`);
+  if (nodeNames.length > 0) {
+    lines.push(`🚀 節點選擇 = select, ⚡ 自動選擇, DIRECT, ${nodeNames.join(', ')}`);
+    lines.push(`⚡ 自動選擇 = url-test, ${nodeNames.join(', ')}, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50`);
+  } else {
+    lines.push(`🚀 節點選擇 = select, DIRECT`);
+    lines.push(`⚡ 自動選擇 = select, DIRECT`);
+  }
   lines.push(`🐟 漏網之魚 = select, 🚀 節點選擇, DIRECT`);
 
   lines.push('\n[Rule]');

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 13:43:13 UTC 2026
+Generated on: Sun Sep  6 13:50:02 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3014,7 +3014,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (wg.presharedKey) params.set('presharedkey', wg.presharedKey);
         params.set('mtu', String(wg.mtu || 1420));
         params.set('keepalive', '25');
-        return `wireguard://${encodeURIComponent(wg.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+        return `wireguard://${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
       if (node.type === 'masque' && node.masque) {
         const m = node.masque;
@@ -3133,29 +3133,21 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
 
   nodes.forEach(n => {
     allNodeTags.push(n.name);
-    // 💥 嚴格遵循 Sing-Box 官方規格：
-    // 1. 欄位名為 address（不是 local_address）
-    // 2. 對端資訊在 peers 陣列中，欄位為 address, port, public_key, allowed_ips
+    
+    // 💥 官方經典標準：在 outbounds 裡宣告 WireGuard，使用標準欄位名稱
     if (n.type === 'wireguard' && n.wireguard) {
       const wg = n.wireguard;
-      const peerObj: Record<string, unknown> = {
-        address: n.server,
-        port: n.port,
-        public_key: wg.publicKey,
-        allowed_ips: ["0.0.0.0/0", "::/0"],
-        persistent_keepalive_interval: 25
-      };
-      if (wg.presharedKey) peerObj.pre_shared_key = wg.presharedKey;
-      if (wg.reserved && wg.reserved.length > 0) peerObj.reserved = wg.reserved;
-
       const wgOutbound: Record<string, unknown> = {
         type: 'wireguard',
         tag: n.name,
-        address: wg.localAddress,
+        server: n.server,
+        server_port: n.port,
+        local_address: wg.localAddress,
         private_key: wg.privateKey,
-        peers: [peerObj],
+        peer_public_key: wg.publicKey,
         mtu: wg.mtu || 1420
       };
+      if (wg.presharedKey) wgOutbound.pre_shared_key = wg.presharedKey;
       outbounds.push(wgOutbound);
     } else {
       const obj = JSON.parse(JSON.stringify(n.singboxObj));

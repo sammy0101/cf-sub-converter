@@ -160,7 +160,7 @@ async function fetchTemplateWithSWR(
   return fallbackJsonStr;
 }
 
-// --- Sing-Box 配置生成 (💥 WireGuard 自動歸入頂層 endpoints[]) ---
+// --- Sing-Box 配置生成 (💥 確保 WireGuard 具備 detour: "direct") ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
   const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox', FALLBACK_SINGBOX_RULES, env, forceRefresh);
   const config = JSON.parse(text);
@@ -209,13 +209,16 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 💥 5. 核心分流：WireGuard 節點歸入頂層 endpoints[]，代理節點歸入 outbounds[]
+  // 💥 5. 核心分流：WireGuard 節點歸入頂層 endpoints[]，並確保 detour: direct 解決 Windows 報錯
   const wireguardEndpoints: Record<string, unknown>[] = [];
   const proxyOutbounds: Record<string, unknown>[] = [];
 
   nodes.forEach(n => {
     if (n.type === 'wireguard') {
-      wireguardEndpoints.push(JSON.parse(JSON.stringify(n.singboxObj)));
+      const wgObj = JSON.parse(JSON.stringify(n.singboxObj));
+      // 確保具備 detour: direct 避免 Windows 報錯
+      wgObj.detour = 'direct';
+      wireguardEndpoints.push(wgObj);
     } else {
       const obj = JSON.parse(JSON.stringify(n.singboxObj));
       if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {
@@ -235,7 +238,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
   if (!Array.isArray(config.outbounds)) config.outbounds = [];
   config.outbounds.push(...proxyOutbounds);
 
-  // 所有節點（含 WireGuard endpoint 與一般出站）之名稱皆自動寫入 selector
   const allNodeTags = nodes.map(n => n.name);
 
   const lowRateTags = nodes.filter(n => n.multiplier !== undefined && n.multiplier < 1.0).map(n => n.name);
@@ -319,7 +321,7 @@ export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env, forceRe
   return yaml.dump(config, { indent: 2, noRefs: true });
 }
 
-// --- Surge 5 配置生成 (完整支援 WireGuard 獨立 Section) ---
+// --- Surge 5 配置生成 ---
 export function toSurge(nodes: ProxyNode[]): string {
   const lines: string[] = ['[Proxy]'];
   const nodeNames: string[] = [];

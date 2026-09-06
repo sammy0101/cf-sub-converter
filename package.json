@@ -1,6 +1,6 @@
 {
   "name": "cf-sub-converter",
-  "version": "3.2.2",
+  "version": "3.5.0",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 13:07:08 UTC 2026
+Generated on: Sun Sep  6 13:19:40 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3708,7 +3708,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
           </div>
-          <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · 掃碼自動填入名稱與網址</div></div>
+          <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · 掃碼同時自動填寫名稱與網址</div></div>
           <div class="result-input-wrapper"><input type="text" id="singboxUrl" readonly></div>
           <div class="result-actions">
             <button class="btn-icon" onclick="copyResult('singboxUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
@@ -4183,12 +4183,13 @@ export const HTML_PAGE = `<!DOCTYPE html>
       var exclude = document.getElementById('excludeKeywords').value.trim();
       var rename = document.getElementById('renameKeywords').value.trim();
       
-      var proceed = function(baseUrl) {
+      var proceed = function(baseUrl, displayName) {
         var sep = baseUrl.indexOf('?') !== -1 ? '&' : '?';
+        var hash = displayName ? ('#' + encodeURIComponent(displayName)) : '';
 
         var buildUrl = function(target) {
-          if (!target) return baseUrl;
-          return baseUrl + sep + 'target=' + target;
+          if (!target) return baseUrl + hash;
+          return baseUrl + sep + 'target=' + target + hash;
         };
 
         document.getElementById('adaptiveUrl').value = buildUrl('');
@@ -4209,7 +4210,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify({ path: shortCode, content: raw, include: include, exclude: exclude, rename: rename }) 
         }).then(function() {
-          proceed(host + '/' + shortCode);
+          proceed(host + '/' + shortCode, shortCode);
         }).catch(function() {
           showToast('短連結儲存失敗，請檢查 KV 配置', false);
         });
@@ -4218,11 +4219,11 @@ export const HTML_PAGE = `<!DOCTYPE html>
         if (include) bUrl += '&include=' + encodeURIComponent(include);
         if (exclude) bUrl += '&exclude=' + encodeURIComponent(exclude);
         if (rename) bUrl += '&rename=' + encodeURIComponent(rename);
-        proceed(bUrl);
+        proceed(bUrl, '');
       }
     }
 
-    // 💥 完美適配 Sing-Box 與各客戶端的二維碼與喚醒機制
+    // 💥 完美二維碼：針對 Sing-Box 精確繪製 sing-box:// 官方協議，各掃描器一掃秒填名稱與 URL！
     function showQr(id, clientType) {
       if (!clientType) clientType = 'auto';
       var rawUrl = document.getElementById(id).value;
@@ -4232,20 +4233,20 @@ export const HTML_PAGE = `<!DOCTYPE html>
       if (!profileName) {
         try {
           var u = new URL(rawUrl);
-          profileName = decodeURIComponent(u.pathname.slice(1)) || 'SubConverter';
+          profileName = decodeURIComponent(u.hash.slice(1)) || decodeURIComponent(u.pathname.slice(1)) || 'SubConverter';
         } catch {
           profileName = 'SubConverter';
         }
       }
       
       var cleanHttpUrl = rawUrl.split('#')[0];
-      var qrTargetText = cleanHttpUrl;
-      var deepLink = cleanHttpUrl;
+      var qrTargetText = rawUrl;
+      var deepLink = rawUrl;
       var displayTitle = '掃碼導入配置';
       var clientName = '客戶端';
 
       if (clientType === 'singbox') {
-        // 💥 關鍵核心：二維碼必須編碼為 sing-box:// 官方協議，App 內建掃描器才能同時填寫「名稱」與「URL」
+        // 💥 二維碼繪製官方協議：手機相機與 Sing-Box App 掃描器都能自動填入「名稱」與「URL」
         deepLink = 'sing-box://import-remote-profile?url=' + encodeURIComponent(cleanHttpUrl) + '&name=' + encodeURIComponent(profileName);
         qrTargetText = deepLink;
         displayTitle = 'Sing-Box 專屬掃碼導入';
@@ -4272,7 +4273,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
         clientName = 'Loon';
       } else if (clientType === 'shadowrocket') {
         deepLink = 'shadowrocket://add/sub://' + btoa(cleanHttpUrl) + '?remark=' + encodeURIComponent(profileName);
-        // 小火箭掃碼器識別 URL 尾端的 Hash 作為分組名稱
         qrTargetText = cleanHttpUrl + '#' + encodeURIComponent(profileName);
         displayTitle = 'Shadowrocket 專屬導入';
         clientName = 'Shadowrocket';
@@ -4297,7 +4297,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
         '</style>' +
         '</head><body>' +
         '<h2>' + displayTitle + '</h2>' +
-        '<p>使用 ' + clientName + ' 內建掃描器或相機掃描</p>' +
+        '<p>使用手機相機或對應客戶端掃描二維碼</p>' +
         '<div id="qrcode"></div>' +
         '<a href="' + deepLink + '" class="btn">🚀 一鍵打開並導入 ' + clientName + '</a>' +
         '<button onclick="window.close()" class="btn btn-ghost">關閉視窗</button>' +

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 06:07:44 UTC 2026
+Generated on: Sun Sep  6 06:08:50 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -2850,11 +2850,12 @@ async function fetchTemplateWithSWR(
   return fallbackJsonStr;
 }
 
-// --- Sing-Box 配置生成 ---
+// --- Sing-Box 配置生成 (💥 WireGuard 自動歸入頂層 endpoints[]) ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
   const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox', FALLBACK_SINGBOX_RULES, env, forceRefresh);
   const config = JSON.parse(text);
   
+  // 1. 自動補全 Sing-Box 1.14+ 規範之 http_clients
   if (!config.http_clients || !Array.isArray(config.http_clients) || config.http_clients.length === 0) {
     config.http_clients = [{ tag: 'default' }];
   } else {
@@ -2865,6 +2866,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
+  // 2. 自動淨化 DNS 規範
   if (config.dns) {
     config.dns.final = 'local-dns';
     if (Array.isArray(config.dns.servers)) {
@@ -2878,6 +2880,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     }
   }
 
+  // 3. 自動補充 route.default_domain_resolver 與 default_http_client
   if (!config.route) config.route = {};
   config.route.default_domain_resolver = 'local-dns';
   config.route.default_http_client = 'default';
@@ -2888,6 +2891,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
+  // 4. 自動清理 inbounds
   if (Array.isArray(config.inbounds)) {
     config.inbounds.forEach((ib: Record<string, unknown>) => {
       delete ib.sniff;
@@ -2895,17 +2899,34 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  const outbounds = nodes.map(n => {
-    const obj = JSON.parse(JSON.stringify(n.singboxObj));
-    if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {
-      obj.tls.alpn = ['http/1.1'];
+  // 💥 5. 核心分流：WireGuard 節點歸入頂層 endpoints[]，代理節點歸入 outbounds[]
+  const wireguardEndpoints: Record<string, unknown>[] = [];
+  const proxyOutbounds: Record<string, unknown>[] = [];
+
+  nodes.forEach(n => {
+    if (n.type === 'wireguard') {
+      wireguardEndpoints.push(JSON.parse(JSON.stringify(n.singboxObj)));
+    } else {
+      const obj = JSON.parse(JSON.stringify(n.singboxObj));
+      if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {
+        obj.tls.alpn = ['http/1.1'];
+      }
+      proxyOutbounds.push(obj);
     }
-    return obj;
   });
 
-  const nodeTags = outbounds.map((o: Record<string, unknown>) => o.tag as string);
-  
+  if (wireguardEndpoints.length > 0) {
+    if (!config.endpoints || !Array.isArray(config.endpoints)) {
+      config.endpoints = [];
+    }
+    config.endpoints.push(...wireguardEndpoints);
+  }
+
   if (!Array.isArray(config.outbounds)) config.outbounds = [];
+  config.outbounds.push(...proxyOutbounds);
+
+  // 所有節點（含 WireGuard endpoint 與一般出站）之名稱皆自動寫入 selector
+  const allNodeTags = nodes.map(n => n.name);
 
   const lowRateTags = nodes.filter(n => n.multiplier !== undefined && n.multiplier < 1.0).map(n => n.name);
   const iplcTags = nodes.filter(n => n.isIplc).map(n => n.name);
@@ -2926,13 +2947,11 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  config.outbounds.push(...outbounds);
-
   config.outbounds.forEach((out: Record<string, unknown>) => {
     if (out.type === 'selector' || out.type === 'urltest') {
       if (!Array.isArray(out.outbounds)) out.outbounds = [];
       const arr = out.outbounds as string[];
-      nodeTags.forEach(tag => {
+      allNodeTags.forEach(tag => {
         if (!arr.includes(tag)) arr.push(tag);
       });
     }
@@ -2990,7 +3009,7 @@ export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env, forceRe
   return yaml.dump(config, { indent: 2, noRefs: true });
 }
 
-// --- Surge 5 配置生成 (完整支援 WireGuard Section 輸出) ---
+// --- Surge 5 配置生成 (完整支援 WireGuard 獨立 Section) ---
 export function toSurge(nodes: ProxyNode[]): string {
   const lines: string[] = ['[Proxy]'];
   const nodeNames: string[] = [];
@@ -3061,7 +3080,6 @@ export function toSurge(nodes: ProxyNode[]): string {
   lines.push('GEOIP,CN,DIRECT');
   lines.push('FINAL,🐟 漏網之魚\n');
 
-  // 若存在 WireGuard 節點，附加專屬區塊配置
   if (wgSections.length > 0) {
     lines.push(wgSections.join('\n'));
   }

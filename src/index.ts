@@ -401,11 +401,16 @@ export default {
     let includeParam = url.searchParams.get('include') || '';
     let excludeParam = url.searchParams.get('exclude') || '';
     let renameParam = url.searchParams.get('rename') || '';
+    let nameParam = url.searchParams.get('name') || '';
     const forceRefresh = url.searchParams.has('force') || url.searchParams.has('nocache');
 
     const path = decodeURIComponent(url.pathname.slice(1)); 
+    let detectedProfileName = nameParam;
 
     if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
+      if (!detectedProfileName) {
+        detectedProfileName = path;
+      }
       let stored = await env.SUB_CACHE.get(path);
       if (!stored && path !== path.toLowerCase()) {
         stored = await env.SUB_CACHE.get(path.toLowerCase());
@@ -598,6 +603,7 @@ export default {
       if (includeParam) filterQuery += `&include=${encodeURIComponent(includeParam)}`;
       if (excludeParam) filterQuery += `&exclude=${encodeURIComponent(excludeParam)}`;
       if (renameParam) filterQuery += `&rename=${encodeURIComponent(renameParam)}`;
+      if (detectedProfileName) filterQuery += `&name=${encodeURIComponent(detectedProfileName)}`;
 
       const htmlInfo = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>轉換完成</title><style>body{background:#0f172a;color:#f8fafc;font-family:sans-serif;padding:40px;text-align:center;}a{display:inline-block;margin:10px;padding:12px 24px;background:#3b82f6;color:#fff;text-decoration:none;border-radius:8px;}</style></head>
 <body>
@@ -652,13 +658,20 @@ export default {
       });
     }
 
-    const filename = `subscription${fileExt}`;
+    // 訂閱命名邏輯：優先使用短連結名稱 / 自訂名稱
+    const finalProfileName = detectedProfileName || 'subscription';
+    const filenameAscii = `${finalProfileName.replace(/[^a-zA-Z0-9_-]/g, '_')}${fileExt}`;
+    const filenameUtf8 = encodeURIComponent(`${finalProfileName}${fileExt}`);
+
     const responseHeaders: Record<string, string> = {
       'Content-Type': `${contentType}; charset=utf-8`, 
       'Access-Control-Allow-Origin': '*', 
+      'Access-Control-Expose-Headers': 'Content-Disposition, Profile-Title, Subscription-Title, Profile-Update-Interval, subscription-userinfo',
       'Cache-Control': 'no-store, no-cache, must-revalidate',
-      'Content-Disposition': `inline; filename="${filename}"`,
-      'Profile-Update-Interval': '3600',
+      'Content-Disposition': `inline; filename="${filenameAscii}"; filename*=UTF-8''${filenameUtf8}`,
+      'Profile-Title': finalProfileName,
+      'Subscription-Title': finalProfileName,
+      'profile-update-interval': '3600',
     };
 
     if (hasTrafficInfo) {

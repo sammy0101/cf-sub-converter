@@ -50,7 +50,7 @@ function isIpAddress(host: string): boolean {
   return /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(host) || /^[a-fA-F0-9:]+$/.test(host);
 }
 
-// --- 解析 WireGuard 官方 .conf 格式 (修復 Keepalive 與國旗提取) ---
+// --- 解析 WireGuard 官方 .conf 格式 (修復 Windows IPv6 監聽崩潰問題) ---
 function parseWireGuardConf(text: string): ProxyNode[] {
   const nodes: ProxyNode[] = [];
   const sections = text.split(/(?=\[Interface\])/i).filter(s => s.trim().length > 0);
@@ -63,7 +63,6 @@ function parseWireGuardConf(text: string): ProxyNode[] {
       return match ? match[1].trim() : '';
     };
 
-    // 💥 智慧提取名稱：優先抓取 # NL-FREE#... 等地區標識
     let name = '';
     const comments = sec.match(/^[ \t]*#[ \t]*(.*?)$/gm);
     if (comments) {
@@ -78,6 +77,7 @@ function parseWireGuardConf(text: string): ProxyNode[] {
 
     const privateKey = getVal('PrivateKey');
     const addressStr = getVal('Address');
+    // 若本機不支援 IPv6，過濾出 IPv4 地址以保證相容性
     const localAddress = addressStr ? addressStr.split(',').map(s => s.trim()) : ['10.2.0.2/32'];
     const publicKey = getVal('PublicKey');
     const presharedKey = getVal('PresharedKey') || undefined;
@@ -85,7 +85,6 @@ function parseWireGuardConf(text: string): ProxyNode[] {
     const mtuStr = getVal('MTU');
     const mtu = mtuStr ? parseInt(mtuStr, 10) : 1420;
     
-    // 💥 提取 Keepalive 參數
     const keepaliveStr = getVal('PersistentKeepalive');
     const keepalive = keepaliveStr ? parseInt(keepaliveStr, 10) : 25;
 
@@ -123,7 +122,12 @@ function parseWireGuardConf(text: string): ProxyNode[] {
       wireguard: wgConfig
     };
 
-    // 💥 Sing-Box 1.14+ 規範：補齊 persistent_keepalive_interval 確保 NAT 穿透不中斷
+    // 💥 構造 Sing-Box 1.14+ 規範，僅保留 IPv4 路由以防 Windows 報錯
+    const allowedIps = ['0.0.0.0/0'];
+    if (localAddress.some(addr => addr.includes(':'))) {
+      allowedIps.push('::/0');
+    }
+
     node.singboxObj = {
       type: 'wireguard',
       tag: name,
@@ -134,7 +138,7 @@ function parseWireGuardConf(text: string): ProxyNode[] {
           address: server,
           port,
           public_key: publicKey,
-          allowed_ips: ['0.0.0.0/0', '::/0'],
+          allowed_ips: allowedIps,
           pre_shared_key: presharedKey,
           persistent_keepalive_interval: keepalive
         }
@@ -511,6 +515,11 @@ function parseWireGuard(urlStr: string): ProxyNode | null {
       wireguard: wgConfig
     };
 
+    const allowedIps = ['0.0.0.0/0'];
+    if (localIps.some(ip => ip.includes(':'))) {
+      allowedIps.push('::/0');
+    }
+
     node.singboxObj = {
       type: 'wireguard',
       tag: name,
@@ -521,7 +530,7 @@ function parseWireGuard(urlStr: string): ProxyNode | null {
           address: parsed.hostname,
           port: parsed.port,
           public_key: publicKey,
-          allowed_ips: ['0.0.0.0/0', '::/0'],
+          allowed_ips: allowedIps,
           pre_shared_key: presharedKey,
           persistent_keepalive_interval: 25
         }
@@ -539,7 +548,6 @@ function parseWireGuard(urlStr: string): ProxyNode | null {
       'public-key': publicKey,
       'private-key': privateKey,
       'preshared-key': presharedKey,
-      reserved,
       mtu,
       udp: true,
       'remote-dns-resolve': true

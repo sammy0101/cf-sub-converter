@@ -50,7 +50,7 @@ function isIpAddress(host: string): boolean {
   return /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(host) || /^[a-fA-F0-9:]+$/.test(host);
 }
 
-// --- 解析 WireGuard 官方 .conf 格式 (💥 修復 Windows listen udp6 與 address family not supported 錯誤) ---
+// --- 解析 WireGuard 官方 .conf 格式 ---
 function parseWireGuardConf(text: string): ProxyNode[] {
   const nodes: ProxyNode[] = [];
   const sections = text.split(/(?=\[Interface\])/i).filter(s => s.trim().length > 0);
@@ -121,18 +121,16 @@ function parseWireGuardConf(text: string): ProxyNode[] {
       wireguard: wgConfig
     };
 
-    // 💥 關鍵修復 1：僅在客戶端包含 IPv6 時才加入 ::/0，純 IPv4 絕不加入以杜絕 address family not supported 錯誤
     const hasIpv6 = localAddress.some(addr => addr.includes(':'));
     const allowedIps = ['0.0.0.0/0'];
     if (hasIpv6) {
       allowedIps.push('::/0');
     }
 
-    // 💥 關鍵修復 2：加上 detour: "direct" 解決 Windows 平台下 listen udp6 invalid argument 錯誤
+    // 💥 移除 detour: direct 以消除 empty direct outbound 語法錯誤
     node.singboxObj = {
       type: 'wireguard',
       tag: name,
-      detour: 'direct',
       address: localAddress,
       private_key: privateKey,
       peers: [
@@ -525,7 +523,6 @@ function parseWireGuard(urlStr: string): ProxyNode | null {
     node.singboxObj = {
       type: 'wireguard',
       tag: name,
-      detour: 'direct',
       address: localIps,
       private_key: privateKey,
       peers: [
@@ -903,7 +900,6 @@ function parseTrojan(urlStr: string): ProxyNode | null {
 export async function parseContent(content: string): Promise<ProxyNode[]> {
   let plainText = content.replace(/^\uFEFF/, '').trim(); 
 
-  // 優先檢查是否為標準 WireGuard INI 配置 ([Interface] 與 [Peer])
   if (/\[Interface\]/i.test(plainText) && /\[Peer\]/i.test(plainText)) {
     const wgNodes = parseWireGuardConf(plainText);
     if (wgNodes.length > 0) {

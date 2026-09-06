@@ -4,7 +4,7 @@ export const REMOTE_CONFIG = {
   clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML'
 };
 
-// 方案 B1 內嵌緊急降級模板 (Sing-Box 1.14+ 規範)
+// 方案 B1 內嵌緊急降級模板 (純 IPv4 純淨版)
 export const FALLBACK_SINGBOX_RULES = JSON.stringify({
   log: { level: "info" },
   http_clients: [
@@ -15,7 +15,7 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
       { tag: "remote-dns", type: "https", server: "8.8.8.8", detour: "🚀 節點選擇" },
       { tag: "local-dns", type: "udp", server: "223.5.5.5" },
       { tag: "system-dns", type: "local" },
-      { tag: "fakeip-dns", type: "fakeip", inet4_range: "198.18.0.0/15", inet6_range: "fc00::/18" }
+      { tag: "fakeip-dns", type: "fakeip", inet4_range: "198.18.0.0/15" }
     ],
     rules: [
       { rule_set: "rs-ads", action: "reject" },
@@ -37,7 +37,7 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
     final: "local-dns",
     strategy: "ipv4_only"
   },
-  inbounds: [{ type: "tun", tag: "tun-in", interface_name: "tun0", auto_route: true, stack: "mixed" }],
+  inbounds: [{ type: "tun", tag: "tun-in", interface_name: "tun0", auto_route: true, address: ["172.19.0.1/30"], stack: "mixed" }],
   outbounds: [
     { type: "selector", tag: "🚀 節點選擇", outbounds: ["⚡ 自動選擇", "direct"] },
     { type: "urltest", tag: "⚡ 自動選擇", outbounds: [], url: "https://www.gstatic.com/generate_204", interval: "3m" },
@@ -166,9 +166,9 @@ export const HTML_PAGE = `<!DOCTYPE html>
     .fav-title { font-weight: 600; font-size: 0.95rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
     .fav-url { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .fav-actions { display: flex; gap: 8px; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); justify-content: flex-end; }
-    .empty-state { text-align: center; padding: 2rem; color: var(--text-muted); font-size: 0.9rem; border: 1px dashed var(--border); border-radius: var(--radius-md); }
+    .empty-state { text-align: center; padding: 2.5rem; color: var(--text-muted); font-size: 0.9rem; border: 1px dashed var(--border); border-radius: var(--radius-md); }
 
-    /* 💥 鎖定區域緊湊精緻美化樣式 */
+    /* 鎖定區域樣式 */
     .lock-card {
       background: radial-gradient(circle at top, rgba(59, 130, 246, 0.08) 0%, rgba(15, 23, 42, 0.5) 100%);
       border: 1px solid rgba(59, 130, 246, 0.25);
@@ -335,7 +335,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
         <!-- 自適應 -->
         <div class="result-item">
           <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1 4-10z"></path></svg>
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
           </div>
           <div class="result-info"><div class="result-name">自適應 (Auto)</div><div class="result-desc">自動識別客戶端協議</div></div>
           <div class="result-input-wrapper"><input type="text" id="adaptiveUrl" readonly></div>
@@ -528,7 +528,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
     var favs = [];
     var isFavLocked = false;
 
-    // 💥 恢復 localStorage：瀏覽器永久記住登入狀態，重開/刷新網頁均維持解鎖
     function getStoredPwd() {
       return localStorage.getItem('sub_fav_pwd') || '';
     }
@@ -557,7 +556,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
       });
     }
 
-    // 💥 精巧微縮的現代鎖定卡片
     function renderLockScreen() {
       var headerActions = document.getElementById('favHeaderActions');
       headerActions.innerHTML = '';
@@ -588,7 +586,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
       document.getElementById('favGrid').innerHTML = '<div class="empty-state">' + msg + '</div>';
     }
 
-    // 💥 解鎖並寫入 localStorage
     function unlockFavs() {
       var input = document.getElementById('lockPwdInput');
       var pwd = input ? input.value.trim() : '';
@@ -628,7 +625,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
       }
     }
 
-    // 💥 手動鎖定並清除 localStorage
     function lockFavs() {
       localStorage.removeItem('sub_fav_pwd');
       isFavLocked = true;
@@ -926,7 +922,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       fetch('/api/argo-generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: raw, indices, port, cleanIp, token, domain })
+        body: JSON.stringify({ url: raw, indices: indices, port: port, cleanIp: cleanIp, token: token, domain: domain })
       }).then(function(resp) {
         return resp.json();
       }).then(function(res) {

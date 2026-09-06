@@ -10,6 +10,7 @@ export interface WireGuardConfig {
   presharedKey?: string;
   mtu?: number;
   reserved?: number[];
+  dns?: string;
 }
 
 export interface MasqueConfig {
@@ -51,7 +52,7 @@ export interface ProxyNode {
   xhttpMode?: string;
   // WireGuard / WARP
   wireguard?: WireGuardConfig;
-  // 💥 Cloudflare WARP MASQUE
+  // Cloudflare WARP MASQUE
   masque?: MasqueConfig;
   // ECH (Encrypted Client Hello)
   ech?: boolean;

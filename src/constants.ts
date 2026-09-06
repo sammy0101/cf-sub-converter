@@ -827,42 +827,57 @@ export const HTML_PAGE = `<!DOCTYPE html>
       }
     }
 
-    // 💥 二維碼直接繪製純淨 URL，保證掃描百分之百自動填入 URL，名稱由 HTTP Header 自動帶出
+    // 💥 Sing-Box 官方精確 URL Scheme（url 必須 encodeURIComponent，# 後接名稱）
     function showQr(id, clientType) {
       if (!clientType) clientType = 'auto';
       var rawUrl = document.getElementById(id).value;
       if (!rawUrl) return showToast('請先生成訂閱連結', false);
 
-      var profileName = document.getElementById('shortCode').value.trim() || 'SubConverter';
+      var profileName = document.getElementById('shortCode').value.trim();
+      if (!profileName) {
+        try {
+          var u = new URL(rawUrl);
+          profileName = decodeURIComponent(u.pathname.slice(1)) || 'SubConverter';
+        } catch {
+          profileName = 'SubConverter';
+        }
+      }
       
-      // 二維碼內容：純淨的 HTTP/HTTPS 訂閱 URL
-      var qrTargetText = rawUrl;
-      var deepLink = rawUrl;
+      var cleanHttpUrl = rawUrl.split('#')[0];
+      var qrTargetText = cleanHttpUrl;
+      var deepLink = cleanHttpUrl;
       var displayTitle = '掃碼導入配置';
       var clientName = '客戶端';
 
       if (clientType === 'singbox') {
-        deepLink = 'sing-box://import-remote-profile?url=' + encodeURIComponent(rawUrl);
+        // 💥 官方標準格式：sing-box://import-remote-profile?url=urlEncodedURL#urlEncodedName
+        deepLink = 'sing-box://import-remote-profile?url=' + encodeURIComponent(cleanHttpUrl) + '#' + encodeURIComponent(profileName);
+        qrTargetText = deepLink;
         displayTitle = 'Sing-Box 專屬掃碼導入';
         clientName = 'Sing-Box';
       } else if (clientType === 'clash') {
-        deepLink = 'clash://install-config?url=' + encodeURIComponent(rawUrl) + '&name=' + encodeURIComponent(profileName);
+        deepLink = 'clash://install-config?url=' + encodeURIComponent(cleanHttpUrl) + '&name=' + encodeURIComponent(profileName);
+        qrTargetText = deepLink;
         displayTitle = 'Clash / Mihomo 專屬導入';
         clientName = 'Clash';
       } else if (clientType === 'surge') {
-        deepLink = 'surge:///install-config?url=' + encodeURIComponent(rawUrl);
+        deepLink = 'surge:///install-config?url=' + encodeURIComponent(cleanHttpUrl);
+        qrTargetText = cleanHttpUrl;
         displayTitle = 'Surge 5 專屬導入';
         clientName = 'Surge';
       } else if (clientType === 'quanx') {
-        deepLink = 'quantumult-x:///add-resource?remote-resource=' + encodeURIComponent(JSON.stringify({ server_remote: [rawUrl + ', tag=' + profileName] }));
+        deepLink = 'quantumult-x:///add-resource?remote-resource=' + encodeURIComponent(JSON.stringify({ server_remote: [cleanHttpUrl + ', tag=' + profileName] }));
+        qrTargetText = cleanHttpUrl;
         displayTitle = 'Quantumult X 專屬導入';
         clientName = 'Quantumult X';
       } else if (clientType === 'loon') {
-        deepLink = 'loon://import?type=config&url=' + encodeURIComponent(rawUrl);
+        deepLink = 'loon://import?type=config&url=' + encodeURIComponent(cleanHttpUrl);
+        qrTargetText = cleanHttpUrl;
         displayTitle = 'Loon 專屬導入';
         clientName = 'Loon';
       } else if (clientType === 'shadowrocket') {
-        deepLink = 'shadowrocket://add/sub://' + btoa(rawUrl) + '?remark=' + encodeURIComponent(profileName);
+        deepLink = 'shadowrocket://add/sub://' + btoa(cleanHttpUrl) + '?remark=' + encodeURIComponent(profileName);
+        qrTargetText = cleanHttpUrl + '#' + encodeURIComponent(profileName);
         displayTitle = 'Shadowrocket 專屬導入';
         clientName = 'Shadowrocket';
       }

@@ -25,13 +25,12 @@ function checkAuth(request: Request, env: Env): boolean {
   return clientPwd === env.PAGE_PASSWORD.trim();
 }
 
-// 輔助載入與解析節點 (支援多行 WireGuard .conf)
+// 輔助載入與解析節點
 async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
   const allNodes: ProxyNode[] = [];
   const trimmed = urlParam.trim();
   if (!trimmed) return allNodes;
 
-  // 1. 優先完整辨識多行 WireGuard 配置
   if (/\[Interface\]/i.test(trimmed) && /\[Peer\]/i.test(trimmed)) {
     try {
       const parsed = await parseContent(trimmed);
@@ -40,7 +39,6 @@ async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
     return allNodes;
   }
 
-  // 2. 傳統單行節點或訂閱連結
   const inputs = urlParam.split(/[\n\r|]+/); 
   for (const input of inputs) {
     const t = input.trim(); 
@@ -142,7 +140,7 @@ export default {
       });
     }
 
-    // GET /argo/sh/:id (公開)
+    // GET /argo/sh/:id
     if (request.method === 'GET' && url.pathname.startsWith('/argo/sh/')) {
       const scriptId = url.pathname.split('/').pop();
       if (env.SUB_CACHE && scriptId) {
@@ -162,7 +160,7 @@ export default {
       });
     }
 
-    // POST /api/parse-argo (公開)
+    // POST /api/parse-argo
     if (request.method === 'POST' && (url.pathname === '/api/parse-vless' || url.pathname === '/api/parse-argo')) {
       try {
         const body = (await request.json()) as { url?: string };
@@ -196,7 +194,7 @@ export default {
       }
     }
 
-    // POST /api/argo-generate (公開)
+    // POST /api/argo-generate
     if (request.method === 'POST' && url.pathname === '/api/argo-generate') {
       try {
         const body = (await request.json()) as {
@@ -275,7 +273,7 @@ export default {
       }
     }
 
-    // GET /version (公開)
+    // GET /version
     if (request.method === 'GET' && url.pathname === '/version') {
       return new Response(`subconverter v${version} ${url.host} backend\n`, {
         headers: { 
@@ -285,7 +283,7 @@ export default {
       });
     }
 
-    // POST /save (公開)
+    // POST /save 
     if (request.method === 'POST' && url.pathname === '/save') {
       try {
         const body = (await request.json()) as { path?: string; content?: string; include?: string; exclude?: string; rename?: string };
@@ -390,7 +388,7 @@ export default {
       }
     }
 
-    // GET 訂閱路由
+    // GET 訂閱路由 (公開免密)
     let urlParam = url.searchParams.get('url') || '';
     let includeParam = url.searchParams.get('include') || '';
     let excludeParam = url.searchParams.get('exclude') || '';
@@ -400,7 +398,12 @@ export default {
     const path = decodeURIComponent(url.pathname.slice(1)); 
 
     if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
-      const stored = await env.SUB_CACHE.get(path);
+      let stored = await env.SUB_CACHE.get(path);
+      // 💥 增強大小寫容錯（例如 protonwg vs protonWG）
+      if (!stored && path !== path.toLowerCase()) {
+        stored = await env.SUB_CACHE.get(path.toLowerCase());
+      }
+
       if (stored) { 
         try {
           const parsed = JSON.parse(stored);
@@ -424,7 +427,7 @@ export default {
       return new Response(dynamicHtml, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     }
 
-    // --- 💥 核心節點解析（支援多行 WireGuard 完整結構） ---
+    // 節點解析
     const allNodes: ProxyNode[] = [];
     const errors: string[] = [];
     let totalUpload = 0;
@@ -435,7 +438,7 @@ export default {
 
     const trimmedParam = urlParam.trim();
 
-    // 1. 優先完整辨識多行 WireGuard 配置 (防止被 \n 拆碎導致 400 錯誤)
+    // 1. 優先完整辨識多行 WireGuard 配置
     if (/\[Interface\]/i.test(trimmedParam) && /\[Peer\]/i.test(trimmedParam)) {
       try {
         const parsed = await parseContent(trimmedParam);
@@ -603,30 +606,39 @@ export default {
     let contentType = 'text/plain';
     let fileExt = '.txt';
 
-    if (target === 'clash') {
-      result = await toClashWithTemplate(uniqueNodes, env, forceRefresh);
-      contentType = 'text/yaml';
-      fileExt = '.yaml';
-    } else if (target === 'surge') {
-      result = toSurge(uniqueNodes);
-      contentType = 'text/plain';
-      fileExt = '.conf';
-    } else if (target === 'quanx' || target === 'qx') {
-      result = toQuantumultX(uniqueNodes);
-      contentType = 'text/plain';
-      fileExt = '.txt';
-    } else if (target === 'loon') {
-      result = toLoon(uniqueNodes);
-      contentType = 'text/plain';
-      fileExt = '.conf';
-    } else if (target === 'base64') {
-      result = toBase64(uniqueNodes);
-      contentType = 'text/plain';
-      fileExt = '.txt';
-    } else {
-      result = await toSingBoxWithTemplate(uniqueNodes, env, forceRefresh);
-      contentType = 'application/json';
-      fileExt = '.json';
+    // 💥 加入全域錯誤保護罩，杜絕 500 靜默崩潰
+    try {
+      if (target === 'clash') {
+        result = await toClashWithTemplate(uniqueNodes, env, forceRefresh);
+        contentType = 'text/yaml';
+        fileExt = '.yaml';
+      } else if (target === 'surge') {
+        result = toSurge(uniqueNodes);
+        contentType = 'text/plain';
+        fileExt = '.conf';
+      } else if (target === 'quanx' || target === 'qx') {
+        result = toQuantumultX(uniqueNodes);
+        contentType = 'text/plain';
+        fileExt = '.txt';
+      } else if (target === 'loon') {
+        result = toLoon(uniqueNodes);
+        contentType = 'text/plain';
+        fileExt = '.conf';
+      } else if (target === 'base64') {
+        result = toBase64(uniqueNodes);
+        contentType = 'text/plain';
+        fileExt = '.txt';
+      } else {
+        result = await toSingBoxWithTemplate(uniqueNodes, env, forceRefresh);
+        contentType = 'application/json';
+        fileExt = '.json';
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return new Response(`轉換配置失敗: ${msg}`, {
+        status: 500,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
+      });
     }
 
     const filename = `subscription${fileExt}`;

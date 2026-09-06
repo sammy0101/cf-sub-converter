@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 11:42:58 UTC 2026
+Generated on: Sun Sep  6 11:50:52 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -2946,19 +2946,15 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (wg.mtu) params.set('mtu', String(wg.mtu));
         return `wireguard://${encodeURIComponent(wg.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
+      // 💥 關鍵修復：將 MASQUE 輸出為小火箭與通用客戶端標準 masque:// URI 格式
       if (node.type === 'masque' && node.masque) {
         const m = node.masque;
-        const obj = {
-          type: 'masque',
-          name: node.name,
-          server: node.server,
-          port: node.port,
-          private_key: m.privateKey,
-          public_key: m.publicKey,
-          ipv4: m.localIpv4,
-          ipv6: m.localIpv6
-        };
-        return JSON.stringify(obj);
+        const params = new URLSearchParams();
+        params.set('public_key', m.publicKey);
+        if (m.localIpv4) params.set('ip', m.localIpv4);
+        if (m.localIpv6) params.set('ipv6', m.localIpv6);
+        if (m.mtu) params.set('mtu', String(m.mtu));
+        return `masque://${encodeURIComponent(m.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
       return null;
     } catch {
@@ -3129,7 +3125,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
   return JSON.stringify(config, null, 2);
 }
 
-// --- Clash Meta 配置生成 (💥 支援 type: masque 原生序列化) ---
+// --- Clash Meta 配置生成 (支援 type: masque) ---
 export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
   const text = await fetchTemplateWithSWR(REMOTE_CONFIG.clash, 'clash', FALLBACK_CLASH_RULES, env, forceRefresh);
   const config = yaml.load(text) as Record<string, unknown>;

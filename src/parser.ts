@@ -50,7 +50,7 @@ function isIpAddress(host: string): boolean {
   return /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(host) || /^[a-fA-F0-9:]+$/.test(host);
 }
 
-// --- 解析 WireGuard 官方 .conf 格式 (Sing-Box 1.14+ 規範) ---
+// --- 解析 WireGuard 官方 .conf 格式 (修復 Keepalive 與國旗提取) ---
 function parseWireGuardConf(text: string): ProxyNode[] {
   const nodes: ProxyNode[] = [];
   const sections = text.split(/(?=\[Interface\])/i).filter(s => s.trim().length > 0);
@@ -63,6 +63,7 @@ function parseWireGuardConf(text: string): ProxyNode[] {
       return match ? match[1].trim() : '';
     };
 
+    // 💥 智慧提取名稱：優先抓取 # NL-FREE#... 等地區標識
     let name = '';
     const comments = sec.match(/^[ \t]*#[ \t]*(.*?)$/gm);
     if (comments) {
@@ -71,9 +72,6 @@ function parseWireGuardConf(text: string): ProxyNode[] {
         if (clean && !clean.includes('=') && !clean.toLowerCase().startsWith('key for')) {
           name = clean;
           break;
-        }
-        if (!name && clean && clean.toLowerCase().startsWith('key for')) {
-          name = clean.replace(/^key for\s*/i, '');
         }
       }
     }
@@ -86,6 +84,10 @@ function parseWireGuardConf(text: string): ProxyNode[] {
     const endpoint = getVal('Endpoint');
     const mtuStr = getVal('MTU');
     const mtu = mtuStr ? parseInt(mtuStr, 10) : 1420;
+    
+    // 💥 提取 Keepalive 參數
+    const keepaliveStr = getVal('PersistentKeepalive');
+    const keepalive = keepaliveStr ? parseInt(keepaliveStr, 10) : 25;
 
     if (!endpoint || !privateKey || !publicKey) continue;
 
@@ -121,7 +123,7 @@ function parseWireGuardConf(text: string): ProxyNode[] {
       wireguard: wgConfig
     };
 
-    // 💥 Sing-Box 1.14+ 現代 Endpoint 規範結構
+    // 💥 Sing-Box 1.14+ 規範：補齊 persistent_keepalive_interval 確保 NAT 穿透不中斷
     node.singboxObj = {
       type: 'wireguard',
       tag: name,
@@ -133,7 +135,8 @@ function parseWireGuardConf(text: string): ProxyNode[] {
           port,
           public_key: publicKey,
           allowed_ips: ['0.0.0.0/0', '::/0'],
-          pre_shared_key: presharedKey
+          pre_shared_key: presharedKey,
+          persistent_keepalive_interval: keepalive
         }
       ],
       mtu: mtu || 1420
@@ -508,7 +511,6 @@ function parseWireGuard(urlStr: string): ProxyNode | null {
       wireguard: wgConfig
     };
 
-    // 💥 Sing-Box 1.14+ 現代 Endpoint 規範結構
     node.singboxObj = {
       type: 'wireguard',
       tag: name,
@@ -520,7 +522,8 @@ function parseWireGuard(urlStr: string): ProxyNode | null {
           port: parsed.port,
           public_key: publicKey,
           allowed_ips: ['0.0.0.0/0', '::/0'],
-          pre_shared_key: presharedKey
+          pre_shared_key: presharedKey,
+          persistent_keepalive_interval: 25
         }
       ],
       mtu: mtu || 1420

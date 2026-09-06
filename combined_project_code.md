@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 12:47:22 UTC 2026
+Generated on: Sun Sep  6 12:48:07 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3003,11 +3003,12 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (node.ech) params.set('ech', '1');
         return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
-      // 💥 修復 WireGuard 專為 Shadowrocket 標準相容格式，並精準注入 DNS 與參數
+      // 💥 WireGuard Shadowrocket / 現代客戶端雙相容輸出
       if (node.type === 'wireguard' && node.wireguard) {
         const wg = node.wireguard;
         const params = new URLSearchParams();
         params.set('publickey', wg.publicKey || '');
+        params.set('privatekey', wg.privateKey || '');
         params.set('address', wg.localAddress.join(','));
         if (wg.dns) params.set('dns', wg.dns);
         if (wg.presharedKey) params.set('presharedkey', wg.presharedKey);

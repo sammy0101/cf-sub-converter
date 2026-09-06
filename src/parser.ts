@@ -1,5 +1,5 @@
 // src/parser.ts
-import { ProxyNode, WireGuardConfig } from "./types";
+import { ProxyNode, WireGuardConfig, MasqueConfig } from "./types";
 import { safeBase64Decode, tryDecodeURIComponent } from "./utils";
 
 // --- 安全的通用代理 URI 正則解析器 ---
@@ -48,6 +48,91 @@ function parsePluginParams(str: string): Record<string, string> {
 
 function isIpAddress(host: string): boolean {
   return /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(host) || /^[a-fA-F0-9:]+$/.test(host);
+}
+
+// --- 💥 解析 Cloudflare WARP MASQUE JSON 配置 ---
+interface RawMasqueConfig {
+  private_key?: string;
+  endpoint_v4?: string;
+  endpoint_v6?: string;
+  endpoint_pub_key?: string;
+  ipv4?: string;
+  ipv6?: string;
+  name?: string;
+}
+
+function parseMasqueJson(text: string): ProxyNode | null {
+  try {
+    const trimmed = text.trim();
+    if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null;
+    const config = JSON.parse(trimmed) as RawMasqueConfig;
+
+    if (!config.private_key || (!config.endpoint_pub_key && !config.endpoint_v4)) {
+      return null;
+    }
+
+    const privateKey = config.private_key.trim();
+    const rawPubKey = config.endpoint_pub_key || '';
+    const publicKey = rawPubKey.replace(/-----BEGIN[^-]+-----|-----END[^-]+-----|[\r\n\s]/g, '');
+    const server = (config.endpoint_v4 || '162.159.198.2').trim();
+    const port = 443;
+    const rawIpv4 = (config.ipv4 || '172.16.0.2').trim();
+    const localIpv4 = rawIpv4.includes('/') ? rawIpv4 : `${rawIpv4}/32`;
+    
+    let localIpv6: string | undefined = undefined;
+    if (config.ipv6) {
+      const rawIpv6 = config.ipv6.trim();
+      localIpv6 = rawIpv6.includes('/') ? rawIpv6 : `${rawIpv6}/128`;
+    }
+
+    const name = config.name || 'WARP-MASQUE';
+
+    const masqueConfig: MasqueConfig = {
+      privateKey,
+      publicKey,
+      localIpv4,
+      localIpv6,
+      mtu: 1280
+    };
+
+    const node: ProxyNode = {
+      type: 'masque',
+      name,
+      server,
+      port,
+      udp: true,
+      masque: masqueConfig
+    };
+
+    node.singboxObj = {
+      type: 'masque',
+      tag: name,
+      server,
+      server_port: port,
+      private_key: privateKey,
+      public_key: publicKey,
+      ip: localIpv4,
+      ipv6: localIpv6
+    };
+
+    node.clashObj = {
+      name,
+      type: 'masque',
+      server,
+      port,
+      'private-key': privateKey,
+      'public-key': publicKey,
+      ip: localIpv4,
+      ipv6: localIpv6,
+      mtu: 1280,
+      udp: true,
+      'remote-dns-resolve': true
+    };
+
+    return node;
+  } catch {
+    return null;
+  }
 }
 
 // --- 解析 WireGuard 官方 .conf 格式 ---
@@ -127,7 +212,6 @@ function parseWireGuardConf(text: string): ProxyNode[] {
       allowedIps.push('::/0');
     }
 
-    // 💥 移除 detour: direct 以消除 empty direct outbound 語法錯誤
     node.singboxObj = {
       type: 'wireguard',
       tag: name,
@@ -146,7 +230,6 @@ function parseWireGuardConf(text: string): ProxyNode[] {
       mtu: mtu || 1420
     };
 
-    // Clash Meta Outbound
     node.clashObj = {
       name,
       type: 'wireguard',
@@ -900,10 +983,19 @@ function parseTrojan(urlStr: string): ProxyNode | null {
 export async function parseContent(content: string): Promise<ProxyNode[]> {
   let plainText = content.replace(/^\uFEFF/, '').trim(); 
 
+  // 1. 優先檢查是否為標準 WireGuard INI 配置 ([Interface] 與 [Peer])
   if (/\[Interface\]/i.test(plainText) && /\[Peer\]/i.test(plainText)) {
     const wgNodes = parseWireGuardConf(plainText);
     if (wgNodes.length > 0) {
       return wgNodes;
+    }
+  }
+
+  // 💥 2. 優先檢查是否為 Cloudflare WARP MASQUE JSON 配置
+  if (plainText.startsWith('{') && /["']private_key["']/i.test(plainText)) {
+    const masqueNode = parseMasqueJson(plainText);
+    if (masqueNode) {
+      return [masqueNode];
     }
   }
   
@@ -927,6 +1019,11 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
       if (/\[Interface\]/i.test(decoded) && /\[Peer\]/i.test(decoded)) {
         const wgNodes = parseWireGuardConf(decoded);
         if (wgNodes.length > 0) return wgNodes;
+      }
+
+      if (decoded.startsWith('{') && /["']private_key["']/i.test(decoded)) {
+        const masqueNode = parseMasqueJson(decoded);
+        if (masqueNode) return [masqueNode];
       }
       
       if (decoded && protocols.some(p => decoded.includes(p))) {

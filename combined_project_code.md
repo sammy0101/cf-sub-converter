@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 12:13:24 UTC 2026
+Generated on: Sun Sep  6 12:22:35 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3687,7 +3687,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       </div>
       
       <div class="form-group">
-        <label for="shortCode">自訂路徑短連結 (選填)</label>
+        <label for="shortCode">自訂路徑短連結 (選填，亦為客戶端自動命名)</label>
         <input type="text" id="shortCode" placeholder="例如: my-sub-vip">
       </div>
       
@@ -4200,15 +4200,25 @@ export const HTML_PAGE = `<!DOCTYPE html>
       var exclude = document.getElementById('excludeKeywords').value.trim();
       var rename = document.getElementById('renameKeywords').value.trim();
       
-      var proceed = function(baseUrl) {
+      var proceed = function(baseUrl, displayName) {
         var sep = baseUrl.indexOf('?') !== -1 ? '&' : '?';
-        document.getElementById('adaptiveUrl').value = baseUrl;
-        document.getElementById('clashUrl').value = baseUrl + sep + 'target=clash';
-        document.getElementById('singboxUrl').value = baseUrl + sep + 'target=singbox';
-        document.getElementById('surgeUrl').value = baseUrl + sep + 'target=surge';
-        document.getElementById('quanxUrl').value = baseUrl + sep + 'target=quanx';
-        document.getElementById('loonUrl').value = baseUrl + sep + 'target=loon';
-        document.getElementById('base64Url').value = baseUrl + sep + 'target=base64';
+        var nameQuery = displayName ? ('&name=' + encodeURIComponent(displayName)) : '';
+        var hash = displayName ? ('#' + encodeURIComponent(displayName)) : '';
+
+        var buildUrl = function(target) {
+          if (!target) {
+            return baseUrl + (nameQuery ? (sep + nameQuery.slice(1)) : '') + hash;
+          }
+          return baseUrl + sep + 'target=' + target + nameQuery + hash;
+        };
+
+        document.getElementById('adaptiveUrl').value = buildUrl('');
+        document.getElementById('clashUrl').value = buildUrl('clash');
+        document.getElementById('singboxUrl').value = buildUrl('singbox');
+        document.getElementById('surgeUrl').value = buildUrl('surge');
+        document.getElementById('quanxUrl').value = buildUrl('quanx');
+        document.getElementById('loonUrl').value = buildUrl('loon');
+        document.getElementById('base64Url').value = buildUrl('base64');
 
         document.getElementById('results').classList.add('show');
         showToast('全客戶端連結生成完畢！');
@@ -4220,7 +4230,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify({ path: shortCode, content: raw, include: include, exclude: exclude, rename: rename }) 
         }).then(function() {
-          proceed(host + '/' + shortCode);
+          proceed(host + '/' + shortCode, shortCode);
         }).catch(function() {
           showToast('短連結儲存失敗，請檢查 KV 配置', false);
         });
@@ -4229,7 +4239,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
         if (include) bUrl += '&include=' + encodeURIComponent(include);
         if (exclude) bUrl += '&exclude=' + encodeURIComponent(exclude);
         if (rename) bUrl += '&rename=' + encodeURIComponent(rename);
-        proceed(bUrl);
+        proceed(bUrl, '');
       }
     }
 
@@ -4239,9 +4249,18 @@ export const HTML_PAGE = `<!DOCTYPE html>
       var rawUrl = document.getElementById(id).value;
       if (!rawUrl) return showToast('請先生成訂閱連結', false);
 
-      var profileName = document.getElementById('shortCode').value.trim() || 'SubConverter';
+      // 自動從 URL 參數或 Hash 提取訂閱名稱
+      var profileName = document.getElementById('shortCode').value.trim();
+      if (!profileName) {
+        try {
+          var u = new URL(rawUrl);
+          profileName = u.searchParams.get('name') || decodeURIComponent(u.hash.slice(1)) || 'SubConverter';
+        } catch {
+          profileName = 'SubConverter';
+        }
+      }
       
-      // QR Code 核心修復：所有客戶端掃碼器（尤其 Shadowrocket 小火箭）均要求掃描純 HTTP/HTTPS 訂閱 URL
+      // QR Code 直接使用純 HTTP/HTTPS 訂閱 URL，確保各客戶端掃碼器（尤其是 Shadowrocket）可直接辨識
       var qrTargetText = rawUrl;
       var deepLink = rawUrl;
       var displayTitle = '掃碼導入配置';
@@ -4268,7 +4287,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
         displayTitle = 'Loon 專屬導入';
         clientName = 'Loon';
       } else if (clientType === 'shadowrocket') {
-        // Shadowrocket 點擊一鍵喚醒使用標準 add/sub 格式；二維碼保持純 URL 以便 App 內建相機掃碼識別
+        // Shadowrocket 喚醒 URL 需傳入 title/remark 參數
         deepLink = 'shadowrocket://add/sub://' + btoa(rawUrl) + '?remark=' + encodeURIComponent(profileName);
         displayTitle = 'Shadowrocket 專屬導入';
         clientName = 'Shadowrocket';

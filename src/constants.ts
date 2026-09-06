@@ -279,7 +279,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
       SubConverter Pro
     </div>
-    <span class="badge">v3.5.0</span>
+    <span class="badge" id="appVersionBadge">PRO</span>
   </header>
 
   <div class="container">
@@ -451,7 +451,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
         </div>
 
         <div class="form-group">
-          <label>2. Cloudflare 優選 IP / 優選官方域名 (方案 D1：可填寫如 104.16.80.1 或 hk.cf.090227.xyz，選填)</label>
+          <label>2. Cloudflare 優選 IP / 優選官方域名 (選填，例如 104.16.80.1)</label>
           <input type="text" id="argoCleanIp" placeholder="若留空則預設直接使用 Argo 分配域名">
         </div>
 
@@ -866,6 +866,9 @@ export const HTML_PAGE = `<!DOCTYPE html>
       if (!rawUrl) return showToast('請先生成訂閱連結', false);
 
       var profileName = document.getElementById('shortCode').value.trim() || 'SubConverter';
+      
+      // QR Code 核心修復：所有客戶端掃碼器（尤其 Shadowrocket 小火箭）均要求掃描純 HTTP/HTTPS 訂閱 URL
+      var qrTargetText = rawUrl;
       var deepLink = rawUrl;
       var displayTitle = '掃碼導入配置';
       var clientName = '客戶端';
@@ -891,7 +894,8 @@ export const HTML_PAGE = `<!DOCTYPE html>
         displayTitle = 'Loon 專屬導入';
         clientName = 'Loon';
       } else if (clientType === 'shadowrocket') {
-        deepLink = 'shadowrocket://add/sub://' + btoa(rawUrl) + '?title=' + encodeURIComponent(profileName);
+        // Shadowrocket 點擊一鍵喚醒使用標準 add/sub 格式；二維碼保持純 URL 以便 App 內建相機掃碼識別
+        deepLink = 'shadowrocket://add/sub://' + btoa(rawUrl) + '?remark=' + encodeURIComponent(profileName);
         displayTitle = 'Shadowrocket 專屬導入';
         clientName = 'Shadowrocket';
       }
@@ -921,7 +925,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
         '<button onclick="window.close()" class="btn btn-ghost">關閉視窗</button>' +
         '<script>' +
           'new QRCode(document.getElementById("qrcode"), {' +
-            'text: ' + JSON.stringify(deepLink) + ',' +
+            'text: ' + JSON.stringify(qrTargetText) + ',' +
             'width: 220,' +
             'height: 220,' +
             'correctLevel: QRCode.CorrectLevel.M' +

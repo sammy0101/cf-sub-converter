@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 13:50:02 UTC 2026
+Generated on: Sun Sep  6 13:50:29 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3705,7 +3705,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
           </div>
-          <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · 掃碼同時填好名稱與網址</div></div>
+          <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · 掃碼導入成功</div></div>
           <div class="result-input-wrapper"><input type="text" id="singboxUrl" readonly></div>
           <div class="result-actions">
             <button class="btn-icon" onclick="copyResult('singboxUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
@@ -4180,13 +4180,12 @@ export const HTML_PAGE = `<!DOCTYPE html>
       var exclude = document.getElementById('excludeKeywords').value.trim();
       var rename = document.getElementById('renameKeywords').value.trim();
       
-      var proceed = function(baseUrl, displayName) {
+      var proceed = function(baseUrl) {
         var sep = baseUrl.indexOf('?') !== -1 ? '&' : '?';
-        var hash = displayName ? ('#' + encodeURIComponent(displayName)) : '';
 
         var buildUrl = function(target) {
-          if (!target) return baseUrl + hash;
-          return baseUrl + sep + 'target=' + target + hash;
+          if (!target) return baseUrl;
+          return baseUrl + sep + 'target=' + target;
         };
 
         document.getElementById('adaptiveUrl').value = buildUrl('');
@@ -4207,7 +4206,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify({ path: shortCode, content: raw, include: include, exclude: exclude, rename: rename }) 
         }).then(function() {
-          proceed(host + '/' + shortCode, shortCode);
+          proceed(host + '/' + shortCode);
         }).catch(function() {
           showToast('短連結儲存失敗，請檢查 KV 配置', false);
         });
@@ -4216,61 +4215,46 @@ export const HTML_PAGE = `<!DOCTYPE html>
         if (include) bUrl += '&include=' + encodeURIComponent(include);
         if (exclude) bUrl += '&exclude=' + encodeURIComponent(exclude);
         if (rename) bUrl += '&rename=' + encodeURIComponent(rename);
-        proceed(bUrl, '');
+        proceed(bUrl);
       }
     }
 
-    // 💥 嚴格遵循官方規範的 QR Code 與 Deep Link
+    // 💥 二維碼直接繪製純淨 URL，保證掃描百分之百自動填入 URL，名稱由 HTTP Header 自動帶出
     function showQr(id, clientType) {
       if (!clientType) clientType = 'auto';
       var rawUrl = document.getElementById(id).value;
       if (!rawUrl) return showToast('請先生成訂閱連結', false);
 
-      var profileName = document.getElementById('shortCode').value.trim();
-      if (!profileName) {
-        try {
-          var u = new URL(rawUrl);
-          profileName = decodeURIComponent(u.hash.slice(1)) || decodeURIComponent(u.pathname.slice(1)) || 'SubConverter';
-        } catch {
-          profileName = 'SubConverter';
-        }
-      }
+      var profileName = document.getElementById('shortCode').value.trim() || 'SubConverter';
       
-      var cleanHttpUrl = rawUrl.split('#')[0];
-      var qrTargetText = cleanHttpUrl;
-      var deepLink = cleanHttpUrl;
+      // 二維碼內容：純淨的 HTTP/HTTPS 訂閱 URL
+      var qrTargetText = rawUrl;
+      var deepLink = rawUrl;
       var displayTitle = '掃碼導入配置';
       var clientName = '客戶端';
 
       if (clientType === 'singbox') {
-        // 💥 官方標準格式：sing-box://import-remote-profile?url=urlEncodedURL#urlEncodedName
-        deepLink = 'sing-box://import-remote-profile?url=' + encodeURIComponent(cleanHttpUrl) + '#' + encodeURIComponent(profileName);
-        qrTargetText = deepLink;
+        deepLink = 'sing-box://import-remote-profile?url=' + encodeURIComponent(rawUrl);
         displayTitle = 'Sing-Box 專屬掃碼導入';
         clientName = 'Sing-Box';
       } else if (clientType === 'clash') {
-        deepLink = 'clash://install-config?url=' + encodeURIComponent(cleanHttpUrl) + '&name=' + encodeURIComponent(profileName);
-        qrTargetText = deepLink;
+        deepLink = 'clash://install-config?url=' + encodeURIComponent(rawUrl) + '&name=' + encodeURIComponent(profileName);
         displayTitle = 'Clash / Mihomo 專屬導入';
         clientName = 'Clash';
       } else if (clientType === 'surge') {
-        deepLink = 'surge:///install-config?url=' + encodeURIComponent(cleanHttpUrl);
-        qrTargetText = cleanHttpUrl;
+        deepLink = 'surge:///install-config?url=' + encodeURIComponent(rawUrl);
         displayTitle = 'Surge 5 專屬導入';
         clientName = 'Surge';
       } else if (clientType === 'quanx') {
-        deepLink = 'quantumult-x:///add-resource?remote-resource=' + encodeURIComponent(JSON.stringify({ server_remote: [cleanHttpUrl + ', tag=' + profileName] }));
-        qrTargetText = cleanHttpUrl;
+        deepLink = 'quantumult-x:///add-resource?remote-resource=' + encodeURIComponent(JSON.stringify({ server_remote: [rawUrl + ', tag=' + profileName] }));
         displayTitle = 'Quantumult X 專屬導入';
         clientName = 'Quantumult X';
       } else if (clientType === 'loon') {
-        deepLink = 'loon://import?type=config&url=' + encodeURIComponent(cleanHttpUrl);
-        qrTargetText = cleanHttpUrl;
+        deepLink = 'loon://import?type=config&url=' + encodeURIComponent(rawUrl);
         displayTitle = 'Loon 專屬導入';
         clientName = 'Loon';
       } else if (clientType === 'shadowrocket') {
-        deepLink = 'shadowrocket://add/sub://' + btoa(cleanHttpUrl) + '?remark=' + encodeURIComponent(profileName);
-        qrTargetText = cleanHttpUrl + '#' + encodeURIComponent(profileName);
+        deepLink = 'shadowrocket://add/sub://' + btoa(rawUrl) + '?remark=' + encodeURIComponent(profileName);
         displayTitle = 'Shadowrocket 專屬導入';
         clientName = 'Shadowrocket';
       }

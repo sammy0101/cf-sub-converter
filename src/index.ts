@@ -31,6 +31,7 @@ async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
   const trimmed = urlParam.trim();
   if (!trimmed) return allNodes;
 
+  // 1. 優先完整辨識多行 WireGuard 或 MASQUE JSON
   if (/\[Interface\]/i.test(trimmed) && /\[Peer\]/i.test(trimmed)) {
     try {
       const parsed = await parseContent(trimmed);
@@ -39,6 +40,15 @@ async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
     return allNodes;
   }
 
+  if (trimmed.startsWith('{') && /["']private_key["']/i.test(trimmed)) {
+    try {
+      const parsed = await parseContent(trimmed);
+      allNodes.push(...parsed);
+    } catch {}
+    return allNodes;
+  }
+
+  // 2. 傳統單行節點或訂閱連結
   const inputs = urlParam.split(/[\n\r|]+/); 
   for (const input of inputs) {
     const t = input.trim(); 
@@ -303,7 +313,7 @@ export default {
       }
     }
 
-    // --- Favorites API (受密碼保護區域) ---
+    // --- Favorites API ---
     const FAVS_KEY = 'favorites';
     const getFavs = async (): Promise<Array<Record<string, string>>> => {
       const data = await env.SUB_CACHE.get(FAVS_KEY);
@@ -388,7 +398,7 @@ export default {
       }
     }
 
-    // GET 訂閱路由 (公開免密)
+    // GET 訂閱路由
     let urlParam = url.searchParams.get('url') || '';
     let includeParam = url.searchParams.get('include') || '';
     let excludeParam = url.searchParams.get('exclude') || '';
@@ -399,7 +409,6 @@ export default {
 
     if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
       let stored = await env.SUB_CACHE.get(path);
-      // 💥 增強大小寫容錯（例如 protonwg vs protonWG）
       if (!stored && path !== path.toLowerCase()) {
         stored = await env.SUB_CACHE.get(path.toLowerCase());
       }
@@ -427,7 +436,7 @@ export default {
       return new Response(dynamicHtml, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     }
 
-    // 節點解析
+    // --- 💥 核心節點解析（支援 WireGuard INI 與 MASQUE JSON 完整結構） ---
     const allNodes: ProxyNode[] = [];
     const errors: string[] = [];
     let totalUpload = 0;
@@ -447,8 +456,19 @@ export default {
         const msg = err instanceof Error ? err.message : String(err);
         errors.push(`[WireGuard 配置] 失敗原因: ${msg}`);
       }
-    } else {
-      // 2. 傳統單行 URI 節點或訂閱網址 (依換行分割)
+    } 
+    // 💥 2. 優先完整辨識 Cloudflare WARP MASQUE JSON 配置
+    else if (trimmedParam.startsWith('{') && /["']private_key["']/i.test(trimmedParam)) {
+      try {
+        const parsed = await parseContent(trimmedParam);
+        allNodes.push(...parsed);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`[MASQUE 配置] 失敗原因: ${msg}`);
+      }
+    } 
+    // 3. 傳統單行 URI 節點或訂閱網址 (依換行分割)
+    else {
       const inputs = urlParam.split(/[\n\r|]+/); 
       for (const input of inputs) {
         const trimmed = input.trim(); 
@@ -606,7 +626,6 @@ export default {
     let contentType = 'text/plain';
     let fileExt = '.txt';
 
-    // 💥 加入全域錯誤保護罩，杜絕 500 靜默崩潰
     try {
       if (target === 'clash') {
         result = await toClashWithTemplate(uniqueNodes, env, forceRefresh);

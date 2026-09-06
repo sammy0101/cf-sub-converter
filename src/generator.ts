@@ -300,10 +300,11 @@ export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env, forceRe
   return yaml.dump(config, { indent: 2, noRefs: true });
 }
 
-// --- Surge 5 配置生成 ---
+// --- Surge 5 配置生成 (完整支援 WireGuard Section 輸出) ---
 export function toSurge(nodes: ProxyNode[]): string {
   const lines: string[] = ['[Proxy]'];
   const nodeNames: string[] = [];
+  const wgSections: string[] = [];
 
   for (const node of nodes) {
     let line = '';
@@ -335,6 +336,19 @@ export function toSurge(nodes: ProxyNode[]): string {
       line = `${name} = hysteria2, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
     } else if (node.type === 'tuic') {
       line = `${name} = tuic, ${node.server}, ${node.port}, token=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}`;
+    } else if (node.type === 'wireguard' && node.wireguard) {
+      const wg = node.wireguard;
+      const safeSecName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
+      line = `${name} = wireguard, section-name=${safeSecName}`;
+      
+      let wgSec = `\n[WireGuard ${safeSecName}]\n`;
+      wgSec += `private-key = ${wg.privateKey}\n`;
+      wgSec += `self-ip = ${wg.localAddress[0]?.split('/')[0] || '10.2.0.2'}\n`;
+      if (wg.localAddress[1]) {
+        wgSec += `self-ip-v6 = ${wg.localAddress[1]?.split('/')[0]}\n`;
+      }
+      wgSec += `peer = (public-key = ${wg.publicKey || ''}, allowed-ips = "0.0.0.0/0, ::/0", endpoint = ${node.server}:${node.port}, keepalive = 25)\n`;
+      wgSections.push(wgSec);
     }
 
     if (line) {
@@ -357,10 +371,15 @@ export function toSurge(nodes: ProxyNode[]): string {
   lines.push('GEOIP,CN,DIRECT');
   lines.push('FINAL,🐟 漏網之魚\n');
 
+  // 若存在 WireGuard 節點，附加專屬區塊配置
+  if (wgSections.length > 0) {
+    lines.push(wgSections.join('\n'));
+  }
+
   return lines.join('\n');
 }
 
-// --- Quantumult X (server_remote) 完整修復版 ---
+// --- Quantumult X (server_remote) ---
 export function toQuantumultX(nodes: ProxyNode[]): string {
   const lines: string[] = [];
 
@@ -377,7 +396,6 @@ export function toQuantumultX(nodes: ProxyNode[]): string {
       if (node.network === 'ws') vmessLine += `, obfs=ws, obfs-uri=${node.wsPath || '/'}`;
       lines.push(vmessLine);
     } else if (node.type === 'vless') {
-      // 💥 補全圈 X 格式之 VLESS 相容輸出
       let vlessLine = `vless=${node.server}:${node.port}, method=none, password=${node.uuid}, fast-open=false, udp-relay=true, tag=${name}`;
       if (node.tls) vlessLine += `, over-tls=true, tls-host=${node.sni || node.server}`;
       if (node.network === 'ws') {

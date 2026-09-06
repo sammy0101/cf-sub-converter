@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 13:00:14 UTC 2026
+Generated on: Sun Sep  6 13:06:38 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3003,16 +3003,19 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (node.ech) params.set('ech', '1');
         return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
-      // 💥 徹底消除干擾參數，只輸出小火箭識別的核心 WireGuard 規範
+      // 💥 WireGuard 最佳化相容 Shadowrocket
       if (node.type === 'wireguard' && node.wireguard) {
         const wg = node.wireguard;
+        const cleanIpList = wg.localAddress.map(ip => ip.split('/')[0]).join(',');
         const params = new URLSearchParams();
         params.set('publickey', wg.publicKey || '');
-        params.set('address', wg.localAddress.join(','));
+        params.set('address', cleanIpList);
         if (wg.dns) params.set('dns', wg.dns);
         if (wg.presharedKey) params.set('presharedkey', wg.presharedKey);
-        if (wg.mtu) params.set('mtu', String(wg.mtu));
-        // 嚴格禁止在非 WARP 節點傳入 reserved
+        params.set('mtu', String(wg.mtu || 1420));
+        params.set('keepalive', '25');
+        
+        // 嚴格判斷：僅當明確存在保留位時才注入，普通 WG 絕不注入避免握手失敗
         if (wg.reserved && wg.reserved.length > 0) {
           params.set('reserved', wg.reserved.join(','));
         }

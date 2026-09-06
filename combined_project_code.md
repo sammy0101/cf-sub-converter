@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 11:52:09 UTC 2026
+Generated on: Sun Sep  6 11:59:59 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3640,9 +3640,10 @@ export const HTML_PAGE = `<!DOCTYPE html>
     .modal-content { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 92%; max-width: 720px; padding: 2rem; max-height: 92vh; overflow-y: auto; }
     .modal-footer { display: flex; gap: 12px; margin-top: 2rem; justify-content: flex-end; }
 
-    .toast { position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%); background: var(--bg-panel); color: var(--text-main); border: 1px solid var(--border); padding: 0.8rem 1.5rem; border-radius: 999px; font-weight: 500; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; opacity: 0; transition: opacity 0.3s; z-index: 200; }
+    .toast { position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%); background: var(--bg-panel); color: var(--text-main); border: 1px solid var(--border); padding: 0.8rem 1.5rem; border-radius: 999px; font-weight: 500; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; opacity: 0; transition: opacity 0.3s; z-index: 200; pointer-events: none; }
     .toast.show { opacity: 1; }
     .toast.success svg { color: var(--success); }
+    .toast.error svg { color: var(--danger); }
     .cmd-group { display: flex; gap: 8px; margin-top: 8px; align-items: center; width: 100%; }
     .cmd-group input { flex: 1; }
     .cmd-group .btn { flex-shrink: 0; }
@@ -3680,7 +3681,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       
       <div class="form-group">
         <label for="urlInput">節點連結或訂閱地址 (支援多筆換行，含 WireGuard/MASQUE/WARP/AnyTLS)</label>
-        <textarea id="urlInput" placeholder="vmess://...\nvless://...\nwireguard://...\nmasque://...\nhysteria2://...\nhttps://example.com/sub"></textarea>
+        <textarea id="urlInput" placeholder="vmess://...&#10;vless://...&#10;wireguard://...&#10;masque://...&#10;hysteria2://...&#10;https://example.com/sub"></textarea>
       </div>
 
       <div class="form-group">
@@ -3914,9 +3915,59 @@ export const HTML_PAGE = `<!DOCTYPE html>
   <script>
     var favs = [];
     var isFavLocked = false;
+    var parsedArgoNodesCache = [];
 
     function getStoredPwd() {
       return localStorage.getItem('sub_fav_pwd') || '';
+    }
+
+    function showToast(msg, isSuccess) {
+      if (isSuccess === undefined) isSuccess = true;
+      var t = document.getElementById('toast');
+      var m = document.getElementById('toastMsg');
+      m.textContent = msg;
+      t.className = 'toast show ' + (isSuccess ? 'success' : 'error');
+      setTimeout(function() {
+        t.className = 'toast';
+      }, 2500);
+    }
+
+    function copyResult(id) {
+      var input = document.getElementById(id);
+      if (!input || !input.value) return;
+      input.select();
+      navigator.clipboard.writeText(input.value).then(function() {
+        showToast('已複製訂閱連結至剪貼簿！');
+      }).catch(function() {
+        document.execCommand('copy');
+        showToast('已複製訂閱連結至剪貼簿！');
+      });
+    }
+
+    function copyText(id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var text = el.value || el.textContent;
+      navigator.clipboard.writeText(text).then(function() {
+        showToast('複製成功！');
+      }).catch(function() {
+        showToast('複製失敗，請手動複製', false);
+      });
+    }
+
+    function openModal() {
+      document.getElementById('modalTitle').textContent = '新增配置';
+      document.getElementById('favName').value = '';
+      document.getElementById('favUrl').value = '';
+      document.getElementById('favInclude').value = '';
+      document.getElementById('favExclude').value = '';
+      document.getElementById('favRename').value = '';
+      document.getElementById('modal').dataset.edit = '';
+      document.getElementById('modal').classList.add('show');
+    }
+
+    function closeModal() {
+      document.getElementById('modal').classList.remove('show');
     }
 
     function loadFavs() {
@@ -4183,6 +4234,8 @@ export const HTML_PAGE = `<!DOCTYPE html>
           body: JSON.stringify({ path: shortCode, content: raw, include: include, exclude: exclude, rename: rename }) 
         }).then(function() {
           proceed(host + '/' + shortCode);
+        }).catch(function() {
+          showToast('短連結儲存失敗，請檢查 KV 配置', false);
         });
       } else {
         var bUrl = host + '/?url=' + encodeURIComponent(raw);
@@ -4193,11 +4246,11 @@ export const HTML_PAGE = `<!DOCTYPE html>
       }
     }
 
-    // 💥 支援小火箭 masque:// 原生協議喚醒
+    // 專屬 QR Code 生成與原生喚醒協議
     function showQr(id, clientType) {
       if (!clientType) clientType = 'auto';
       var rawUrl = document.getElementById(id).value;
-      if (!rawUrl) return;
+      if (!rawUrl) return showToast('請先生成訂閱連結', false);
 
       var profileName = document.getElementById('shortCode').value.trim() || 'SubConverter';
       var deepLink = rawUrl;
@@ -4230,13 +4283,144 @@ export const HTML_PAGE = `<!DOCTYPE html>
         clientName = 'Shadowrocket';
       }
 
-      var win = window.open('', '_blank', 'width=440,height=560');
+      var win = window.open('', '_blank', 'width=460,height=600');
       if (!win) return showToast('請允許瀏覽器開啟彈出視窗', false);
 
       var qrHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + displayTitle + '</title>' +
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">' +
+        '<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\\/script>' +
         '<style>' +
-          'b
+          'body { background: #0f172a; color: #f8fafc; font-family: -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; text-align: center; }' +
+          'h2 { font-size: 1.15rem; margin-bottom: 8px; }' +
+          'p { color: #94a3b8; font-size: 0.85rem; margin-bottom: 20px; }' +
+          '#qrcode { background: #ffffff; padding: 16px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); margin-bottom: 20px; }' +
+          '#qrcode img { display: block; }' +
+          '.btn { display: inline-flex; align-items: center; justify-content: center; background: #3b82f6; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; text-decoration: none; cursor: pointer; width: 100%; max-width: 280px; font-size: 0.95rem; margin-bottom: 10px; transition: background 0.2s; }' +
+          '.btn:hover { background: #2563eb; }' +
+          '.btn-ghost { background: transparent; border: 1px solid #334155; color: #94a3b8; }' +
+          '.btn-ghost:hover { background: #1e293b; color: white; }' +
+        '</style>' +
+        '</head><body>' +
+        '<h2>' + displayTitle + '</h2>' +
+        '<p>使用手機相機或對應客戶端掃描二維碼</p>' +
+        '<div id="qrcode"></div>' +
+        '<a href="' + deepLink + '" class="btn">🚀 一鍵打開並導入 ' + clientName + '</a>' +
+        '<button onclick="window.close()" class="btn btn-ghost">關閉視窗</button>' +
+        '<script>' +
+          'new QRCode(document.getElementById("qrcode"), {' +
+            'text: ' + JSON.stringify(deepLink) + ',' +
+            'width: 220,' +
+            'height: 220,' +
+            'correctLevel: QRCode.CorrectLevel.M' +
+          '});' +
+        '<\\/script>' +
+        '</body></html>';
+
+      win.document.open();
+      win.document.write(qrHtml);
+      win.document.close();
+    }
+
+    // Argo 隧道第一步：解析節點
+    function parseVlessNodes() {
+      var raw = document.getElementById('urlInput').value.trim();
+      if (!raw) return showToast('請先在最上方輸入框貼入節點內容', false);
+
+      showToast('正在解析 VLESS / VMess 節點...');
+      fetch('/api/parse-argo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: raw })
+      }).then(function(res) {
+        if (!res.ok) throw new Error('解析請求失敗');
+        return res.json();
+      }).then(function(nodes) {
+        if (!nodes || nodes.length === 0) {
+          return showToast('未找到可轉換的 VLESS / VMess 節點', false);
+        }
+        parsedArgoNodesCache = nodes;
+        var listEl = document.getElementById('vlessCheckboxList');
+        var html = '';
+        for (var i = 0; i < nodes.length; i++) {
+          var n = nodes[i];
+          html += '<label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer;">' +
+            '<input type="checkbox" name="argoNodeIdx" value="' + n.index + '" data-port="' + n.port + '" ' + (i === 0 ? 'checked' : '') + ' onchange="updateArgoPort(this)">' +
+            '<span>' + n.name + ' (' + n.server + ':' + n.port + ', ' + n.type + ')</span>' +
+          '</label>';
+        }
+        listEl.innerHTML = html;
+        document.getElementById('argoLocalPort').value = nodes[0].port || '8080';
+        document.getElementById('vlessSelectorWrapper').style.display = 'block';
+        showToast('成功解析 ' + nodes.length + ' 個相容節點！');
+      }).catch(function(e) {
+        showToast('解析失敗: ' + e.message, false);
+      });
+    }
+
+    function updateArgoPort(checkbox) {
+      if (checkbox.checked && checkbox.dataset.port) {
+        document.getElementById('argoLocalPort').value = checkbox.dataset.port;
+      }
+    }
+
+    // Argo 隧道第二步：生成命令與節點
+    function generateArgo() {
+      var raw = document.getElementById('urlInput').value.trim();
+      var checkedBoxes = document.querySelectorAll('input[name="argoNodeIdx"]:checked');
+      var indices = [];
+      checkedBoxes.forEach(function(box) {
+        indices.push(parseInt(box.value, 10));
+      });
+
+      if (indices.length === 0) return showToast('請至少勾選一個欲轉換的節點', false);
+
+      var port = document.getElementById('argoLocalPort').value.trim() || '8080';
+      var cleanIp = document.getElementById('argoCleanIp').value.trim();
+      var token = document.getElementById('argoTunnelToken').value.trim();
+      var domain = document.getElementById('argoCustomDomain').value.trim();
+
+      if (token && !domain) {
+        return showToast('使用固定隧道模式時，必須填寫自訂綁定域名', false);
+      }
+
+      showToast('正在生成 Argo 腳本與配置...');
+      fetch('/api/argo-generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: raw,
+          indices: indices,
+          port: port,
+          cleanIp: cleanIp,
+          token: token,
+          domain: domain
+        })
+      }).then(function(res) {
+        if (!res.ok) throw new Error('生成失敗');
+        return res.json();
+      }).then(function(data) {
+        var host = window.location.origin;
+        var curlCmd = 'curl -sSL ' + host + '/argo/sh/' + data.scriptId + ' | bash';
+        document.getElementById('argoCurlCmd').value = curlCmd;
+
+        var links = (data.argoNodes || []).map(function(item) { return item.link; });
+        document.getElementById('argoBase64Sub').value = links.join('\\n');
+
+        document.getElementById('argoResults').classList.add('show');
+        showToast('Argo 腳本與節點已成功生成！');
+      }).catch(function(e) {
+        showToast('生成失敗: ' + e.message, false);
+      });
+    }
+
+    // 初始化載入已儲存的配置
+    window.addEventListener('DOMContentLoaded', function() {
+      loadFavs();
+    });
+  </script>
+</body>
+</html>
+`;
 
 ````
 

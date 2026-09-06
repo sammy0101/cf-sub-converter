@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 13:29:47 UTC 2026
+Generated on: Sun Sep  6 13:30:19 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3710,7 +3710,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
           </div>
-          <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · 掃碼同時自動填寫名稱與網址</div></div>
+          <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · 掃碼秒填名稱與網址</div></div>
           <div class="result-input-wrapper"><input type="text" id="singboxUrl" readonly></div>
           <div class="result-actions">
             <button class="btn-icon" onclick="copyResult('singboxUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
@@ -4175,6 +4175,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       });
     }
 
+    // 💥 產出帶有 #<名稱> 的標準 URL
     function generate() {
       var raw = document.getElementById('urlInput').value.trim();
       if (!raw) return showToast('請先輸入節點連結或訂閱網址', false);
@@ -4225,7 +4226,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       }
     }
 
-    // 💥 完美二維碼：針對 Sing-Box 精確繪製 sing-box:// 官方協議，各掃描器一掃秒填名稱與 URL！
+    // 💥 QR Code 統一繪製標準帶 Hash 網址（各 App 掃描皆能辨識，且自動提取 # 後的字串作為名稱）
     function showQr(id, clientType) {
       if (!clientType) clientType = 'auto';
       var rawUrl = document.getElementById(id).value;
@@ -4242,40 +4243,34 @@ export const HTML_PAGE = `<!DOCTYPE html>
       }
       
       var cleanHttpUrl = rawUrl.split('#')[0];
-      var qrTargetText = rawUrl;
-      var deepLink = rawUrl;
+      // 💥 二維碼繪製帶 #名稱 的完整網址：Sing-Box、小火箭掃描器均能正確讀取名稱與 URL
+      var qrTargetText = cleanHttpUrl + '#' + encodeURIComponent(profileName);
+      var deepLink = qrTargetText;
       var displayTitle = '掃碼導入配置';
       var clientName = '客戶端';
 
       if (clientType === 'singbox') {
-        // 💥 二維碼繪製官方協議：手機相機與 Sing-Box App 掃描器都能自動填入「名稱」與「URL」
         deepLink = 'sing-box://import-remote-profile?url=' + encodeURIComponent(cleanHttpUrl) + '&name=' + encodeURIComponent(profileName);
-        qrTargetText = deepLink;
         displayTitle = 'Sing-Box 專屬掃碼導入';
         clientName = 'Sing-Box';
       } else if (clientType === 'clash') {
         deepLink = 'clash://install-config?url=' + encodeURIComponent(cleanHttpUrl) + '&name=' + encodeURIComponent(profileName);
-        qrTargetText = deepLink;
         displayTitle = 'Clash / Mihomo 專屬導入';
         clientName = 'Clash';
       } else if (clientType === 'surge') {
         deepLink = 'surge:///install-config?url=' + encodeURIComponent(cleanHttpUrl);
-        qrTargetText = cleanHttpUrl;
         displayTitle = 'Surge 5 專屬導入';
         clientName = 'Surge';
       } else if (clientType === 'quanx') {
         deepLink = 'quantumult-x:///add-resource?remote-resource=' + encodeURIComponent(JSON.stringify({ server_remote: [cleanHttpUrl + ', tag=' + profileName] }));
-        qrTargetText = cleanHttpUrl;
         displayTitle = 'Quantumult X 專屬導入';
         clientName = 'Quantumult X';
       } else if (clientType === 'loon') {
         deepLink = 'loon://import?type=config&url=' + encodeURIComponent(cleanHttpUrl);
-        qrTargetText = cleanHttpUrl;
         displayTitle = 'Loon 專屬導入';
         clientName = 'Loon';
       } else if (clientType === 'shadowrocket') {
         deepLink = 'shadowrocket://add/sub://' + btoa(cleanHttpUrl) + '?remark=' + encodeURIComponent(profileName);
-        qrTargetText = cleanHttpUrl + '#' + encodeURIComponent(profileName);
         displayTitle = 'Shadowrocket 專屬導入';
         clientName = 'Shadowrocket';
       }

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 11:59:59 UTC 2026
+Generated on: Sun Sep  6 12:00:44 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3012,7 +3012,6 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (wg.mtu) params.set('mtu', String(wg.mtu));
         return `wireguard://${encodeURIComponent(wg.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
-      // 💥 關鍵修復：將 MASQUE 輸出為小火箭與通用客戶端標準 masque:// URI 格式
       if (node.type === 'masque' && node.masque) {
         const m = node.masque;
         const params = new URLSearchParams();

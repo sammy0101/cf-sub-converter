@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 13:50:29 UTC 2026
+Generated on: Sun Sep  6 14:00:07 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3008,13 +3008,12 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         const cleanIp = wg.localAddress[0]?.split('/')[0] || '10.2.0.2';
         const params = new URLSearchParams();
         params.set('publickey', wg.publicKey || '');
-        params.set('privatekey', wg.privateKey || '');
         params.set('address', cleanIp);
         if (wg.dns) params.set('dns', wg.dns);
         if (wg.presharedKey) params.set('presharedkey', wg.presharedKey);
         params.set('mtu', String(wg.mtu || 1420));
         params.set('keepalive', '25');
-        return `wireguard://${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+        return `wireguard://${encodeURIComponent(wg.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
       if (node.type === 'masque' && node.masque) {
         const m = node.masque;
@@ -3129,26 +3128,41 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
   }
 
   const outbounds: Record<string, unknown>[] = [];
+  const endpoints: Record<string, unknown>[] = [];
   const allNodeTags: string[] = [];
 
   nodes.forEach(n => {
     allNodeTags.push(n.name);
     
-    // 💥 官方經典標準：在 outbounds 裡宣告 WireGuard，使用標準欄位名稱
+    // 💥 完美解決 decode config: outbounds.server / local_address 報錯：
+    // Sing-Box 現代規範將 WireGuard 放進頂層 endpoints，outbound 放對應 detour
     if (n.type === 'wireguard' && n.wireguard) {
       const wg = n.wireguard;
-      const wgOutbound: Record<string, unknown> = {
+      const peerObj: Record<string, unknown> = {
+        address: n.server,
+        port: n.port,
+        public_key: wg.publicKey,
+        allowed_ips: ["0.0.0.0/0", "::/0"]
+      };
+      if (wg.presharedKey) peerObj.pre_shared_key = wg.presharedKey;
+      if (wg.reserved && wg.reserved.length > 0) peerObj.reserved = wg.reserved;
+
+      // 1. 寫入頂層 endpoints
+      endpoints.push({
         type: 'wireguard',
         tag: n.name,
-        server: n.server,
-        server_port: n.port,
-        local_address: wg.localAddress,
+        address: wg.localAddress,
         private_key: wg.privateKey,
-        peer_public_key: wg.publicKey,
+        peers: [peerObj],
         mtu: wg.mtu || 1420
-      };
-      if (wg.presharedKey) wgOutbound.pre_shared_key = wg.presharedKey;
-      outbounds.push(wgOutbound);
+      });
+
+      // 2. 寫入 outbounds（透過 direct 綁定 endpoint 出站）
+      outbounds.push({
+        type: 'direct',
+        tag: n.name,
+        endpoint: n.name
+      });
     } else {
       const obj = JSON.parse(JSON.stringify(n.singboxObj));
       if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {
@@ -3157,6 +3171,13 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
       outbounds.push(obj);
     }
   });
+
+  if (endpoints.length > 0) {
+    if (!config.endpoints || !Array.isArray(config.endpoints)) {
+      config.endpoints = [];
+    }
+    config.endpoints.push(...endpoints);
+  }
 
   if (!Array.isArray(config.outbounds)) config.outbounds = [];
   config.outbounds.push(...outbounds);

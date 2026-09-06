@@ -50,7 +50,7 @@ function isIpAddress(host: string): boolean {
   return /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(host) || /^[a-fA-F0-9:]+$/.test(host);
 }
 
-// --- 💥 解析 WireGuard 官方 .conf 格式 (支援 Proton VPN, WARP 等多行設定) ---
+// --- 解析 WireGuard 官方 .conf 格式 (Sing-Box 1.14+ 規範) ---
 function parseWireGuardConf(text: string): ProxyNode[] {
   const nodes: ProxyNode[] = [];
   const sections = text.split(/(?=\[Interface\])/i).filter(s => s.trim().length > 0);
@@ -63,7 +63,6 @@ function parseWireGuardConf(text: string): ProxyNode[] {
       return match ? match[1].trim() : '';
     };
 
-    // 智慧提取註解名稱（如 # NL-FREE#246 或 # Key for protonWG）
     let name = '';
     const comments = sec.match(/^[ \t]*#[ \t]*(.*?)$/gm);
     if (comments) {
@@ -122,19 +121,22 @@ function parseWireGuardConf(text: string): ProxyNode[] {
       wireguard: wgConfig
     };
 
-    // Sing-Box Outbound
+    // 💥 Sing-Box 1.14+ 現代 Endpoint 規範結構
     node.singboxObj = {
-      tag: name,
       type: 'wireguard',
-      server: node.server,
-      server_port: node.port,
-      system_interface: false,
-      interface_name: 'wg0',
-      local_address: localAddress,
+      tag: name,
+      address: localAddress,
       private_key: privateKey,
-      peer_public_key: publicKey,
-      pre_shared_key: presharedKey,
-      mtu
+      peers: [
+        {
+          address: server,
+          port,
+          public_key: publicKey,
+          allowed_ips: ['0.0.0.0/0', '::/0'],
+          pre_shared_key: presharedKey
+        }
+      ],
+      mtu: mtu || 1420
     };
 
     // Clash Meta Outbound
@@ -506,19 +508,22 @@ function parseWireGuard(urlStr: string): ProxyNode | null {
       wireguard: wgConfig
     };
 
+    // 💥 Sing-Box 1.14+ 現代 Endpoint 規範結構
     node.singboxObj = {
-      tag: name,
       type: 'wireguard',
-      server: node.server,
-      server_port: node.port,
-      system_interface: false,
-      interface_name: 'wg0',
-      local_address: localIps,
+      tag: name,
+      address: localIps,
       private_key: privateKey,
-      peer_public_key: publicKey,
-      pre_shared_key: presharedKey,
-      reserved,
-      mtu
+      peers: [
+        {
+          address: parsed.hostname,
+          port: parsed.port,
+          public_key: publicKey,
+          allowed_ips: ['0.0.0.0/0', '::/0'],
+          pre_shared_key: presharedKey
+        }
+      ],
+      mtu: mtu || 1420
     };
 
     node.clashObj = {
@@ -880,11 +885,11 @@ function parseTrojan(urlStr: string): ProxyNode | null {
   }
 }
 
-// --- 主解析入口 (支援多行 WireGuard .conf 與混合協議) ---
+// --- 主解析入口 ---
 export async function parseContent(content: string): Promise<ProxyNode[]> {
   let plainText = content.replace(/^\uFEFF/, '').trim(); 
 
-  // 💥 優先檢查是否為標準 WireGuard INI 配置 ([Interface] 與 [Peer])
+  // 優先檢查是否為標準 WireGuard INI 配置 ([Interface] 與 [Peer])
   if (/\[Interface\]/i.test(plainText) && /\[Peer\]/i.test(plainText)) {
     const wgNodes = parseWireGuardConf(plainText);
     if (wgNodes.length > 0) {

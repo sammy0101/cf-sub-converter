@@ -16,28 +16,40 @@ import { deduplicateNodeNames, groupNodesByFlag } from './utils';
 
 const version = packageJson.version || '3.5.0';
 
-// 密碼鑒權校驗（僅在設置了 PAGE_PASSWORD 時攔截）
+// 密碼鑒權校驗
 function checkAuth(request: Request, env: Env): boolean {
   if (!env.PAGE_PASSWORD || env.PAGE_PASSWORD.trim() === '') {
-    return true; // 未設置密碼，免密模式
+    return true;
   }
   const clientPwd = request.headers.get('X-Password') || '';
   return clientPwd === env.PAGE_PASSWORD.trim();
 }
 
-// 輔助載入與解析節點
+// 輔助載入與解析節點 (支援多行 WireGuard .conf)
 async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
-  const inputs = urlParam.split(/[\n\r|]+/); 
   const allNodes: ProxyNode[] = [];
+  const trimmed = urlParam.trim();
+  if (!trimmed) return allNodes;
 
+  // 1. 優先完整辨識多行 WireGuard 配置
+  if (/\[Interface\]/i.test(trimmed) && /\[Peer\]/i.test(trimmed)) {
+    try {
+      const parsed = await parseContent(trimmed);
+      allNodes.push(...parsed);
+    } catch {}
+    return allNodes;
+  }
+
+  // 2. 傳統單行節點或訂閱連結
+  const inputs = urlParam.split(/[\n\r|]+/); 
   for (const input of inputs) {
-    const trimmed = input.trim(); 
-    if (!trimmed) continue;
+    const t = input.trim(); 
+    if (!t) continue;
     
-    if (trimmed.startsWith('http')) { 
+    if (t.startsWith('http')) { 
       try { 
-        const separator = trimmed.includes('?') ? '&' : '?';
-        const fetchUrl = `${trimmed}${separator}t=${Date.now()}`;
+        const separator = t.includes('?') ? '&' : '?';
+        const fetchUrl = `${t}${separator}t=${Date.now()}`;
         
         const resp = await fetch(fetchUrl, { 
           headers: { 
@@ -58,7 +70,7 @@ async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
       } catch {} 
     } else { 
       try {
-        const parsed = await parseContent(trimmed);
+        const parsed = await parseContent(t);
         allNodes.push(...parsed); 
       } catch {}
     }
@@ -293,7 +305,7 @@ export default {
       }
     }
 
-    // --- 💥 Favorites API (受密碼保護區域) ---
+    // --- Favorites API (受密碼保護區域) ---
     const FAVS_KEY = 'favorites';
     const getFavs = async (): Promise<Array<Record<string, string>>> => {
       const data = await env.SUB_CACHE.get(FAVS_KEY);
@@ -378,7 +390,7 @@ export default {
       }
     }
 
-    // GET 訂閱路由 (公開免密)
+    // GET 訂閱路由
     let urlParam = url.searchParams.get('url') || '';
     let includeParam = url.searchParams.get('include') || '';
     let excludeParam = url.searchParams.get('exclude') || '';
@@ -412,63 +424,79 @@ export default {
       return new Response(dynamicHtml, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     }
 
-    // 解析節點
-    const inputs = urlParam.split(/[\n\r|]+/); 
+    // --- 💥 核心節點解析（支援多行 WireGuard 完整結構） ---
     const allNodes: ProxyNode[] = [];
+    const errors: string[] = [];
     let totalUpload = 0;
     let totalDownload = 0;
     let totalTotal = 0;
     let minExpire = 0;
     let hasTrafficInfo = false;
 
-    for (const input of inputs) {
-      const trimmed = input.trim(); 
-      if (!trimmed) continue;
-      
-      if (trimmed.startsWith('http')) { 
-        try { 
-          const separator = trimmed.includes('?') ? '&' : '?';
-          const fetchUrl = `${trimmed}${separator}t=${Date.now()}`;
-          const resp = await fetch(fetchUrl, { headers: { 'User-Agent': 'v2rayNG/1.8.5' } }); 
-          
-          if (resp.ok) { 
-            const text = await resp.text(); 
-            const userInfo = resp.headers.get('subscription-userinfo');
-            if (userInfo) {
-              hasTrafficInfo = true;
-              const uploadMatch = userInfo.match(/upload=(\d+)/i);
-              const downloadMatch = userInfo.match(/download=(\d+)/i);
-              const totalMatch = userInfo.match(/total=(\d+)/i);
-              const expireMatch = userInfo.match(/expire=(\d+)/i);
+    const trimmedParam = urlParam.trim();
 
-              totalUpload += uploadMatch ? parseInt(uploadMatch[1]) : 0;
-              totalDownload += downloadMatch ? parseInt(downloadMatch[1]) : 0;
-              totalTotal += totalMatch ? parseInt(totalMatch[1]) : 0;
-              
-              const expireVal = expireMatch ? parseInt(expireMatch[1]) : 0;
-              if (expireVal > 0) {
-                if (minExpire === 0 || expireVal < minExpire) minExpire = expireVal; 
+    // 1. 優先完整辨識多行 WireGuard 配置 (防止被 \n 拆碎導致 400 錯誤)
+    if (/\[Interface\]/i.test(trimmedParam) && /\[Peer\]/i.test(trimmedParam)) {
+      try {
+        const parsed = await parseContent(trimmedParam);
+        allNodes.push(...parsed);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`[WireGuard 配置] 失敗原因: ${msg}`);
+      }
+    } else {
+      // 2. 傳統單行 URI 節點或訂閱網址 (依換行分割)
+      const inputs = urlParam.split(/[\n\r|]+/); 
+      for (const input of inputs) {
+        const trimmed = input.trim(); 
+        if (!trimmed) continue;
+        
+        if (trimmed.startsWith('http')) { 
+          try { 
+            const separator = trimmed.includes('?') ? '&' : '?';
+            const fetchUrl = `${trimmed}${separator}t=${Date.now()}`;
+            const resp = await fetch(fetchUrl, { headers: { 'User-Agent': 'v2rayNG/1.8.5' } }); 
+            
+            if (resp.ok) { 
+              const text = await resp.text(); 
+              const userInfo = resp.headers.get('subscription-userinfo');
+              if (userInfo) {
+                hasTrafficInfo = true;
+                const uploadMatch = userInfo.match(/upload=(\d+)/i);
+                const downloadMatch = userInfo.match(/download=(\d+)/i);
+                const totalMatch = userInfo.match(/total=(\d+)/i);
+                const expireMatch = userInfo.match(/expire=(\d+)/i);
+
+                totalUpload += uploadMatch ? parseInt(uploadMatch[1], 10) : 0;
+                totalDownload += downloadMatch ? parseInt(downloadMatch[1], 10) : 0;
+                totalTotal += totalMatch ? parseInt(totalMatch[1], 10) : 0;
+                
+                const expireVal = expireMatch ? parseInt(expireMatch[1], 10) : 0;
+                if (expireVal > 0) {
+                  if (minExpire === 0 || expireVal < minExpire) minExpire = expireVal; 
+                }
+              }
+
+              if (!text.trim().startsWith('<')) {
+                try {
+                  const parsed = await parseContent(text);
+                  allNodes.push(...parsed);
+                } catch {}
               }
             }
-
-            if (!text.trim().startsWith('<')) {
-              try {
-                const parsed = await parseContent(text);
-                allNodes.push(...parsed);
-              } catch {}
-            }
-          }
-        } catch {} 
-      } else { 
-        try {
-          const parsed = await parseContent(trimmed);
-          allNodes.push(...parsed); 
-        } catch {}
+          } catch {} 
+        } else { 
+          try {
+            const parsed = await parseContent(trimmed);
+            allNodes.push(...parsed); 
+          } catch {}
+        }
       }
     }
 
     if (allNodes.length === 0) {
-      return new Response('未解析到任何有效節點。', { status: 400 });
+      const errorMsg = errors.length > 0 ? errors.join('\n') : '未解析到任何有效節點。';
+      return new Response(errorMsg, { status: 400 });
     }
 
     let filteredNodes = allNodes;
@@ -556,8 +584,7 @@ export default {
       if (excludeParam) filterQuery += `&exclude=${encodeURIComponent(excludeParam)}`;
       if (renameParam) filterQuery += `&rename=${encodeURIComponent(renameParam)}`;
 
-      const htmlInfo = `
-<!DOCTYPE html><html><head><meta charset="utf-8"><title>轉換完成</title><style>body{background:#0f172a;color:#f8fafc;font-family:sans-serif;padding:40px;text-align:center;}a{display:inline-block;margin:10px;padding:12px 24px;background:#3b82f6;color:#fff;text-decoration:none;border-radius:8px;}</style></head>
+      const htmlInfo = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>轉換完成</title><style>body{background:#0f172a;color:#f8fafc;font-family:sans-serif;padding:40px;text-align:center;}a{display:inline-block;margin:10px;padding:12px 24px;background:#3b82f6;color:#fff;text-decoration:none;border-radius:8px;}</style></head>
 <body>
   <h1>⚡ 成功轉換 ${uniqueNodes.length} 個節點</h1>
   <div>

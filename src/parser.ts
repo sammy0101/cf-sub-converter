@@ -135,7 +135,7 @@ function parseMasqueJson(text: string): ProxyNode | null {
   }
 }
 
-// --- 💥 解析 masque:// URI 格式 (支援小火箭與通用客戶端雙向解析) ---
+// --- 解析 masque:// URI 格式 ---
 function parseMasqueUri(urlStr: string): ProxyNode | null {
   try {
     const parsed = parseProxyUri(urlStr, 443);
@@ -213,9 +213,11 @@ function parseWireGuardConf(text: string): ProxyNode[] {
     };
 
     let name = '';
-    const comments = sec.match(/^[ \t]*#[ \t]*(.*?)$/gm);
-    if (comments) {
-      for (const c of comments) {
+    // 優先讀取 [Peer] 下方的備註名稱 (例如 # JP-FREE#23)
+    const peerPart = sec.split(/\[Peer\]/i)[1] || '';
+    const peerComments = peerPart.match(/^[ \t]*#[ \t]*(.*?)$/gm);
+    if (peerComments) {
+      for (const c of peerComments) {
         const clean = c.replace(/^[ \t]*#[ \t]*/, '').trim();
         if (clean && !clean.includes('=') && !clean.toLowerCase().startsWith('key for')) {
           name = clean;
@@ -224,9 +226,23 @@ function parseWireGuardConf(text: string): ProxyNode[] {
       }
     }
 
+    if (!name) {
+      const comments = sec.match(/^[ \t]*#[ \t]*(.*?)$/gm);
+      if (comments) {
+        for (const c of comments) {
+          const clean = c.replace(/^[ \t]*#[ \t]*/, '').trim();
+          if (clean && !clean.includes('=') && !clean.toLowerCase().startsWith('key for')) {
+            name = clean;
+            break;
+          }
+        }
+      }
+    }
+
     const privateKey = getVal('PrivateKey');
     const addressStr = getVal('Address');
     const localAddress = addressStr ? addressStr.split(',').map(s => s.trim()) : ['10.2.0.2/32'];
+    const dns = getVal('DNS') || '10.2.0.1';
     const publicKey = getVal('PublicKey');
     const presharedKey = getVal('PresharedKey') || undefined;
     const endpoint = getVal('Endpoint');
@@ -250,7 +266,7 @@ function parseWireGuardConf(text: string): ProxyNode[] {
     }
 
     if (!name) {
-      name = `Proton-WG-${server}`;
+      name = `WireGuard-${server}`;
     }
 
     const wgConfig: WireGuardConfig = {
@@ -258,7 +274,8 @@ function parseWireGuardConf(text: string): ProxyNode[] {
       localAddress,
       publicKey,
       presharedKey,
-      mtu
+      mtu,
+      dns
     };
 
     const node: ProxyNode = {
@@ -279,18 +296,12 @@ function parseWireGuardConf(text: string): ProxyNode[] {
     node.singboxObj = {
       type: 'wireguard',
       tag: name,
-      address: localAddress,
+      server,
+      server_port: port,
+      local_address: localAddress,
       private_key: privateKey,
-      peers: [
-        {
-          address: server,
-          port,
-          public_key: publicKey,
-          allowed_ips: allowedIps,
-          pre_shared_key: presharedKey,
-          persistent_keepalive_interval: keepalive
-        }
-      ],
+      peer_public_key: publicKey,
+      pre_shared_key: presharedKey,
       mtu: mtu || 1420
     };
 
@@ -630,17 +641,18 @@ function parseVless(urlStr: string): ProxyNode | null {
 // --- 解析 WireGuard (URI 格式) ---
 function parseWireGuard(urlStr: string): ProxyNode | null {
   try {
-    const parsed = parseProxyUri(urlStr, 2408);
+    const parsed = parseProxyUri(urlStr, 51820);
     if (!parsed) return null;
 
     const params = parsed.params;
     const name = parsed.hash || 'WireGuard';
 
     const privateKey = parsed.username;
-    const localIps = (params.get('ip') || params.get('address') || '172.16.0.2/32,fd00::2/128').split(',');
-    const publicKey = params.get('public_key') || params.get('pk') || '';
-    const presharedKey = params.get('preshared_key') || params.get('psk') || undefined;
+    const localIps = (params.get('address') || params.get('ip') || '10.2.0.2/32').split(',');
+    const publicKey = params.get('publickey') || params.get('public_key') || params.get('pk') || '';
+    const presharedKey = params.get('presharedkey') || params.get('preshared_key') || params.get('psk') || undefined;
     const mtu = parseInt(params.get('mtu') || '1420', 10);
+    const dns = params.get('dns') || '10.2.0.1';
     const reserved = params.get('reserved') ? params.get('reserved')!.split(',').map(n => parseInt(n.trim(), 10)) : undefined;
 
     const wgConfig: WireGuardConfig = {
@@ -649,7 +661,8 @@ function parseWireGuard(urlStr: string): ProxyNode | null {
       publicKey,
       presharedKey,
       mtu,
-      reserved
+      reserved,
+      dns
     };
 
     const node: ProxyNode = {
@@ -661,27 +674,15 @@ function parseWireGuard(urlStr: string): ProxyNode | null {
       wireguard: wgConfig
     };
 
-    const hasIpv6 = localIps.some(ip => ip.includes(':'));
-    const allowedIps = ['0.0.0.0/0'];
-    if (hasIpv6) {
-      allowedIps.push('::/0');
-    }
-
     node.singboxObj = {
       type: 'wireguard',
       tag: name,
-      address: localIps,
+      server: parsed.hostname,
+      server_port: parsed.port,
+      local_address: localIps,
       private_key: privateKey,
-      peers: [
-        {
-          address: parsed.hostname,
-          port: parsed.port,
-          public_key: publicKey,
-          allowed_ips: allowedIps,
-          pre_shared_key: presharedKey,
-          persistent_keepalive_interval: 25
-        }
-      ],
+      peer_public_key: publicKey,
+      pre_shared_key: presharedKey,
       mtu: mtu || 1420
     };
 
@@ -1116,7 +1117,6 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
     else if (l.startsWith('anytls://')) { const n = parseAnytls(l); if (n) nodes.push(n); } 
     else if (l.startsWith('trojan://')) { const n = parseTrojan(l); if (n) nodes.push(n); }
     else if (l.startsWith('wireguard://') || l.startsWith('warp://')) { const n = parseWireGuard(l); if (n) nodes.push(n); }
-    // 💥 支援 masque:// 單行 URI 格式
     else if (l.startsWith('masque://')) { const n = parseMasqueUri(l); if (n) nodes.push(n); }
   } 
   

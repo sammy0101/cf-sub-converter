@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 11:50:52 UTC 2026
+Generated on: Sun Sep  6 11:51:25 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -1827,7 +1827,7 @@ function isIpAddress(host: string): boolean {
   return /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(host) || /^[a-fA-F0-9:]+$/.test(host);
 }
 
-// --- 💥 解析 Cloudflare WARP MASQUE JSON 配置 ---
+// --- 解析 Cloudflare WARP MASQUE JSON 配置 ---
 interface RawMasqueConfig {
   private_key?: string;
   endpoint_v4?: string;
@@ -1902,6 +1902,70 @@ function parseMasqueJson(text: string): ProxyNode | null {
       ip: localIpv4,
       ipv6: localIpv6,
       mtu: 1280,
+      udp: true,
+      'remote-dns-resolve': true
+    };
+
+    return node;
+  } catch {
+    return null;
+  }
+}
+
+// --- 💥 解析 masque:// URI 格式 (支援小火箭與通用客戶端雙向解析) ---
+function parseMasqueUri(urlStr: string): ProxyNode | null {
+  try {
+    const parsed = parseProxyUri(urlStr, 443);
+    if (!parsed) return null;
+
+    const privateKey = parsed.username;
+    const params = parsed.params;
+    const publicKey = params.get('public_key') || params.get('pk') || '';
+    const ipv4 = params.get('ip') || '172.16.0.2/32';
+    const ipv6 = params.get('ipv6') || undefined;
+    const mtu = parseInt(params.get('mtu') || '1280', 10);
+    const name = parsed.hash || 'WARP-MASQUE';
+
+    if (!privateKey || !publicKey) return null;
+
+    const masqueConfig: MasqueConfig = {
+      privateKey,
+      publicKey,
+      localIpv4: ipv4,
+      localIpv6: ipv6,
+      mtu
+    };
+
+    const node: ProxyNode = {
+      type: 'masque',
+      name,
+      server: parsed.hostname,
+      port: parsed.port,
+      udp: true,
+      masque: masqueConfig
+    };
+
+    node.singboxObj = {
+      type: 'masque',
+      tag: name,
+      server: parsed.hostname,
+      server_port: parsed.port,
+      private_key: privateKey,
+      public_key: publicKey,
+      ip: ipv4,
+      ipv6: ipv6
+    };
+
+    node.clashObj = {
+      name,
+      type: 'masque',
+      server: parsed.hostname,
+      port: parsed.port,
+      'private-key': privateKey,
+      'public-key': publicKey,
+      ip: ipv4,
+      ipv6: ipv6,
+      mtu,
       udp: true,
       'remote-dns-resolve': true
     };
@@ -2768,7 +2832,7 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
     }
   }
 
-  // 💥 2. 優先檢查是否為 Cloudflare WARP MASQUE JSON 配置
+  // 2. 優先檢查是否為 Cloudflare WARP MASQUE JSON 配置
   if (plainText.startsWith('{') && /["']private_key["']/i.test(plainText)) {
     const masqueNode = parseMasqueJson(plainText);
     if (masqueNode) {
@@ -2776,7 +2840,7 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
     }
   }
   
-  const protocols = ['ss://', 'vmess://', 'vless://', 'trojan://', 'tuic://', 'hysteria2://', 'hy2://', 'anytls://', 'wireguard://', 'warp://'];
+  const protocols = ['ss://', 'vmess://', 'vless://', 'trojan://', 'tuic://', 'hysteria2://', 'hy2://', 'anytls://', 'wireguard://', 'warp://', 'masque://'];
   const firstLine = plainText.split(/\r?\n/)[0].trim();
   const isPlainText = protocols.some(p => firstLine.startsWith(p));
   
@@ -2829,6 +2893,8 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
     else if (l.startsWith('anytls://')) { const n = parseAnytls(l); if (n) nodes.push(n); } 
     else if (l.startsWith('trojan://')) { const n = parseTrojan(l); if (n) nodes.push(n); }
     else if (l.startsWith('wireguard://') || l.startsWith('warp://')) { const n = parseWireGuard(l); if (n) nodes.push(n); }
+    // 💥 支援 masque:// 單行 URI 格式
+    else if (l.startsWith('masque://')) { const n = parseMasqueUri(l); if (n) nodes.push(n); }
   } 
   
   if (nodes.length === 0) {

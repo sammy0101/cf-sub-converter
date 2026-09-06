@@ -88,17 +88,19 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (node.ech) params.set('ech', '1');
         return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
-      // 💥 WireGuard Shadowrocket / 現代客戶端雙相容輸出
+      // 💥 徹底消除干擾參數，只輸出小火箭識別的核心 WireGuard 規範
       if (node.type === 'wireguard' && node.wireguard) {
         const wg = node.wireguard;
         const params = new URLSearchParams();
         params.set('publickey', wg.publicKey || '');
-        params.set('privatekey', wg.privateKey || '');
         params.set('address', wg.localAddress.join(','));
         if (wg.dns) params.set('dns', wg.dns);
         if (wg.presharedKey) params.set('presharedkey', wg.presharedKey);
         if (wg.mtu) params.set('mtu', String(wg.mtu));
-        if (wg.reserved) params.set('reserved', wg.reserved.join(','));
+        // 嚴格禁止在非 WARP 節點傳入 reserved
+        if (wg.reserved && wg.reserved.length > 0) {
+          params.set('reserved', wg.reserved.join(','));
+        }
         return `wireguard://${encodeURIComponent(wg.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
       if (node.type === 'masque' && node.masque) {

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 11:41:27 UTC 2026
+Generated on: Sun Sep  6 11:42:01 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -2946,6 +2946,20 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (wg.mtu) params.set('mtu', String(wg.mtu));
         return `wireguard://${encodeURIComponent(wg.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
+      if (node.type === 'masque' && node.masque) {
+        const m = node.masque;
+        const obj = {
+          type: 'masque',
+          name: node.name,
+          server: node.server,
+          port: node.port,
+          private_key: m.privateKey,
+          public_key: m.publicKey,
+          ipv4: m.localIpv4,
+          ipv6: m.localIpv6
+        };
+        return JSON.stringify(obj);
+      }
       return null;
     } catch {
       return null;
@@ -3004,7 +3018,7 @@ async function fetchTemplateWithSWR(
   return fallbackJsonStr;
 }
 
-// --- Sing-Box 配置生成 (已修復未定義變數導致的 500 錯誤) ---
+// --- Sing-Box 配置生成 ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
   const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox', FALLBACK_SINGBOX_RULES, env, forceRefresh);
   const config = JSON.parse(text);
@@ -3053,7 +3067,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 💥 5. 核心分流：WireGuard 節點歸入頂層 endpoints[]，一般代理節點歸入 outbounds[]
+  // 5. 核心分流：WireGuard 節點歸入頂層 endpoints[]，代理節點歸入 outbounds[]
   const wireguardEndpoints: Record<string, unknown>[] = [];
   const proxyOutbounds: Record<string, unknown>[] = [];
 
@@ -3079,7 +3093,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
   }
 
   if (!Array.isArray(config.outbounds)) config.outbounds = [];
-  // 注入一般代理出站
   config.outbounds.push(...proxyOutbounds);
 
   const allNodeTags = nodes.map(n => n.name);
@@ -3103,7 +3116,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 將所有節點加入 selector / urltest（解決以前殘留 outbounds 變數引用問題）
   config.outbounds.forEach((out: Record<string, unknown>) => {
     if (out.type === 'selector' || out.type === 'urltest') {
       if (!Array.isArray(out.outbounds)) out.outbounds = [];
@@ -3117,7 +3129,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
   return JSON.stringify(config, null, 2);
 }
 
-// --- Clash Meta 配置生成 ---
+// --- Clash Meta 配置生成 (💥 支援 type: masque 原生序列化) ---
 export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
   const text = await fetchTemplateWithSWR(REMOTE_CONFIG.clash, 'clash', FALLBACK_CLASH_RULES, env, forceRefresh);
   const config = yaml.load(text) as Record<string, unknown>;

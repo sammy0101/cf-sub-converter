@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 13:37:39 UTC 2026
+Generated on: Sun Sep  6 13:43:13 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3008,6 +3008,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         const cleanIp = wg.localAddress[0]?.split('/')[0] || '10.2.0.2';
         const params = new URLSearchParams();
         params.set('publickey', wg.publicKey || '');
+        params.set('privatekey', wg.privateKey || '');
         params.set('address', cleanIp);
         if (wg.dns) params.set('dns', wg.dns);
         if (wg.presharedKey) params.set('presharedkey', wg.presharedKey);
@@ -3132,20 +3133,25 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
 
   nodes.forEach(n => {
     allNodeTags.push(n.name);
-    // 💥 嚴格符合 Sing-Box 規範：頂層不得出現 server / server_port，必須置入 peers
+    // 💥 嚴格遵循 Sing-Box 官方規格：
+    // 1. 欄位名為 address（不是 local_address）
+    // 2. 對端資訊在 peers 陣列中，欄位為 address, port, public_key, allowed_ips
     if (n.type === 'wireguard' && n.wireguard) {
       const wg = n.wireguard;
       const peerObj: Record<string, unknown> = {
-        server: n.server,
-        server_port: n.port,
-        public_key: wg.publicKey
+        address: n.server,
+        port: n.port,
+        public_key: wg.publicKey,
+        allowed_ips: ["0.0.0.0/0", "::/0"],
+        persistent_keepalive_interval: 25
       };
       if (wg.presharedKey) peerObj.pre_shared_key = wg.presharedKey;
+      if (wg.reserved && wg.reserved.length > 0) peerObj.reserved = wg.reserved;
 
       const wgOutbound: Record<string, unknown> = {
         type: 'wireguard',
         tag: n.name,
-        local_address: wg.localAddress,
+        address: wg.localAddress,
         private_key: wg.privateKey,
         peers: [peerObj],
         mtu: wg.mtu || 1420

@@ -88,23 +88,20 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (node.ech) params.set('ech', '1');
         return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
-      // 💥 WireGuard 最佳化相容 Shadowrocket
+      // 💥 WireGuard Shadowrocket 官方標準格式（消滅 0,0,0 保留位）
       if (node.type === 'wireguard' && node.wireguard) {
         const wg = node.wireguard;
-        const cleanIpList = wg.localAddress.map(ip => ip.split('/')[0]).join(',');
+        const cleanIp = wg.localAddress[0]?.split('/')[0] || '10.2.0.2';
         const params = new URLSearchParams();
         params.set('publickey', wg.publicKey || '');
-        params.set('address', cleanIpList);
+        params.set('privatekey', wg.privateKey || '');
+        params.set('address', cleanIp);
         if (wg.dns) params.set('dns', wg.dns);
         if (wg.presharedKey) params.set('presharedkey', wg.presharedKey);
         params.set('mtu', String(wg.mtu || 1420));
         params.set('keepalive', '25');
-        
-        // 嚴格判斷：僅當明確存在保留位時才注入，普通 WG 絕不注入避免握手失敗
-        if (wg.reserved && wg.reserved.length > 0) {
-          params.set('reserved', wg.reserved.join(','));
-        }
-        return `wireguard://${encodeURIComponent(wg.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+        // Shadowrocket 標準格式：Endpoint 作為 host:port，密鑰放入 privatekey 參數
+        return `wireguard://${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
       if (node.type === 'masque' && node.masque) {
         const m = node.masque;
@@ -173,7 +170,7 @@ async function fetchTemplateWithSWR(
   return fallbackJsonStr;
 }
 
-// --- Sing-Box 配置生成 ---
+// --- Sing-Box 配置生成（嚴格符合現代規範） ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
   const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox', FALLBACK_SINGBOX_RULES, env, forceRefresh);
   const config = JSON.parse(text);
@@ -223,19 +220,24 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
 
   nodes.forEach(n => {
     allNodeTags.push(n.name);
+    // 💥 解決 decode config: outbounds[15].server: json: unknown field "server"
     if (n.type === 'wireguard' && n.wireguard) {
       const wg = n.wireguard;
+      const peerObj: Record<string, unknown> = {
+        server: n.server,
+        server_port: n.port,
+        public_key: wg.publicKey
+      };
+      if (wg.presharedKey) peerObj.pre_shared_key = wg.presharedKey;
+
       const wgOutbound: Record<string, unknown> = {
         type: 'wireguard',
         tag: n.name,
-        server: n.server,
-        server_port: n.port,
         local_address: wg.localAddress,
         private_key: wg.privateKey,
-        peer_public_key: wg.publicKey,
+        peers: [peerObj],
         mtu: wg.mtu || 1420
       };
-      if (wg.presharedKey) wgOutbound.pre_shared_key = wg.presharedKey;
       outbounds.push(wgOutbound);
     } else {
       const obj = JSON.parse(JSON.stringify(n.singboxObj));

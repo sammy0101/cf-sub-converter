@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 08:38:45 UTC 2026
+Generated on: Sun Sep  6 08:40:05 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -4442,8 +4442,7 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
       {
         "tag": "fakeip-dns",
         "type": "fakeip",
-        "inet4_range": "198.18.0.0/15",
-        "inet6_range": "fc00::/18"
+        "inet4_range": "198.18.0.0/15"
       }
     ],
     "rules": [
@@ -4491,8 +4490,7 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
       "tag": "tun-in",
       "interface_name": "tun0",
       "address": [
-        "172.19.0.1/30",
-        "fd00::1/126"
+        "172.19.0.1/30"
       ],
       "stack": "mixed",
       "auto_route": true,
@@ -4566,6 +4564,7 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
     }
   }
 }
+
 ````
 
 ## File: .github/workflows/combine-code.yml

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 08:41:04 UTC 2026
+Generated on: Sun Sep  6 08:44:48 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -2861,11 +2861,12 @@ async function fetchTemplateWithSWR(
   return fallbackJsonStr;
 }
 
-// --- Sing-Box 配置生成 ---
+// --- Sing-Box 配置生成 (已修復未定義變數導致的 500 錯誤) ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
   const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox', FALLBACK_SINGBOX_RULES, env, forceRefresh);
   const config = JSON.parse(text);
   
+  // 1. 自動補全 Sing-Box 1.14+ 規範之 http_clients
   if (!config.http_clients || !Array.isArray(config.http_clients) || config.http_clients.length === 0) {
     config.http_clients = [{ tag: 'default' }];
   } else {
@@ -2876,6 +2877,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
+  // 2. 自動淨化 DNS 規範
   if (config.dns) {
     config.dns.final = 'local-dns';
     if (Array.isArray(config.dns.servers)) {
@@ -2889,6 +2891,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     }
   }
 
+  // 3. 自動補充 route.default_domain_resolver 與 default_http_client
   if (!config.route) config.route = {};
   config.route.default_domain_resolver = 'local-dns';
   config.route.default_http_client = 'default';
@@ -2899,6 +2902,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
+  // 4. 自動清理 inbounds
   if (Array.isArray(config.inbounds)) {
     config.inbounds.forEach((ib: Record<string, unknown>) => {
       delete ib.sniff;
@@ -2906,14 +2910,13 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 💥 核心分流：WireGuard 節點歸入頂層 endpoints[]，一般代理節點歸入 outbounds[]
+  // 💥 5. 核心分流：WireGuard 節點歸入頂層 endpoints[]，一般代理節點歸入 outbounds[]
   const wireguardEndpoints: Record<string, unknown>[] = [];
   const proxyOutbounds: Record<string, unknown>[] = [];
 
   nodes.forEach(n => {
     if (n.type === 'wireguard') {
       const wgObj = JSON.parse(JSON.stringify(n.singboxObj));
-      // 確保不帶 detour: direct 以杜絕 empty direct outbound 報錯
       delete wgObj.detour;
       wireguardEndpoints.push(wgObj);
     } else {
@@ -2933,6 +2936,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
   }
 
   if (!Array.isArray(config.outbounds)) config.outbounds = [];
+  // 注入一般代理出站
   config.outbounds.push(...proxyOutbounds);
 
   const allNodeTags = nodes.map(n => n.name);
@@ -2956,8 +2960,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  config.outbounds.push(...outbounds);
-
+  // 將所有節點加入 selector / urltest（解決以前殘留 outbounds 變數引用問題）
   config.outbounds.forEach((out: Record<string, unknown>) => {
     if (out.type === 'selector' || out.type === 'urltest') {
       if (!Array.isArray(out.outbounds)) out.outbounds = [];

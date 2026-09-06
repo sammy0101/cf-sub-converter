@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 09:10:45 UTC 2026
+Generated on: Sun Sep  6 11:40:23 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -4185,6 +4185,14 @@ export interface WireGuardConfig {
   reserved?: number[];
 }
 
+export interface MasqueConfig {
+  privateKey: string;
+  publicKey: string;
+  localIpv4?: string;
+  localIpv6?: string;
+  mtu?: number;
+}
+
 export interface ProxyNode {
   type: string;
   name: string;
@@ -4216,6 +4224,8 @@ export interface ProxyNode {
   xhttpMode?: string;
   // WireGuard / WARP
   wireguard?: WireGuardConfig;
+  // 💥 Cloudflare WARP MASQUE
+  masque?: MasqueConfig;
   // ECH (Encrypted Client Hello)
   ech?: boolean;
   // 標籤特徵

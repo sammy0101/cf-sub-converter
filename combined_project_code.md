@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 11:51:25 UTC 2026
+Generated on: Sun Sep  6 11:52:09 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3679,8 +3679,8 @@ export const HTML_PAGE = `<!DOCTYPE html>
       </div>
       
       <div class="form-group">
-        <label for="urlInput">節點連結或訂閱地址 (支援多筆換行，含 WireGuard/WARP/AnyTLS)</label>
-        <textarea id="urlInput" placeholder="vmess://...\nvless://...\nwireguard://...\nhysteria2://...\nhttps://example.com/sub"></textarea>
+        <label for="urlInput">節點連結或訂閱地址 (支援多筆換行，含 WireGuard/MASQUE/WARP/AnyTLS)</label>
+        <textarea id="urlInput" placeholder="vmess://...\nvless://...\nwireguard://...\nmasque://...\nhysteria2://...\nhttps://example.com/sub"></textarea>
       </div>
 
       <div class="form-group">
@@ -3750,7 +3750,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"></path><line x1="16" y1="8" x2="2" y2="22"></line><line x1="17.5" y1="15" x2="9" y2="6.5"></line></svg>
           </div>
-          <div class="result-info"><div class="result-name">Clash Meta (Mihomo)</div><div class="result-desc">YAML 配置 · 含低倍率/專線分組</div></div>
+          <div class="result-info"><div class="result-name">Clash Meta (Mihomo)</div><div class="result-desc">YAML 配置 · 支援 MASQUE / WireGuard</div></div>
           <div class="result-input-wrapper"><input type="text" id="clashUrl" readonly></div>
           <div class="result-actions">
             <button class="btn-icon" onclick="copyResult('clashUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
@@ -4193,6 +4193,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       }
     }
 
+    // 💥 支援小火箭 masque:// 原生協議喚醒
     function showQr(id, clientType) {
       if (!clientType) clientType = 'auto';
       var rawUrl = document.getElementById(id).value;
@@ -4235,127 +4236,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       var qrHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + displayTitle + '</title>' +
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">' +
         '<style>' +
-          'body { margin:0; background:#0f172a; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; font-family:-apple-system,BlinkMacSystemFont,sans-serif; color:#f8fafc; padding:20px; box-sizing:border-box; text-align:center;}' +
-          '.qr-container { padding:20px; background:#ffffff; border-radius:16px; box-shadow:0 10px 25px rgba(0,0,0,0.5); display:inline-block; }' +
-          '.title { margin-top:20px; font-size:18px; font-weight:700; color:#38bdf8; letter-spacing:0.5px; }' +
-          '.subtitle { margin-top:6px; font-size:12px; color:#94a3b8; max-width:320px; word-break:break-all; font-family:monospace; line-height:1.4; }' +
-          '.btn-open { margin-top:20px; display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:12px 28px; background:#3b82f6; color:#fff; text-decoration:none; border-radius:10px; font-weight:600; font-size:15px; box-shadow:0 4px 14px rgba(59,130,246,0.4); transition:transform 0.2s;}' +
-          '.btn-open:hover { transform:translateY(-1px); background:#2563eb; }' +
-          '.hint-box { margin-top:14px; font-size:12px; color:#10b981; background:rgba(16,185,129,0.1); padding:8px 14px; border-radius:8px; border:1px solid rgba(16,185,129,0.2); max-width:320px; }' +
-        '</style>' +
-        '</head><body>' +
-        '<div class="qr-container"><div id="qr"></div></div>' +
-        '<div class="title">' + displayTitle + '</div>' +
-        '<div class="subtitle">' + rawUrl + '</div>' +
-        '<a class="btn-open" href="' + deepLink + '">🚀 一鍵打開並導入 ' + clientName + '</a>' +
-        '<div class="hint-box">✨ 手機相機或 ' + clientName + ' App 掃描此二維碼，即可全自動填入名稱與網址！</div>' +
-        '<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><' + '/script>' +
-        '<script>' +
-          'setTimeout(function() {' +
-            'new QRCode(document.getElementById("qr"), {' +
-              'text: "' + deepLink.replace(/"/g, '\\\\"') + '",' +
-              'width: 240,' +
-              'height: 240,' +
-              'colorDark: "#0f172a",' +
-              'colorLight: "#ffffff",' +
-              'correctLevel: QRCode.CorrectLevel.L' +
-            '});' +
-          '}, 100);' +
-        '<' + '/script>' +
-        '</body></html>';
-
-      win.document.write(qrHtml);
-    }
-
-    function parseVlessNodes() {
-      var raw = document.getElementById('urlInput').value.trim();
-      if (!raw) return showToast('請先輸入節點內容', false);
-      fetch('/api/parse-argo', { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ url: raw }) 
-      }).then(function(resp) {
-        return resp.json();
-      }).then(function(nodes) {
-        if (!nodes || nodes.length === 0) return showToast('未找到 VLESS/VMess 節點', false);
-        var listEl = document.getElementById('vlessCheckboxList');
-        var html = '';
-        for (var i = 0; i < nodes.length; i++) {
-          var n = nodes[i];
-          html += '<label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px 0;">' +
-            '<input type="checkbox" class="vless-chk" value="' + n.index + '" data-port="' + n.port + '">' +
-            '<span>' + n.name + ' (' + n.server + ':' + n.port + ')</span>' +
-          '</label>';
-        }
-        listEl.innerHTML = html;
-        document.getElementById('vlessSelectorWrapper').style.display = 'block';
-      });
-    }
-
-    function generateArgo() {
-      var raw = document.getElementById('urlInput').value.trim();
-      var checkboxes = document.querySelectorAll('.vless-chk:checked');
-      if (checkboxes.length === 0) return showToast('請至少選擇一個節點', false);
-
-      var indices = [];
-      for (var i = 0; i < checkboxes.length; i++) {
-        indices.push(parseInt(checkboxes[i].value, 10));
-      }
-      var port = document.getElementById('argoLocalPort').value.trim() || '8080';
-      var cleanIp = document.getElementById('argoCleanIp').value.trim();
-      var token = document.getElementById('argoTunnelToken').value.trim();
-      var domain = document.getElementById('argoCustomDomain').value.trim();
-
-      fetch('/api/argo-generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: raw, indices: indices, port: port, cleanIp: cleanIp, token: token, domain: domain })
-      }).then(function(resp) {
-        return resp.json();
-      }).then(function(res) {
-        var host = window.location.origin;
-        if (res.scriptId) {
-          document.getElementById('argoCurlCmd').value = 'curl -sSL ' + host + '/argo/sh/' + res.scriptId + ' | bash';
-        }
-        var links = res.argoNodes.map(function(x) { return x.link; }).join('\\n');
-        document.getElementById('argoBase64Sub').value = links;
-        document.getElementById('argoResults').classList.add('show');
-        showToast('Argo 部署指令與節點已生成！');
-      });
-    }
-
-    function copyResult(id) {
-      var el = document.getElementById(id);
-      navigator.clipboard.writeText(el.value).then(function() { showToast('已複製連結'); });
-    }
-    function copyText(id) {
-      var el = document.getElementById(id);
-      navigator.clipboard.writeText(el.value).then(function() { showToast('已成功複製到剪貼簿！'); });
-    }
-    function showToast(msg, isSuccess) {
-      if (isSuccess === undefined) isSuccess = true;
-      var t = document.getElementById('toast');
-      document.getElementById('toastMsg').textContent = msg;
-      t.className = 'toast show' + (isSuccess ? ' success' : '');
-      setTimeout(function() { t.classList.remove('show'); }, 3000);
-    }
-    function openModal() { 
-      document.getElementById('modalTitle').textContent = '新增配置';
-      document.getElementById('favName').value = '';
-      document.getElementById('favUrl').value = '';
-      document.getElementById('favInclude').value = '';
-      document.getElementById('favExclude').value = '';
-      document.getElementById('favRename').value = '';
-      delete document.getElementById('modal').dataset.edit;
-      document.getElementById('modal').classList.add('show'); 
-    }
-    function closeModal() { document.getElementById('modal').classList.remove('show'); }
-    
-    loadFavs();
-  </script>
-</body>
-</html>
-`;
+          'b
 
 ````
 

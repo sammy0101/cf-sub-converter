@@ -50,7 +50,7 @@ function isIpAddress(host: string): boolean {
   return /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(host) || /^[a-fA-F0-9:]+$/.test(host);
 }
 
-// --- 解析 WireGuard 官方 .conf 格式 (修復 Windows IPv6 監聽崩潰問題) ---
+// --- 解析 WireGuard 官方 .conf 格式 (💥 修復 Windows listen udp6 與 address family not supported 錯誤) ---
 function parseWireGuardConf(text: string): ProxyNode[] {
   const nodes: ProxyNode[] = [];
   const sections = text.split(/(?=\[Interface\])/i).filter(s => s.trim().length > 0);
@@ -77,7 +77,6 @@ function parseWireGuardConf(text: string): ProxyNode[] {
 
     const privateKey = getVal('PrivateKey');
     const addressStr = getVal('Address');
-    // 若本機不支援 IPv6，過濾出 IPv4 地址以保證相容性
     const localAddress = addressStr ? addressStr.split(',').map(s => s.trim()) : ['10.2.0.2/32'];
     const publicKey = getVal('PublicKey');
     const presharedKey = getVal('PresharedKey') || undefined;
@@ -122,15 +121,18 @@ function parseWireGuardConf(text: string): ProxyNode[] {
       wireguard: wgConfig
     };
 
-    // 💥 構造 Sing-Box 1.14+ 規範，僅保留 IPv4 路由以防 Windows 報錯
+    // 💥 關鍵修復 1：僅在客戶端包含 IPv6 時才加入 ::/0，純 IPv4 絕不加入以杜絕 address family not supported 錯誤
+    const hasIpv6 = localAddress.some(addr => addr.includes(':'));
     const allowedIps = ['0.0.0.0/0'];
-    if (localAddress.some(addr => addr.includes(':'))) {
+    if (hasIpv6) {
       allowedIps.push('::/0');
     }
 
+    // 💥 關鍵修復 2：加上 detour: "direct" 解決 Windows 平台下 listen udp6 invalid argument 錯誤
     node.singboxObj = {
       type: 'wireguard',
       tag: name,
+      detour: 'direct',
       address: localAddress,
       private_key: privateKey,
       peers: [
@@ -459,7 +461,6 @@ function parseVless(urlStr: string): ProxyNode | null {
       cl['reality-opts'] = { 'public-key': node.reality.publicKey, 'short-id': node.reality.shortId };
     }
     if (node.network === 'ws') {
-      cl.network = 'ws';
       cl['ws-opts'] = {
         path: cleanPath,
         headers: node.wsHeaders,
@@ -515,14 +516,16 @@ function parseWireGuard(urlStr: string): ProxyNode | null {
       wireguard: wgConfig
     };
 
+    const hasIpv6 = localIps.some(ip => ip.includes(':'));
     const allowedIps = ['0.0.0.0/0'];
-    if (localIps.some(ip => ip.includes(':'))) {
+    if (hasIpv6) {
       allowedIps.push('::/0');
     }
 
     node.singboxObj = {
       type: 'wireguard',
       tag: name,
+      detour: 'direct',
       address: localIps,
       private_key: privateKey,
       peers: [

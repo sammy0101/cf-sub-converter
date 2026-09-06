@@ -102,7 +102,6 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (wg.mtu) params.set('mtu', String(wg.mtu));
         return `wireguard://${encodeURIComponent(wg.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
-      // 💥 關鍵修復：將 MASQUE 輸出為小火箭與通用客戶端標準 masque:// URI 格式
       if (node.type === 'masque' && node.masque) {
         const m = node.masque;
         const params = new URLSearchParams();

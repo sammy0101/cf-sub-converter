@@ -160,12 +160,11 @@ async function fetchTemplateWithSWR(
   return fallbackJsonStr;
 }
 
-// --- Sing-Box 配置生成 (💥 確保 WireGuard 具備 detour: "direct") ---
+// --- Sing-Box 配置生成 ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
   const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox', FALLBACK_SINGBOX_RULES, env, forceRefresh);
   const config = JSON.parse(text);
   
-  // 1. 自動補全 Sing-Box 1.14+ 規範之 http_clients
   if (!config.http_clients || !Array.isArray(config.http_clients) || config.http_clients.length === 0) {
     config.http_clients = [{ tag: 'default' }];
   } else {
@@ -176,7 +175,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 2. 自動淨化 DNS 規範
   if (config.dns) {
     config.dns.final = 'local-dns';
     if (Array.isArray(config.dns.servers)) {
@@ -190,7 +188,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     }
   }
 
-  // 3. 自動補充 route.default_domain_resolver 與 default_http_client
   if (!config.route) config.route = {};
   config.route.default_domain_resolver = 'local-dns';
   config.route.default_http_client = 'default';
@@ -201,7 +198,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 4. 自動清理 inbounds
   if (Array.isArray(config.inbounds)) {
     config.inbounds.forEach((ib: Record<string, unknown>) => {
       delete ib.sniff;
@@ -209,15 +205,15 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 💥 5. 核心分流：WireGuard 節點歸入頂層 endpoints[]，並確保 detour: direct 解決 Windows 報錯
+  // 💥 核心分流：WireGuard 節點歸入頂層 endpoints[]，一般代理節點歸入 outbounds[]
   const wireguardEndpoints: Record<string, unknown>[] = [];
   const proxyOutbounds: Record<string, unknown>[] = [];
 
   nodes.forEach(n => {
     if (n.type === 'wireguard') {
       const wgObj = JSON.parse(JSON.stringify(n.singboxObj));
-      // 確保具備 detour: direct 避免 Windows 報錯
-      wgObj.detour = 'direct';
+      // 確保不帶 detour: direct 以杜絕 empty direct outbound 報錯
+      delete wgObj.detour;
       wireguardEndpoints.push(wgObj);
     } else {
       const obj = JSON.parse(JSON.stringify(n.singboxObj));
@@ -258,6 +254,8 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
       outbounds: iplcTags
     });
   }
+
+  config.outbounds.push(...outbounds);
 
   config.outbounds.forEach((out: Record<string, unknown>) => {
     if (out.type === 'selector' || out.type === 'urltest') {

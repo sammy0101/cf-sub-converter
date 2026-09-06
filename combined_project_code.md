@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 12:11:53 UTC 2026
+Generated on: Sun Sep  6 12:12:44 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -2909,14 +2909,10 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
 ## File: src/generator.ts
 ````ts
 // src/generator.ts
-// @ts-ignore
-import packageJson from '../package.json';
 import yaml from 'js-yaml';
 import { Env, ProxyNode } from './types';
 import { REMOTE_CONFIG, FALLBACK_SINGBOX_RULES, FALLBACK_CLASH_RULES } from './constants';
 import { utf8ToBase64 } from './utils';
-
-const version = packageJson.version || '3.5.0';
 
 // --- 明文 URI 格式導出 ---
 export function toRawLinks(nodes: ProxyNode[]): string {
@@ -3044,7 +3040,7 @@ async function fetchTemplateWithSWR(
   env?: Env,
   forceRefresh = false
 ): Promise<string> {
-  const dynamicKey = `tpl:${cacheType}:${version}`;
+  const dynamicKey = `tpl:${cacheType}`;
 
   if (!forceRefresh && env?.SUB_CACHE) {
     try {

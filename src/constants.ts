@@ -313,7 +313,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
           </div>
-          <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · 掃碼全自動填入</div></div>
+          <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · 掃碼自動填入名稱與網址</div></div>
           <div class="result-input-wrapper"><input type="text" id="singboxUrl" readonly></div>
           <div class="result-actions">
             <button class="btn-icon" onclick="copyResult('singboxUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
@@ -778,7 +778,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
       });
     }
 
-    // 💥 產出帶有 #<短代碼> 的 URL（讓小火箭與通用客戶端直接讀取分組名稱）
     function generate() {
       var raw = document.getElementById('urlInput').value.trim();
       if (!raw) return showToast('請先輸入節點連結或訂閱網址', false);
@@ -789,13 +788,12 @@ export const HTML_PAGE = `<!DOCTYPE html>
       var exclude = document.getElementById('excludeKeywords').value.trim();
       var rename = document.getElementById('renameKeywords').value.trim();
       
-      var proceed = function(baseUrl, displayName) {
+      var proceed = function(baseUrl) {
         var sep = baseUrl.indexOf('?') !== -1 ? '&' : '?';
-        var hash = displayName ? ('#' + encodeURIComponent(displayName)) : '';
 
         var buildUrl = function(target) {
-          if (!target) return baseUrl + hash;
-          return baseUrl + sep + 'target=' + target + hash;
+          if (!target) return baseUrl;
+          return baseUrl + sep + 'target=' + target;
         };
 
         document.getElementById('adaptiveUrl').value = buildUrl('');
@@ -816,7 +814,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify({ path: shortCode, content: raw, include: include, exclude: exclude, rename: rename }) 
         }).then(function() {
-          proceed(host + '/' + shortCode, shortCode);
+          proceed(host + '/' + shortCode);
         }).catch(function() {
           showToast('短連結儲存失敗，請檢查 KV 配置', false);
         });
@@ -825,11 +823,11 @@ export const HTML_PAGE = `<!DOCTYPE html>
         if (include) bUrl += '&include=' + encodeURIComponent(include);
         if (exclude) bUrl += '&exclude=' + encodeURIComponent(exclude);
         if (rename) bUrl += '&rename=' + encodeURIComponent(rename);
-        proceed(bUrl, '');
+        proceed(bUrl);
       }
     }
 
-    // 💥 QR Code 終極解決方案：針對 Sing-Box 繪製官方喚醒協議，針對小火箭繪製純淨帶 Hash 網址
+    // 💥 完美適配 Sing-Box 與各客戶端的二維碼與喚醒機制
     function showQr(id, clientType) {
       if (!clientType) clientType = 'auto';
       var rawUrl = document.getElementById(id).value;
@@ -839,24 +837,22 @@ export const HTML_PAGE = `<!DOCTYPE html>
       if (!profileName) {
         try {
           var u = new URL(rawUrl);
-          profileName = decodeURIComponent(u.hash.slice(1)) || 'SubConverter';
+          profileName = decodeURIComponent(u.pathname.slice(1)) || 'SubConverter';
         } catch {
           profileName = 'SubConverter';
         }
       }
       
-      // 去除 Hash 的乾淨 HTTP/HTTPS URL
       var cleanHttpUrl = rawUrl.split('#')[0];
-
-      var qrTargetText = rawUrl;
-      var deepLink = rawUrl;
+      var qrTargetText = cleanHttpUrl;
+      var deepLink = cleanHttpUrl;
       var displayTitle = '掃碼導入配置';
       var clientName = '客戶端';
 
       if (clientType === 'singbox') {
-        // 💥 Sing-Box 核心修復：App 內建掃碼器要求 sing-box:// 協議才能自動填入 URL 和名稱
+        // 💥 關鍵核心：二維碼必須編碼為 sing-box:// 官方協議，App 內建掃描器才能同時填寫「名稱」與「URL」
         deepLink = 'sing-box://import-remote-profile?url=' + encodeURIComponent(cleanHttpUrl) + '&name=' + encodeURIComponent(profileName);
-        qrTargetText = deepLink; // 二維碼直接繪製該協議，掃描即自動填入並創建！
+        qrTargetText = deepLink;
         displayTitle = 'Sing-Box 專屬掃碼導入';
         clientName = 'Sing-Box';
       } else if (clientType === 'clash') {
@@ -880,8 +876,8 @@ export const HTML_PAGE = `<!DOCTYPE html>
         displayTitle = 'Loon 專屬導入';
         clientName = 'Loon';
       } else if (clientType === 'shadowrocket') {
-        // 💥 小火箭：URL 帶 # 標籤，掃碼器直接識別為分組名稱
         deepLink = 'shadowrocket://add/sub://' + btoa(cleanHttpUrl) + '?remark=' + encodeURIComponent(profileName);
+        // 小火箭掃碼器識別 URL 尾端的 Hash 作為分組名稱
         qrTargetText = cleanHttpUrl + '#' + encodeURIComponent(profileName);
         displayTitle = 'Shadowrocket 專屬導入';
         clientName = 'Shadowrocket';

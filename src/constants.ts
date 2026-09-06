@@ -313,7 +313,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
           </div>
-          <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · 純淨 URL 掃碼秒填</div></div>
+          <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · 掃碼全自動填入</div></div>
           <div class="result-input-wrapper"><input type="text" id="singboxUrl" readonly></div>
           <div class="result-actions">
             <button class="btn-icon" onclick="copyResult('singboxUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
@@ -778,7 +778,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       });
     }
 
-    // 💥 恢復最純淨的 URL，完全不附帶 &name=... 與 #...
+    // 💥 產出帶有 #<短代碼> 的 URL（讓小火箭與通用客戶端直接讀取分組名稱）
     function generate() {
       var raw = document.getElementById('urlInput').value.trim();
       if (!raw) return showToast('請先輸入節點連結或訂閱網址', false);
@@ -789,12 +789,13 @@ export const HTML_PAGE = `<!DOCTYPE html>
       var exclude = document.getElementById('excludeKeywords').value.trim();
       var rename = document.getElementById('renameKeywords').value.trim();
       
-      var proceed = function(baseUrl) {
+      var proceed = function(baseUrl, displayName) {
         var sep = baseUrl.indexOf('?') !== -1 ? '&' : '?';
+        var hash = displayName ? ('#' + encodeURIComponent(displayName)) : '';
 
         var buildUrl = function(target) {
-          if (!target) return baseUrl;
-          return baseUrl + sep + 'target=' + target;
+          if (!target) return baseUrl + hash;
+          return baseUrl + sep + 'target=' + target + hash;
         };
 
         document.getElementById('adaptiveUrl').value = buildUrl('');
@@ -815,7 +816,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify({ path: shortCode, content: raw, include: include, exclude: exclude, rename: rename }) 
         }).then(function() {
-          proceed(host + '/' + shortCode);
+          proceed(host + '/' + shortCode, shortCode);
         }).catch(function() {
           showToast('短連結儲存失敗，請檢查 KV 配置', false);
         });
@@ -824,46 +825,64 @@ export const HTML_PAGE = `<!DOCTYPE html>
         if (include) bUrl += '&include=' + encodeURIComponent(include);
         if (exclude) bUrl += '&exclude=' + encodeURIComponent(exclude);
         if (rename) bUrl += '&rename=' + encodeURIComponent(rename);
-        proceed(bUrl);
+        proceed(bUrl, '');
       }
     }
 
-    // 專屬 QR Code 生成：永遠只畫純淨 URL，各 App 掃碼保證自動填入 URL
+    // 💥 QR Code 終極解決方案：針對 Sing-Box 繪製官方喚醒協議，針對小火箭繪製純淨帶 Hash 網址
     function showQr(id, clientType) {
       if (!clientType) clientType = 'auto';
       var rawUrl = document.getElementById(id).value;
       if (!rawUrl) return showToast('請先生成訂閱連結', false);
 
-      var profileName = document.getElementById('shortCode').value.trim() || 'SubConverter';
+      var profileName = document.getElementById('shortCode').value.trim();
+      if (!profileName) {
+        try {
+          var u = new URL(rawUrl);
+          profileName = decodeURIComponent(u.hash.slice(1)) || 'SubConverter';
+        } catch {
+          profileName = 'SubConverter';
+        }
+      }
       
-      var qrTargetText = rawUrl; // 純淨 HTTP/HTTPS URL
+      // 去除 Hash 的乾淨 HTTP/HTTPS URL
+      var cleanHttpUrl = rawUrl.split('#')[0];
+
+      var qrTargetText = rawUrl;
       var deepLink = rawUrl;
       var displayTitle = '掃碼導入配置';
       var clientName = '客戶端';
 
       if (clientType === 'singbox') {
-        // Sing-Box 官方喚醒格式
-        deepLink = 'sing-box://import-remote-profile?url=' + encodeURIComponent(rawUrl) + '&name=' + encodeURIComponent(profileName);
+        // 💥 Sing-Box 核心修復：App 內建掃碼器要求 sing-box:// 協議才能自動填入 URL 和名稱
+        deepLink = 'sing-box://import-remote-profile?url=' + encodeURIComponent(cleanHttpUrl) + '&name=' + encodeURIComponent(profileName);
+        qrTargetText = deepLink; // 二維碼直接繪製該協議，掃描即自動填入並創建！
         displayTitle = 'Sing-Box 專屬掃碼導入';
         clientName = 'Sing-Box';
       } else if (clientType === 'clash') {
-        deepLink = 'clash://install-config?url=' + encodeURIComponent(rawUrl) + '&name=' + encodeURIComponent(profileName);
+        deepLink = 'clash://install-config?url=' + encodeURIComponent(cleanHttpUrl) + '&name=' + encodeURIComponent(profileName);
+        qrTargetText = deepLink;
         displayTitle = 'Clash / Mihomo 專屬導入';
         clientName = 'Clash';
       } else if (clientType === 'surge') {
-        deepLink = 'surge:///install-config?url=' + encodeURIComponent(rawUrl);
+        deepLink = 'surge:///install-config?url=' + encodeURIComponent(cleanHttpUrl);
+        qrTargetText = cleanHttpUrl;
         displayTitle = 'Surge 5 專屬導入';
         clientName = 'Surge';
       } else if (clientType === 'quanx') {
-        deepLink = 'quantumult-x:///add-resource?remote-resource=' + encodeURIComponent(JSON.stringify({ server_remote: [rawUrl + ', tag=' + profileName] }));
+        deepLink = 'quantumult-x:///add-resource?remote-resource=' + encodeURIComponent(JSON.stringify({ server_remote: [cleanHttpUrl + ', tag=' + profileName] }));
+        qrTargetText = cleanHttpUrl;
         displayTitle = 'Quantumult X 專屬導入';
         clientName = 'Quantumult X';
       } else if (clientType === 'loon') {
-        deepLink = 'loon://import?type=config&url=' + encodeURIComponent(rawUrl);
+        deepLink = 'loon://import?type=config&url=' + encodeURIComponent(cleanHttpUrl);
+        qrTargetText = cleanHttpUrl;
         displayTitle = 'Loon 專屬導入';
         clientName = 'Loon';
       } else if (clientType === 'shadowrocket') {
-        deepLink = 'shadowrocket://add/sub://' + btoa(rawUrl) + '?remark=' + encodeURIComponent(profileName);
+        // 💥 小火箭：URL 帶 # 標籤，掃碼器直接識別為分組名稱
+        deepLink = 'shadowrocket://add/sub://' + btoa(cleanHttpUrl) + '?remark=' + encodeURIComponent(profileName);
+        qrTargetText = cleanHttpUrl + '#' + encodeURIComponent(profileName);
         displayTitle = 'Shadowrocket 專屬導入';
         clientName = 'Shadowrocket';
       }
@@ -887,7 +906,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
         '</style>' +
         '</head><body>' +
         '<h2>' + displayTitle + '</h2>' +
-        '<p>使用手機相機或客戶端直接掃描</p>' +
+        '<p>使用 ' + clientName + ' 內建掃描器或相機掃描</p>' +
         '<div id="qrcode"></div>' +
         '<a href="' + deepLink + '" class="btn">🚀 一鍵打開並導入 ' + clientName + '</a>' +
         '<button onclick="window.close()" class="btn btn-ghost">關閉視窗</button>' +

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 12:40:01 UTC 2026
+Generated on: Sun Sep  6 12:47:22 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3557,7 +3557,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
     .fav-actions { display: flex; gap: 8px; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); justify-content: flex-end; }
     .empty-state { text-align: center; padding: 2.5rem; color: var(--text-muted); font-size: 0.9rem; border: 1px dashed var(--border); border-radius: var(--radius-md); }
 
-    /* 鎖定區域樣式 */
     .lock-card {
       background: radial-gradient(circle at top, rgba(59, 130, 246, 0.08) 0%, rgba(15, 23, 42, 0.5) 100%);
       border: 1px solid rgba(59, 130, 246, 0.25);
@@ -3585,57 +3584,22 @@ export const HTML_PAGE = `<!DOCTYPE html>
       color: var(--primary);
       box-shadow: 0 0 16px rgba(59, 130, 246, 0.2);
     }
-    .lock-icon-badge svg {
-      width: 22px;
-      height: 22px;
-    }
-    .lock-title {
-      font-size: 1.05rem;
-      font-weight: 700;
-      color: var(--text-main);
-      margin-bottom: 0.25rem;
-    }
-    .lock-desc {
-      font-size: 0.8rem;
-      color: var(--text-muted);
-      max-width: 280px;
-      line-height: 1.4;
-      margin-bottom: 1.25rem;
-    }
-    .lock-form {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      width: 100%;
-      max-width: 280px;
-    }
+    .lock-icon-badge svg { width: 22px; height: 22px; }
+    .lock-title { font-size: 1.05rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.25rem; }
+    .lock-desc { font-size: 0.8rem; color: var(--text-muted); max-width: 280px; line-height: 1.4; margin-bottom: 1.25rem; }
+    .lock-form { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 280px; }
     .lock-form input {
-      width: 100% !important;
-      text-align: center;
-      letter-spacing: 2px;
-      font-size: 0.95rem;
-      padding: 0.7rem 1rem;
-      background: var(--bg-app);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
+      width: 100% !important; text-align: center; letter-spacing: 2px; font-size: 0.95rem; padding: 0.7rem 1rem;
+      background: var(--bg-app); border: 1px solid var(--border); border-radius: var(--radius-sm);
     }
-    .lock-form .btn {
-      width: 100% !important;
-      padding: 0.7rem;
-      font-size: 0.92rem;
-      font-weight: 600;
-      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-    }
+    .lock-form .btn { width: 100% !important; padding: 0.7rem; font-size: 0.92rem; font-weight: 600; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
 
     @keyframes shake {
       0%, 100% { transform: translateX(0); }
       20%, 60% { transform: translateX(-6px); }
       40%, 80% { transform: translateX(6px); }
     }
-    .shake {
-      animation: shake 0.4s ease-in-out;
-      border-color: var(--danger) !important;
-    }
+    .shake { animation: shake 0.4s ease-in-out; border-color: var(--danger) !important; }
 
     .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(4px); z-index: 100; display: none; align-items: center; justify-content: center; }
     .modal-overlay.show { display: flex; }
@@ -3672,7 +3636,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
   </header>
 
   <div class="container">
-    <!-- 1. 資料來源設定 (公開使用) -->
     <main class="panel">
       <div class="panel-header">
         <h2 class="panel-title">
@@ -3702,8 +3665,8 @@ export const HTML_PAGE = `<!DOCTYPE html>
       </div>
       
       <div class="form-group">
-        <label for="shortCode">自訂路徑短連結 (選填，亦為客戶端自動命名)</label>
-        <input type="text" id="shortCode" placeholder="例如: my-sub-vip">
+        <label for="shortCode">自訂路徑短連結 (選填)</label>
+        <input type="text" id="shortCode" placeholder="例如: proton_vpn">
       </div>
       
       <button class="btn btn-primary" id="generateBtn" onclick="generate()" style="margin-top: 1.5rem;">
@@ -3712,7 +3675,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
       </button>
     </main>
 
-    <!-- 2. 轉換結果面板 (公開使用) -->
     <section class="results-wrapper" id="results">
       <div class="panel">
         <div class="panel-header">
@@ -3731,7 +3693,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           <div class="result-input-wrapper"><input type="text" id="adaptiveUrl" readonly></div>
           <div class="result-actions">
             <button class="btn-icon" onclick="copyResult('adaptiveUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('adaptiveUrl', 'auto')" title="顯示專屬 QR Code / 一鍵喚醒"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('adaptiveUrl', 'auto')" title="顯示 QR Code"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
           </div>
         </div>
 
@@ -3740,7 +3702,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
           </div>
-          <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · 支援掃碼自動填入</div></div>
+          <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · 純淨 URL 掃碼秒填</div></div>
           <div class="result-input-wrapper"><input type="text" id="singboxUrl" readonly></div>
           <div class="result-actions">
             <button class="btn-icon" onclick="copyResult('singboxUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
@@ -3753,7 +3715,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"></path><line x1="16" y1="8" x2="2" y2="22"></line><line x1="17.5" y1="15" x2="9" y2="6.5"></line></svg>
           </div>
-          <div class="result-info"><div class="result-name">Clash Meta (Mihomo)</div><div class="result-desc">YAML 配置 · 支援 MASQUE / WireGuard</div></div>
+          <div class="result-info"><div class="result-name">Clash Meta (Mihomo)</div><div class="result-desc">YAML 配置 · 支援 WireGuard</div></div>
           <div class="result-input-wrapper"><input type="text" id="clashUrl" readonly></div>
           <div class="result-actions">
             <button class="btn-icon" onclick="copyResult('clashUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
@@ -3815,7 +3777,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       </div>
     </section>
 
-    <!-- 3. Argo 隧道 2.0 生成器 (公開使用) -->
+    <!-- Argo 隧道 2.0 生成器 -->
     <main class="panel">
       <div class="panel-header">
         <h2 class="panel-title" style="color: var(--primary);">
@@ -3860,7 +3822,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       </div>
     </main>
 
-    <!-- Argo 結果區 (公開使用) -->
+    <!-- Argo 結果區 -->
     <section class="results-wrapper" id="argoResults">
       <div class="panel">
         <div class="panel-header"><h2 class="panel-title" style="color: var(--success);">Argo 部署指令與節點列表</h2></div>
@@ -3879,7 +3841,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       </div>
     </section>
 
-    <!-- 4. 已儲存的配置 (受密碼保護區域) -->
+    <!-- 已儲存的配置 -->
     <section class="panel">
       <div class="panel-header">
         <h2 class="panel-title">
@@ -4205,6 +4167,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       });
     }
 
+    // 💥 恢復最純淨的 URL，完全不附帶 &name=... 與 #...
     function generate() {
       var raw = document.getElementById('urlInput').value.trim();
       if (!raw) return showToast('請先輸入節點連結或訂閱網址', false);
@@ -4215,16 +4178,12 @@ export const HTML_PAGE = `<!DOCTYPE html>
       var exclude = document.getElementById('excludeKeywords').value.trim();
       var rename = document.getElementById('renameKeywords').value.trim();
       
-      var proceed = function(baseUrl, displayName) {
+      var proceed = function(baseUrl) {
         var sep = baseUrl.indexOf('?') !== -1 ? '&' : '?';
-        var nameQuery = displayName ? ('&name=' + encodeURIComponent(displayName)) : '';
-        var hash = displayName ? ('#' + encodeURIComponent(displayName)) : '';
 
         var buildUrl = function(target) {
-          if (!target) {
-            return baseUrl + (nameQuery ? (sep + nameQuery.slice(1)) : '') + hash;
-          }
-          return baseUrl + sep + 'target=' + target + nameQuery + hash;
+          if (!target) return baseUrl;
+          return baseUrl + sep + 'target=' + target;
         };
 
         document.getElementById('adaptiveUrl').value = buildUrl('');
@@ -4245,7 +4204,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify({ path: shortCode, content: raw, include: include, exclude: exclude, rename: rename }) 
         }).then(function() {
-          proceed(host + '/' + shortCode, shortCode);
+          proceed(host + '/' + shortCode);
         }).catch(function() {
           showToast('短連結儲存失敗，請檢查 KV 配置', false);
         });
@@ -4254,35 +4213,26 @@ export const HTML_PAGE = `<!DOCTYPE html>
         if (include) bUrl += '&include=' + encodeURIComponent(include);
         if (exclude) bUrl += '&exclude=' + encodeURIComponent(exclude);
         if (rename) bUrl += '&rename=' + encodeURIComponent(rename);
-        proceed(bUrl, '');
+        proceed(bUrl);
       }
     }
 
-    // 專屬 QR Code 生成與原生喚醒協議
+    // 專屬 QR Code 生成：永遠只畫純淨 URL，各 App 掃碼保證自動填入 URL
     function showQr(id, clientType) {
       if (!clientType) clientType = 'auto';
       var rawUrl = document.getElementById(id).value;
       if (!rawUrl) return showToast('請先生成訂閱連結', false);
 
-      // 自動從 URL 參數或 Hash 提取訂閱名稱
-      var profileName = document.getElementById('shortCode').value.trim();
-      if (!profileName) {
-        try {
-          var u = new URL(rawUrl);
-          profileName = u.searchParams.get('name') || decodeURIComponent(u.hash.slice(1)) || 'SubConverter';
-        } catch {
-          profileName = 'SubConverter';
-        }
-      }
+      var profileName = document.getElementById('shortCode').value.trim() || 'SubConverter';
       
-      // QR Code 直接使用純 HTTP/HTTPS 訂閱 URL，確保各客戶端掃碼器（尤其是 Shadowrocket）可直接辨識
-      var qrTargetText = rawUrl;
+      var qrTargetText = rawUrl; // 純淨 HTTP/HTTPS URL
       var deepLink = rawUrl;
       var displayTitle = '掃碼導入配置';
       var clientName = '客戶端';
 
       if (clientType === 'singbox') {
-        deepLink = 'sing-box://import-remote-profile?url=' + encodeURIComponent(rawUrl) + '#' + encodeURIComponent(profileName);
+        // Sing-Box 官方喚醒格式
+        deepLink = 'sing-box://import-remote-profile?url=' + encodeURIComponent(rawUrl) + '&name=' + encodeURIComponent(profileName);
         displayTitle = 'Sing-Box 專屬掃碼導入';
         clientName = 'Sing-Box';
       } else if (clientType === 'clash') {
@@ -4302,7 +4252,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
         displayTitle = 'Loon 專屬導入';
         clientName = 'Loon';
       } else if (clientType === 'shadowrocket') {
-        // Shadowrocket 喚醒 URL 需傳入 title/remark 參數
         deepLink = 'shadowrocket://add/sub://' + btoa(rawUrl) + '?remark=' + encodeURIComponent(profileName);
         displayTitle = 'Shadowrocket 專屬導入';
         clientName = 'Shadowrocket';
@@ -4327,7 +4276,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
         '</style>' +
         '</head><body>' +
         '<h2>' + displayTitle + '</h2>' +
-        '<p>使用手機相機或對應客戶端掃描二維碼</p>' +
+        '<p>使用手機相機或客戶端直接掃描</p>' +
         '<div id="qrcode"></div>' +
         '<a href="' + deepLink + '" class="btn">🚀 一鍵打開並導入 ' + clientName + '</a>' +
         '<button onclick="window.close()" class="btn btn-ghost">關閉視窗</button>' +
@@ -4346,7 +4295,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
       win.document.close();
     }
 
-    // Argo 隧道第一步：解析節點
     function parseVlessNodes() {
       var raw = document.getElementById('urlInput').value.trim();
       if (!raw) return showToast('請先在最上方輸入框貼入節點內容', false);
@@ -4388,7 +4336,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
       }
     }
 
-    // Argo 隧道第二步：生成命令與節點
     function generateArgo() {
       var raw = document.getElementById('urlInput').value.trim();
       var checkedBoxes = document.querySelectorAll('input[name="argoNodeIdx"]:checked');
@@ -4438,7 +4385,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
       });
     }
 
-    // 初始化載入已儲存的配置
     window.addEventListener('DOMContentLoaded', function() {
       loadFavs();
     });

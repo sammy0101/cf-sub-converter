@@ -31,7 +31,6 @@ async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
   const trimmed = urlParam.trim();
   if (!trimmed) return allNodes;
 
-  // 1. 優先完整辨識多行 WireGuard 或 MASQUE JSON
   if (/\[Interface\]/i.test(trimmed) && /\[Peer\]/i.test(trimmed)) {
     try {
       const parsed = await parseContent(trimmed);
@@ -48,7 +47,6 @@ async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
     return allNodes;
   }
 
-  // 2. 傳統單行節點或訂閱連結
   const inputs = urlParam.split(/[\n\r|]+/); 
   for (const input of inputs) {
     const t = input.trim(); 
@@ -432,11 +430,10 @@ export default {
       if (path === 'sub') {
         return new Response('Error: Missing parameter "url"', { status: 400 });
       }
-      const dynamicHtml = HTML_PAGE.replace('v3.5.0', `v${version}`);
+      const dynamicHtml = HTML_PAGE.replace('id="appVersionBadge">PRO</span>', `id="appVersionBadge">v${version}</span>`);
       return new Response(dynamicHtml, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     }
 
-    // --- 💥 核心節點解析（支援 WireGuard INI 與 MASQUE JSON 完整結構） ---
     const allNodes: ProxyNode[] = [];
     const errors: string[] = [];
     let totalUpload = 0;
@@ -447,7 +444,6 @@ export default {
 
     const trimmedParam = urlParam.trim();
 
-    // 1. 優先完整辨識多行 WireGuard 配置
     if (/\[Interface\]/i.test(trimmedParam) && /\[Peer\]/i.test(trimmedParam)) {
       try {
         const parsed = await parseContent(trimmedParam);
@@ -457,7 +453,6 @@ export default {
         errors.push(`[WireGuard 配置] 失敗原因: ${msg}`);
       }
     } 
-    // 💥 2. 優先完整辨識 Cloudflare WARP MASQUE JSON 配置
     else if (trimmedParam.startsWith('{') && /["']private_key["']/i.test(trimmedParam)) {
       try {
         const parsed = await parseContent(trimmedParam);
@@ -467,7 +462,6 @@ export default {
         errors.push(`[MASQUE 配置] 失敗原因: ${msg}`);
       }
     } 
-    // 3. 傳統單行 URI 節點或訂閱網址 (依換行分割)
     else {
       const inputs = urlParam.split(/[\n\r|]+/); 
       for (const input of inputs) {
@@ -524,7 +518,6 @@ export default {
 
     let filteredNodes = allNodes;
 
-    // 替換
     if (renameParam) {
       const rules = renameParam.split('|');
       for (const rule of rules) {
@@ -581,7 +574,6 @@ export default {
 
     let target = url.searchParams.get('target');
 
-    // 自動探測 User-Agent
     if (!target) {
       const ua = (request.headers.get('User-Agent') || '').toLowerCase();
       if (ua.includes('clash') || ua.includes('mihomo') || ua.includes('stash') || ua.includes('surfboard')) {

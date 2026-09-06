@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 12:39:15 UTC 2026
+Generated on: Sun Sep  6 12:40:01 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3003,14 +3003,16 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (node.ech) params.set('ech', '1');
         return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
+      // 💥 修復 WireGuard 專為 Shadowrocket 標準相容格式，並精準注入 DNS 與參數
       if (node.type === 'wireguard' && node.wireguard) {
         const wg = node.wireguard;
         const params = new URLSearchParams();
-        params.set('ip', wg.localAddress.join(','));
-        if (wg.publicKey) params.set('public_key', wg.publicKey);
-        if (wg.presharedKey) params.set('psk', wg.presharedKey);
-        if (wg.reserved) params.set('reserved', wg.reserved.join(','));
+        params.set('publickey', wg.publicKey || '');
+        params.set('address', wg.localAddress.join(','));
+        if (wg.dns) params.set('dns', wg.dns);
+        if (wg.presharedKey) params.set('presharedkey', wg.presharedKey);
         if (wg.mtu) params.set('mtu', String(wg.mtu));
+        if (wg.reserved) params.set('reserved', wg.reserved.join(','));
         return `wireguard://${encodeURIComponent(wg.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
       if (node.type === 'masque' && node.masque) {
@@ -3085,7 +3087,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
   const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox', FALLBACK_SINGBOX_RULES, env, forceRefresh);
   const config = JSON.parse(text);
   
-  // 1. 自動補全 Sing-Box 1.14+ 規範之 http_clients
   if (!config.http_clients || !Array.isArray(config.http_clients) || config.http_clients.length === 0) {
     config.http_clients = [{ tag: 'default' }];
   } else {
@@ -3096,7 +3097,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 2. 自動淨化 DNS 規範
   if (config.dns) {
     config.dns.final = 'local-dns';
     if (Array.isArray(config.dns.servers)) {
@@ -3110,7 +3110,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     }
   }
 
-  // 3. 自動補充 route.default_domain_resolver 與 default_http_client
   if (!config.route) config.route = {};
   config.route.default_domain_resolver = 'local-dns';
   config.route.default_http_client = 'default';
@@ -3121,7 +3120,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 4. 自動清理 inbounds
   if (Array.isArray(config.inbounds)) {
     config.inbounds.forEach((ib: Record<string, unknown>) => {
       delete ib.sniff;
@@ -3129,35 +3127,36 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 5. 核心分流：WireGuard 節點歸入頂層 endpoints[]，代理節點歸入 outbounds[]
-  const wireguardEndpoints: Record<string, unknown>[] = [];
-  const proxyOutbounds: Record<string, unknown>[] = [];
+  const outbounds: Record<string, unknown>[] = [];
+  const allNodeTags: string[] = [];
 
   nodes.forEach(n => {
-    if (n.type === 'wireguard') {
-      const wgObj = JSON.parse(JSON.stringify(n.singboxObj));
-      delete wgObj.detour;
-      wireguardEndpoints.push(wgObj);
+    allNodeTags.push(n.name);
+    if (n.type === 'wireguard' && n.wireguard) {
+      const wg = n.wireguard;
+      const wgOutbound: Record<string, unknown> = {
+        type: 'wireguard',
+        tag: n.name,
+        server: n.server,
+        server_port: n.port,
+        local_address: wg.localAddress,
+        private_key: wg.privateKey,
+        peer_public_key: wg.publicKey,
+        mtu: wg.mtu || 1420
+      };
+      if (wg.presharedKey) wgOutbound.pre_shared_key = wg.presharedKey;
+      outbounds.push(wgOutbound);
     } else {
       const obj = JSON.parse(JSON.stringify(n.singboxObj));
       if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {
         obj.tls.alpn = ['http/1.1'];
       }
-      proxyOutbounds.push(obj);
+      outbounds.push(obj);
     }
   });
 
-  if (wireguardEndpoints.length > 0) {
-    if (!config.endpoints || !Array.isArray(config.endpoints)) {
-      config.endpoints = [];
-    }
-    config.endpoints.push(...wireguardEndpoints);
-  }
-
   if (!Array.isArray(config.outbounds)) config.outbounds = [];
-  config.outbounds.push(...proxyOutbounds);
-
-  const allNodeTags = nodes.map(n => n.name);
+  config.outbounds.push(...outbounds);
 
   const lowRateTags = nodes.filter(n => n.multiplier !== undefined && n.multiplier < 1.0).map(n => n.name);
   const iplcTags = nodes.filter(n => n.isIplc).map(n => n.name);
@@ -3191,7 +3190,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
   return JSON.stringify(config, null, 2);
 }
 
-// --- Clash Meta 配置生成 (支援 type: masque) ---
+// --- Clash Meta 配置生成 ---
 export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
   const text = await fetchTemplateWithSWR(REMOTE_CONFIG.clash, 'clash', FALLBACK_CLASH_RULES, env, forceRefresh);
   const config = yaml.load(text) as Record<string, unknown>;
@@ -3286,6 +3285,9 @@ export function toSurge(nodes: ProxyNode[]): string {
       wgSec += `self-ip = ${wg.localAddress[0]?.split('/')[0] || '10.2.0.2'}\n`;
       if (wg.localAddress[1]) {
         wgSec += `self-ip-v6 = ${wg.localAddress[1]?.split('/')[0]}\n`;
+      }
+      if (wg.dns) {
+        wgSec += `dns-server = ${wg.dns}\n`;
       }
       wgSec += `peer = (public-key = ${wg.publicKey || ''}, allowed-ips = "0.0.0.0/0, ::/0", endpoint = ${node.server}:${node.port}, keepalive = 25)\n`;
       wgSections.push(wgSec);

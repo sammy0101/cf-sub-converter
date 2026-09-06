@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 09:02:14 UTC 2026
+Generated on: Sun Sep  6 09:10:45 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -829,7 +829,7 @@ main();
 ````md
 # ⚡ CF Sub Converter Pro
 
-基於 Cloudflare Workers 的全能 Serverless 訂閱轉換與節點中樞。擁有現代深色 UI、SWR 高可用快取容災架構、私密配置密碼保護鎖、智慧倍率/專線分組、國旗萬國對齊系統，以及 **Argo 隧道 2.0 自動化生成器**。支援將各類代理節點一鍵轉換為 **Sing-Box / Clash Meta (Mihomo) / Surge 5 / Quantumult X / Loon / Base64** 格式，並提供全平台專屬喚醒協議（Deep Link）與行動條碼掃描自動導入。
+基於 Cloudflare Workers 的全能 Serverless 訂閱轉換與節點中樞。擁有現代深色 UI、SWR 高可用快取容災架構、私密配置管理安全鎖、智慧倍率/專線分組、國旗萬國對齊系統，以及 **Argo 隧道 2.0 自動化生成器**。支援將各類代理節點一鍵轉換為 **Sing-Box / Clash Meta (Mihomo) / Surge 5 / Quantumult X / Loon / Base64** 格式，並提供全平台專屬喚醒協議（Deep Link）與行動條碼掃描自動導入。
 
 [![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sammy0101/cf-sub-converter)
 
@@ -838,9 +838,10 @@ main();
 ## 🌟 核心特性
 
 ### 1. 🔌 全主流與新興協議深度解析
+- **WireGuard 官方 `.conf` 深度支援**：直接貼入 Proton VPN、Mullvad 或 WARP 等多行 `[Interface] ... [Peer] ...` 設定檔，自動轉換為各平台出站，並智慧識別國家標籤（如 `🇳🇱 NL-FREE#246`）。
 - **VLESS**：支援最新 `xhttp` / `splithttp`、`Reality`、`Vision`、`WebSocket (含 ?ed=2560 Early Data 淨化)`、`gRPC`。
-- **ECH (Encrypted Client Hello)**：自動解析 `&ech=` 參數，在 Sing-Box 與 Clash 中開啟 ECH 加密問候，徹底繞過 GFW 的 SNI 阻斷。
-- **WireGuard / Cloudflare WARP**：雙棧 IPv4/IPv6、Reserved 欄位與 MTU 完整映射。
+- **ECH (Encrypted Client Hello)**：自動解析 `&ech=` 參數，在 Sing-Box 與 Clash 中開啟 ECH 加密問候，徹底繞過 GFW 針對 SNI 網域的阻斷。
+- **WebSocket ALPN 智慧鎖定**：自動為 WS+TLS 節點指定 `alpn: ["http/1.1"]`，解決 Cloudflare 邊緣節點錯誤協商 HTTP/2 導致的斷流問題。
 - **Shadowsocks-2022**：完整支援 `2022-blake3-*` 多端口與服務端密鑰。
 - **其他協議**：Trojan、VMess、Hysteria 2 (`hy2`)、TUIC、AnyTLS。
 
@@ -848,21 +849,22 @@ main();
 - **自適應識別 (Adaptive)**：自動依據請求客戶端的 `User-Agent` 回傳對應格式。
 - **Clash Meta (Mihomo)**：YAML 格式，內建 Fake-IP、DoH 分流、流量嗅探與動態策略組。
 - **Sing-Box (1.14+ 現代規範)**：
-  - 完整符合 1.14+ 規範，徹底消除 `download_detour`、`missing default_domain_resolver`、`outbound DNS rule` 與 `dns-out` 等廢棄警告。
+  - 完整符合 1.14+ 規範，徹底消除 `download_detour`、`missing default_domain_resolver`、`outbound DNS rule`、`dns-out` 等廢棄警告。
+  - WireGuard 自動轉化為頂層現代 `endpoints` 結構，由策略組直接切換。
   - 國外代理流量採用 Fake-IP 封裝網域名稱，國內/內網流量自動使用 Real-IP 直連。
-- **Surge 5**：標準 `.conf` 格式，支援 Proxy、Proxy Group 與分流規則。
-- **Quantumult X**：標準 `server_remote` 節點清單格式。
+- **Surge 5**：標準 `.conf` 格式，支援 Proxy、Proxy Group、分流規則與 `[WireGuard ...]` 獨立專屬區塊。
+- **Quantumult X**：支援包含 `vless=` 在內的標準 `server_remote` 節點清單。
 - **Loon**：標準 `[Proxy]` 格式。
 - **通用 Base64**：相容 v2rayNG、PassWall、Shadowrocket 等。
 - **🚀 專屬喚醒二維碼**：
   - 點擊 QR Code 圖示自動產生客戶端專屬協議條碼（如 `sing-box://...`、`clash://...`、`surge:///...`）。
   - 手機相機或 App 掃描**全自動填入名稱與網址**，亦可點擊按鈕直接喚醒 App 一鍵導入。
 
-### 3. 🔐 私密配置密碼安全鎖 (PAGE_PASSWORD)
+### 3. 🔐 私密配置管理安全鎖 (PAGE_PASSWORD)
 - **公私分明**：
   - **公開使用**：通用訂閱轉換、節點過濾、Argo 隧道生成、客戶端訂閱更新一律開放。
   - **私密保護**：下方的「已儲存的配置」受密碼保護，需輸入管理密碼才能檢視、新增或編輯私密節點。
-- **記住登入狀態**：解鎖成功後瀏覽器（`localStorage`）自動保持登入，重開網頁免重複輸入，並提供隨時「🔒 鎖定」按鈕。
+- **永久記住登入狀態**：解鎖成功後瀏覽器（`localStorage`）自動保持登入，重開網頁免重複輸入，並提供隨時「🔒 鎖定」按鈕。
 - **後端安全攔截**：`/favs` 路由全面校驗 `X-Password`，未授權請求直接回傳 `401 Unauthorized`。
 
 ### 4. 🛡️ 99.99% 高可用 SWR 容災架構 (Zero Downtime)
@@ -969,13 +971,13 @@ main();
 
 ### 1. 視覺化 Web 面板
 訪問您部署完成的 Workers 網址：
-- **資料來源設定**：貼上機場訂閱連結或各類協議節點（支援多行混合輸入）。
+- **資料來源設定**：貼上機場訂閱連結、WireGuard `.conf` 設定檔或各類協議節點（支援多行混合輸入）。
 - **過濾與替換**：設定保留/排除關鍵字或名稱替換規則。
 - **短連結雲端儲存**：設定自訂短代碼，規則將自動打包存入 KV。
 - **多平台訂閱面板**：
   - 複製對應客戶端的訂閱連結。
   - 點擊 QR Code 圖示彈出專屬喚醒視窗，手機相機掃描自動填入，或點擊「🚀 一鍵打開並導入」直接喚醒 App。
-- **配置收藏管理**：輸入管理密碼解鎖後，可自由新增、編輯、刪除或一鍵套用常用的私密配置。
+- **配置收藏管理**：輸入管理密碼解鎖後，可自由新增、編輯、刪除或一鍵套用常用的私密配置，瀏覽器會自動記住登入狀態。
 
 ---
 
@@ -1035,7 +1037,7 @@ https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox&force=1
 | ⚡ | 專線加速 | 自動彙整包含 `IPLC` / `IEPL` / `專線` 的低延遲節點 |
 | 🚀 | 節點選擇 | 手動指定出站節點 |
 | ⚡ | 自動選擇 | URL Test 自動測速切換最低延遲節點 |
-| 💬 | 香港AI 服務 | 針對 OpenAI / Claude / AI Studio 專屬分流 |
+| 💬 | AI 服務 | 針對 OpenAI / Claude / Gemini / AI Studio 專屬分流 |
 | 🍎 | 蘋果服務 | Apple 相關服務直連或代理 |
 | Ⓜ️ | 微軟服務 | Microsoft 服務直連或代理 |
 | 🎮 | 遊戲平台 | Steam / Epic / EA / Ubisoft / Blizzard |
@@ -1047,6 +1049,18 @@ https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox&force=1
 
 ---
 
+## ❓ 常見問題排錯 (FAQ)
+
+### 1. Windows 上運行 WireGuard 節點報錯 `listen udp6: An invalid argument was supplied`？
+- **原因**：Windows 電腦未開啟 IPv6 協議元件，導致 Sing-Box 核心在嘗試雙棧 UDP 監聽時被 Windows Winsock 攔截。
+- **解法**：在 Windows 按 `Win + R` ➔ 輸入 `ncpa.cpl` ➔ 在連線的網卡（乙太網路或 Wi-Fi）點右鍵「內容」➔ **將「網際網路通訊協定第 6 版 (TCP/IPv6)」打勾啟用** 即可正常握手連通。若電腦完全無法開啟 IPv6，建議使用 **Clash Meta** 格式訂閱。
+
+### 2. Cloudflare EdgeTunnel 節點在手機端連線逾時？
+- **原因**：部分 Cloudflare 節點啟用了 ECH（加密問候）或自訂 WebSocket Early Data。
+- **解法**：本工具已全面自動淨化路徑中的 `?ed=2560`，並鎖定 `alpn: ["http/1.1"]`，只要透過本轉換器更新至最新訂閱，即可完美相容。
+
+---
+
 ## 📁 專案架構
 
 ```text
@@ -1054,7 +1068,7 @@ cf-sub-converter/
 ├── src/
 │   ├── index.ts          # Worker 核心路由、並發請求控制、安全鑒權與 API 接口
 │   ├── constants.ts      # 響應式深色 UI 模板、QR Code 生成器與 SWR 內嵌降級規則
-│   ├── parser.ts         # 萬能節點解析器 (VLESS SplitHTTP/EarlyData, ECH, WireGuard, Hy2 等)
+│   ├── parser.ts         # 萬能節點解析器 (WireGuard .conf, VLESS SplitHTTP/EarlyData, ECH 等)
 │   ├── generator.ts      # 多平台格式生成器 (Sing-Box 1.14+, Clash, Surge 5, QuanX, Loon, Base64)
 │   ├── utils.ts          # 倍率與專線特徵提取、Base64 安全編碼、萬國國旗對齊演算法
 │   └── types.ts          # 嚴格 TypeScript 類型定義

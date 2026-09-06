@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Sep  6 13:30:19 UTC 2026
+Generated on: Sun Sep  6 13:37:08 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3003,20 +3003,17 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (node.ech) params.set('ech', '1');
         return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
-      // 💥 WireGuard Shadowrocket 官方標準格式（消滅 0,0,0 保留位）
       if (node.type === 'wireguard' && node.wireguard) {
         const wg = node.wireguard;
         const cleanIp = wg.localAddress[0]?.split('/')[0] || '10.2.0.2';
         const params = new URLSearchParams();
         params.set('publickey', wg.publicKey || '');
-        params.set('privatekey', wg.privateKey || '');
         params.set('address', cleanIp);
         if (wg.dns) params.set('dns', wg.dns);
         if (wg.presharedKey) params.set('presharedkey', wg.presharedKey);
         params.set('mtu', String(wg.mtu || 1420));
         params.set('keepalive', '25');
-        // Shadowrocket 標準格式：Endpoint 作為 host:port，密鑰放入 privatekey 參數
-        return `wireguard://${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+        return `wireguard://${encodeURIComponent(wg.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
       if (node.type === 'masque' && node.masque) {
         const m = node.masque;
@@ -3085,7 +3082,7 @@ async function fetchTemplateWithSWR(
   return fallbackJsonStr;
 }
 
-// --- Sing-Box 配置生成（嚴格符合現代規範） ---
+// --- Sing-Box 配置生成 ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
   const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox', FALLBACK_SINGBOX_RULES, env, forceRefresh);
   const config = JSON.parse(text);
@@ -3135,7 +3132,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
 
   nodes.forEach(n => {
     allNodeTags.push(n.name);
-    // 💥 解決 decode config: outbounds[15].server: json: unknown field "server"
+    // 💥 嚴格符合 Sing-Box 規範：頂層不得出現 server / server_port，必須置入 peers
     if (n.type === 'wireguard' && n.wireguard) {
       const wg = n.wireguard;
       const peerObj: Record<string, unknown> = {

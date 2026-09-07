@@ -89,16 +89,27 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
       if (node.type === 'wireguard' && node.wireguard) {
+        // Shadowrocket 對 WireGuard 的穩定匯入格式是其 [Proxy] 本地節點語法，
+        // 而不是 wireguard:// URI。這個分支會被 target=base64 使用。
         const wg = node.wireguard;
-        const cleanIp = wg.localAddress[0]?.split('/')[0] || '10.2.0.2';
-        const params = new URLSearchParams();
-        params.set('publickey', wg.publicKey || '');
-        params.set('address', cleanIp);
-        if (wg.dns) params.set('dns', wg.dns);
-        if (wg.presharedKey) params.set('presharedkey', wg.presharedKey);
-        params.set('mtu', String(wg.mtu || 1420));
-        params.set('keepalive', '25');
-        return `wireguard://${encodeURIComponent(wg.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+        const safeName = node.name.replace(/[=,]/g, '').trim() || 'WireGuard';
+        const ip = (wg.localAddress && wg.localAddress.length > 0) ? wg.localAddress[0] : '10.2.0.2/32';
+        const parts = [
+          `${safeName} = wireguard`,
+          node.server,
+          String(node.port),
+          `privateKey=${wg.privateKey}`,
+          `publicKey=${wg.publicKey || ''}`,
+          `ip=${ip}`,
+          'udp=1',
+          `dns=${wg.dns || '1.1.1.1'}`,
+          `mtu=${wg.mtu || 1420}`,
+          'keepalive=25'
+        ];
+        if (wg.reserved && wg.reserved.length > 0) {
+          parts.push(`reserved=${wg.reserved.join('/')}`);
+        }
+        return parts.join(', ');
       }
       if (node.type === 'masque' && node.masque) {
         const m = node.masque;

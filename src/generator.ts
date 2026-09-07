@@ -4,7 +4,7 @@ import { Env, ProxyNode } from './types';
 import { REMOTE_CONFIG, FALLBACK_SINGBOX_RULES, FALLBACK_CLASH_RULES } from './constants';
 import { utf8ToBase64 } from './utils';
 
-// --- 明文 URI 格式導出 ---
+// --- 明文 URI / 節點行格式導出 ---
 export function toRawLinks(nodes: ProxyNode[]): string {
   const links = nodes.map(node => {
     try {
@@ -88,29 +88,28 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (node.ech) params.set('ech', '1');
         return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
+      
+      // 💥 關鍵修復：針對 WireGuard，改用 Shadowrocket 官方原生規範行格式
+      // 徹底根除保留位 0,0,0 與 Base64 下私鑰編碼混淆的 Bug
       if (node.type === 'wireguard' && node.wireguard) {
-        // Shadowrocket 對 WireGuard 的穩定匯入格式是其 [Proxy] 本地節點語法，
-        // 而不是 wireguard:// URI。這個分支會被 target=base64 使用。
         const wg = node.wireguard;
-        const safeName = node.name.replace(/[=,]/g, '').trim() || 'WireGuard';
-        const ip = (wg.localAddress && wg.localAddress.length > 0) ? wg.localAddress[0] : '10.2.0.2/32';
-        const parts = [
-          `${safeName} = wireguard`,
-          node.server,
-          String(node.port),
-          `privateKey=${wg.privateKey}`,
-          `publicKey=${wg.publicKey || ''}`,
-          `ip=${ip}`,
-          'udp=1',
-          `dns=${wg.dns || '1.1.1.1'}`,
-          `mtu=${wg.mtu || 1420}`,
-          'keepalive=25'
-        ];
+        const cleanName = node.name.replace(/[,=]/g, '').trim();
+        const cleanIp = wg.localAddress[0]?.split('/')[0] || '10.2.0.2';
+        
+        let line = `${cleanName} = wireguard, ${node.server}, ${node.port}`;
+        line += `, ip=${cleanIp}`;
+        line += `, private-key="${wg.privateKey}"`;
+        if (wg.publicKey) line += `, public-key="${wg.publicKey}"`;
+        if (wg.presharedKey) line += `, preshared-key="${wg.presharedKey}"`;
+        if (wg.dns) line += `, dns=${wg.dns}`;
+        line += `, mtu=${wg.mtu || 1420}`;
+        line += `, keepalive=25`;
         if (wg.reserved && wg.reserved.length > 0) {
-          parts.push(`reserved=${wg.reserved.join('/')}`);
+          line += `, reserved="${wg.reserved.join(',')}"`;
         }
-        return parts.join(', ');
+        return line;
       }
+
       if (node.type === 'masque' && node.masque) {
         const m = node.masque;
         const params = new URLSearchParams();
@@ -230,8 +229,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
   nodes.forEach(n => {
     allNodeTags.push(n.name);
     
-    // 💥 完美解決 decode config: outbounds.server / local_address 報錯：
-    // Sing-Box 現代規範將 WireGuard 放進頂層 endpoints，outbound 放對應 detour
+    // WireGuard 依 Sing-Box 現代規範歸入頂層 endpoints
     if (n.type === 'wireguard' && n.wireguard) {
       const wg = n.wireguard;
       const peerObj: Record<string, unknown> = {
@@ -243,7 +241,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
       if (wg.presharedKey) peerObj.pre_shared_key = wg.presharedKey;
       if (wg.reserved && wg.reserved.length > 0) peerObj.reserved = wg.reserved;
 
-      // 1. 寫入頂層 endpoints
       endpoints.push({
         type: 'wireguard',
         tag: n.name,
@@ -252,11 +249,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
         peers: [peerObj],
         mtu: wg.mtu || 1420
       });
-
-      // 2. WireGuard Endpoint 本身就是可作為 outbound 使用的端點。
-      // 不要在 outbounds 中建立 { type: 'direct', endpoint: ... }，
-      // 因為 sing-box 的 direct outbound 不支援 `endpoint` 欄位。
-      // Endpoint tag 可直接被 selector/urltest 的 outbounds 引用。
     } else {
       const obj = JSON.parse(JSON.stringify(n.singboxObj));
       if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {

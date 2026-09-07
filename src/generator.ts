@@ -242,12 +242,10 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
         mtu: wg.mtu || 1420
       });
 
-      // 2. 寫入 outbounds（透過 direct 綁定 endpoint 出站）
-      outbounds.push({
-        type: 'direct',
-        tag: n.name,
-        endpoint: n.name
-      });
+      // 2. WireGuard Endpoint 本身就是可作為 outbound 使用的端點。
+      // 不要在 outbounds 中建立 { type: 'direct', endpoint: ... }，
+      // 因為 sing-box 的 direct outbound 不支援 `endpoint` 欄位。
+      // Endpoint tag 可直接被 selector/urltest 的 outbounds 引用。
     } else {
       const obj = JSON.parse(JSON.stringify(n.singboxObj));
       if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {

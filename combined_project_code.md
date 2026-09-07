@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Mon Sep  7 16:41:02 UTC 2026
+Generated on: Mon Sep  7 16:41:34 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -4937,6 +4937,12 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
         "type": "local"
       },
       {
+        "tag": "hk-local-dns",
+        "type": "https",
+        "server": "1.1.1.1",
+        "detour": "direct"
+      },
+      {
         "tag": "fakeip-dns",
         "type": "fakeip",
         "inet4_range": "198.18.0.0/15"
@@ -4948,11 +4954,16 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
       { "rule_set": "rs-ads", "action": "reject" },
       {
         "rule_set": [
-          "rs-cn",
-          "rs-private"
+          "rs-cn"
         ],
         "server": "local-dns",
         "disable_cache": true
+      },
+      {
+        "rule_set": [
+          "rs-private"
+        ],
+        "server": "system-dns"
       },
       {
         "rule_set": [
@@ -4969,7 +4980,7 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
         "server": "fakeip-dns"
       }
     ],
-    "final": "local-dns",
+    "final": "system-dns",
     "strategy": "ipv4_only"
   },
   "inbounds": [

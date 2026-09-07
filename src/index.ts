@@ -31,6 +31,7 @@ async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
   const trimmed = urlParam.trim();
   if (!trimmed) return allNodes;
 
+  // 1. 優先完整辨識多行 WireGuard
   if (/\[Interface\]/i.test(trimmed) && /\[Peer\]/i.test(trimmed)) {
     try {
       const parsed = await parseContent(trimmed);
@@ -39,7 +40,8 @@ async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
     return allNodes;
   }
 
-  if (trimmed.startsWith('{') && /["']private_key["']/i.test(trimmed)) {
+  // 💥 2. 優先完整辨識多組或單組 MASQUE JSON (物件或陣列)
+  if (/["']private_key["']/i.test(trimmed) && (trimmed.includes('{') || trimmed.includes('['))) {
     try {
       const parsed = await parseContent(trimmed);
       allNodes.push(...parsed);
@@ -449,6 +451,7 @@ export default {
 
     const trimmedParam = urlParam.trim();
 
+    // 1. 優先完整辨識多行 WireGuard 配置
     if (/\[Interface\]/i.test(trimmedParam) && /\[Peer\]/i.test(trimmedParam)) {
       try {
         const parsed = await parseContent(trimmedParam);
@@ -458,7 +461,8 @@ export default {
         errors.push(`[WireGuard 配置] 失敗原因: ${msg}`);
       }
     } 
-    else if (trimmedParam.startsWith('{') && /["']private_key["']/i.test(trimmedParam)) {
+    // 💥 2. 優先完整辨識多組或單組 MASQUE JSON
+    else if (/["']private_key["']/i.test(trimmedParam) && (trimmedParam.includes('{') || trimmedParam.includes('['))) {
       try {
         const parsed = await parseContent(trimmedParam);
         allNodes.push(...parsed);
@@ -658,7 +662,6 @@ export default {
       });
     }
 
-    // 訂閱命名邏輯：優先使用短連結名稱 / 自訂名稱
     const finalProfileName = detectedProfileName || 'subscription';
     const filenameAscii = `${finalProfileName.replace(/[^a-zA-Z0-9_-]/g, '_')}${fileExt}`;
     const filenameUtf8 = encodeURIComponent(`${finalProfileName}${fileExt}`);

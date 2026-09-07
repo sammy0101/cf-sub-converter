@@ -199,6 +199,103 @@ function parseMasqueUri(urlStr: string): ProxyNode | null {
   }
 }
 
+// --- 解析 Shadowrocket 行格式 WireGuard ---
+function parseShadowrocketWireGuard(line: string): ProxyNode | null {
+  try {
+    const eqIdx = line.indexOf('=');
+    if (eqIdx === -1) return null;
+
+    const name = line.substring(0, eqIdx).trim();
+    const rightPart = line.substring(eqIdx + 1).trim();
+    const parts = rightPart.split(',').map(s => s.trim());
+
+    if (parts[0]?.toLowerCase() !== 'wireguard') return null;
+
+    const server = parts[1];
+    const port = parseInt(parts[2], 10) || 51820;
+
+    let privateKey = '';
+    let publicKey = '';
+    let presharedKey: string | undefined = undefined;
+    let ip = '10.2.0.2';
+    let dns = '10.2.0.1';
+    let mtu = 1420;
+    let reserved: number[] | undefined = undefined;
+
+    for (let i = 3; i < parts.length; i++) {
+      const p = parts[i];
+      const kvIdx = p.indexOf('=');
+      if (kvIdx === -1) continue;
+      const k = p.substring(0, kvIdx).trim().toLowerCase();
+      const v = p.substring(kvIdx + 1).trim().replace(/^["']|["']$/g, '');
+
+      if (k === 'private-key' || k === 'privatekey') privateKey = v;
+      else if (k === 'public-key' || k === 'publickey') publicKey = v;
+      else if (k === 'preshared-key' || k === 'presharedkey') presharedKey = v;
+      else if (k === 'ip') ip = v;
+      else if (k === 'dns') dns = v;
+      else if (k === 'mtu') mtu = parseInt(v, 10) || 1420;
+      else if (k === 'reserved') reserved = v.split(',').map(n => parseInt(n.trim(), 10));
+    }
+
+    if (!server || !privateKey || !publicKey) return null;
+
+    const localAddress = ip.includes('/') ? [ip] : [`${ip}/32`];
+    const wgConfig: WireGuardConfig = {
+      privateKey,
+      localAddress,
+      publicKey,
+      presharedKey,
+      mtu,
+      dns,
+      reserved
+    };
+
+    const node: ProxyNode = {
+      type: 'wireguard',
+      name,
+      server,
+      port,
+      udp: true,
+      wireguard: wgConfig
+    };
+
+    node.singboxObj = {
+      type: 'wireguard',
+      tag: name,
+      address: localAddress,
+      private_key: privateKey,
+      peers: [
+        {
+          address: server,
+          port,
+          public_key: publicKey,
+          allowed_ips: ['0.0.0.0/0', '::/0']
+        }
+      ],
+      mtu
+    };
+
+    node.clashObj = {
+      name,
+      type: 'wireguard',
+      server,
+      port,
+      ip,
+      'public-key': publicKey,
+      'private-key': privateKey,
+      'preshared-key': presharedKey,
+      mtu,
+      udp: true,
+      'remote-dns-resolve': true
+    };
+
+    return node;
+  } catch {
+    return null;
+  }
+}
+
 // --- 解析 WireGuard 官方 .conf 格式 ---
 function parseWireGuardConf(text: string): ProxyNode[] {
   const nodes: ProxyNode[] = [];
@@ -213,7 +310,6 @@ function parseWireGuardConf(text: string): ProxyNode[] {
     };
 
     let name = '';
-    // 優先讀取 [Peer] 下方的備註名稱 (例如 # JP-FREE#23)
     const peerPart = sec.split(/\[Peer\]/i)[1] || '';
     const peerComments = peerPart.match(/^[ \t]*#[ \t]*(.*?)$/gm);
     if (peerComments) {
@@ -248,9 +344,6 @@ function parseWireGuardConf(text: string): ProxyNode[] {
     const endpoint = getVal('Endpoint');
     const mtuStr = getVal('MTU');
     const mtu = mtuStr ? parseInt(mtuStr, 10) : 1420;
-    
-    const keepaliveStr = getVal('PersistentKeepalive');
-    const keepalive = keepaliveStr ? parseInt(keepaliveStr, 10) : 25;
 
     if (!endpoint || !privateKey || !publicKey) continue;
 
@@ -287,22 +380,20 @@ function parseWireGuardConf(text: string): ProxyNode[] {
       wireguard: wgConfig
     };
 
-    const hasIpv6 = localAddress.some(addr => addr.includes(':'));
-    const allowedIps = ['0.0.0.0/0'];
-    if (hasIpv6) {
-      allowedIps.push('::/0');
-    }
-
     node.singboxObj = {
       type: 'wireguard',
       tag: name,
-      server,
-      server_port: port,
-      local_address: localAddress,
+      address: localAddress,
       private_key: privateKey,
-      peer_public_key: publicKey,
-      pre_shared_key: presharedKey,
-      mtu: mtu || 1420
+      peers: [
+        {
+          address: server,
+          port,
+          public_key: publicKey,
+          allowed_ips: ['0.0.0.0/0', '::/0']
+        }
+      ],
+      mtu
     };
 
     node.clashObj = {
@@ -677,13 +768,17 @@ function parseWireGuard(urlStr: string): ProxyNode | null {
     node.singboxObj = {
       type: 'wireguard',
       tag: name,
-      server: parsed.hostname,
-      server_port: parsed.port,
-      local_address: localIps,
+      address: localIps,
       private_key: privateKey,
-      peer_public_key: publicKey,
-      pre_shared_key: presharedKey,
-      mtu: mtu || 1420
+      peers: [
+        {
+          address: parsed.hostname,
+          port: parsed.port,
+          public_key: publicKey,
+          allowed_ips: ['0.0.0.0/0', '::/0']
+        }
+      ],
+      mtu
     };
 
     node.clashObj = {
@@ -1066,7 +1161,7 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
   
   const protocols = ['ss://', 'vmess://', 'vless://', 'trojan://', 'tuic://', 'hysteria2://', 'hy2://', 'anytls://', 'wireguard://', 'warp://', 'masque://'];
   const firstLine = plainText.split(/\r?\n/)[0].trim();
-  const isPlainText = protocols.some(p => firstLine.startsWith(p));
+  const isPlainText = protocols.some(p => firstLine.startsWith(p)) || (firstLine.includes('=') && firstLine.includes('wireguard'));
   
   if (!isPlainText) { 
     try {
@@ -1091,7 +1186,7 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
         if (masqueNode) return [masqueNode];
       }
       
-      if (decoded && protocols.some(p => decoded.includes(p))) {
+      if (decoded && (protocols.some(p => decoded.includes(p)) || decoded.includes('wireguard'))) {
         plainText = decoded.replace(/^\uFEFF/, '').trim(); 
       } else {
         throw new Error("Base64 解碼成功，但內容並非有效的代理節點。");
@@ -1115,9 +1210,14 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
     else if (l.startsWith('vmess://')) { const n = parseVmess(l); if (n) nodes.push(n); } 
     else if (l.startsWith('tuic://')) { const n = parseTuic(l); if (n) nodes.push(n); } 
     else if (l.startsWith('anytls://')) { const n = parseAnytls(l); if (n) nodes.push(n); } 
-    else if (l.startsWith('trojan://')) { const n = parseTrojan(l); if (n) nodes.push(n); }
-    else if (l.startsWith('wireguard://') || l.startsWith('warp://')) { const n = parseWireGuard(l); if (n) nodes.push(n); }
+    else if (l.startsWith('trojan://')) { const n = parseTrojan(l); if (n) nodes.push(n); } 
+    else if (l.startsWith('wireguard://') || l.startsWith('warp://')) { const n = parseWireGuard(l); if (n) nodes.push(n); } 
     else if (l.startsWith('masque://')) { const n = parseMasqueUri(l); if (n) nodes.push(n); }
+    // 💥 支援解析 Shadowrocket 原生 WireGuard 行格式
+    else if (l.includes('=') && l.includes('wireguard')) {
+      const n = parseShadowrocketWireGuard(l);
+      if (n) nodes.push(n);
+    }
   } 
   
   if (nodes.length === 0) {

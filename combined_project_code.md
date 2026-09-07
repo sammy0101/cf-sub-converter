@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Mon Sep  7 16:28:34 UTC 2026
+Generated on: Mon Sep  7 16:33:03 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -4923,7 +4923,7 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
       "tag": "default"
     }
   ],
-  "dns": {
+"dns": {
     "servers": [
       {
         "tag": "remote-dns",
@@ -4950,15 +4950,6 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
       { "clash_mode": "Direct", "server": "system-dns" },
       { "clash_mode": "Global", "server": "fakeip-dns" },
       { "rule_set": "rs-ads", "action": "reject" },
-      {
-        "domain": [
-          "github.com",
-          "raw.githubusercontent.com",
-          "githubusercontent.com",
-          "gh-proxy.com"
-        ],
-        "server": "local-dns"
-      },
       {
         "rule_set": [
           "rs-cn",

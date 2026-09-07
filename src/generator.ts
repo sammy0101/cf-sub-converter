@@ -89,25 +89,23 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
       
-      // 💥 關鍵修復：針對 WireGuard，改用 Shadowrocket 官方原生規範行格式
-      // 徹底根除保留位 0,0,0 與 Base64 下私鑰編碼混淆的 Bug
+      // 💥 完美符合小火箭 Base64 的 WireGuard URI 標準規範：
+      // 1. 密鑰不放在帳號密碼處（避免等號破壞 URL 結構）
+      // 2. 全部採用 query 參數注入
+      // 3. 不傳入 reserved，徹底杜絕 0,0,0
       if (node.type === 'wireguard' && node.wireguard) {
         const wg = node.wireguard;
-        const cleanName = node.name.replace(/[,=]/g, '').trim();
         const cleanIp = wg.localAddress[0]?.split('/')[0] || '10.2.0.2';
-        
-        let line = `${cleanName} = wireguard, ${node.server}, ${node.port}`;
-        line += `, ip=${cleanIp}`;
-        line += `, private-key="${wg.privateKey}"`;
-        if (wg.publicKey) line += `, public-key="${wg.publicKey}"`;
-        if (wg.presharedKey) line += `, preshared-key="${wg.presharedKey}"`;
-        if (wg.dns) line += `, dns=${wg.dns}`;
-        line += `, mtu=${wg.mtu || 1420}`;
-        line += `, keepalive=25`;
-        if (wg.reserved && wg.reserved.length > 0) {
-          line += `, reserved="${wg.reserved.join(',')}"`;
-        }
-        return line;
+        const params = new URLSearchParams();
+        params.set('publickey', wg.publicKey || '');
+        params.set('privatekey', wg.privateKey || '');
+        params.set('ip', cleanIp);
+        params.set('address', cleanIp);
+        if (wg.dns) params.set('dns', wg.dns);
+        if (wg.presharedKey) params.set('presharedkey', wg.presharedKey);
+        params.set('mtu', String(wg.mtu || 1420));
+        params.set('keepalive', '25');
+        return `wireguard://${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
 
       if (node.type === 'masque' && node.masque) {
@@ -229,7 +227,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
   nodes.forEach(n => {
     allNodeTags.push(n.name);
     
-    // WireGuard 依 Sing-Box 現代規範歸入頂層 endpoints
+    // WireGuard 放進頂層 endpoints，outbounds 陣列中不放非法結構
     if (n.type === 'wireguard' && n.wireguard) {
       const wg = n.wireguard;
       const peerObj: Record<string, unknown> = {

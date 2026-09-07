@@ -8,7 +8,7 @@
       "tag": "default"
     }
   ],
-"dns": {
+  "dns": {
     "servers": [
       {
         "tag": "remote-dns",

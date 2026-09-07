@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Mon Sep  7 16:33:03 UTC 2026
+Generated on: Mon Sep  7 16:34:20 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -4923,7 +4923,7 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
       "tag": "default"
     }
   ],
-"dns": {
+  "dns": {
     "servers": [
       {
         "tag": "remote-dns",

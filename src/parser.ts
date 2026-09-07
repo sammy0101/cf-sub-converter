@@ -50,7 +50,7 @@ function isIpAddress(host: string): boolean {
   return /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(host) || /^[a-fA-F0-9:]+$/.test(host);
 }
 
-// --- 解析 Cloudflare WARP MASQUE JSON 配置 ---
+// --- 解析 Cloudflare WARP MASQUE JSON 配置（支援單一、陣列或多個物件） ---
 interface RawMasqueConfig {
   private_key?: string;
   endpoint_v4?: string;
@@ -61,78 +61,104 @@ interface RawMasqueConfig {
   name?: string;
 }
 
-function parseMasqueJson(text: string): ProxyNode | null {
-  try {
-    const trimmed = text.trim();
-    if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null;
-    const config = JSON.parse(trimmed) as RawMasqueConfig;
-
-    if (!config.private_key || (!config.endpoint_pub_key && !config.endpoint_v4)) {
-      return null;
-    }
-
-    const privateKey = config.private_key.trim();
-    const rawPubKey = config.endpoint_pub_key || '';
-    const publicKey = rawPubKey.replace(/-----BEGIN[^-]+-----|-----END[^-]+-----|[\r\n\s]/g, '');
-    const server = (config.endpoint_v4 || '162.159.198.2').trim();
-    const port = 443;
-    const rawIpv4 = (config.ipv4 || '172.16.0.2').trim();
-    const localIpv4 = rawIpv4.includes('/') ? rawIpv4 : `${rawIpv4}/32`;
-    
-    let localIpv6: string | undefined = undefined;
-    if (config.ipv6) {
-      const rawIpv6 = config.ipv6.trim();
-      localIpv6 = rawIpv6.includes('/') ? rawIpv6 : `${rawIpv6}/128`;
-    }
-
-    const name = config.name || 'WARP-MASQUE';
-
-    const masqueConfig: MasqueConfig = {
-      privateKey,
-      publicKey,
-      localIpv4,
-      localIpv6,
-      mtu: 1280
-    };
-
-    const node: ProxyNode = {
-      type: 'masque',
-      name,
-      server,
-      port,
-      udp: true,
-      masque: masqueConfig
-    };
-
-    node.singboxObj = {
-      type: 'masque',
-      tag: name,
-      server,
-      server_port: port,
-      private_key: privateKey,
-      public_key: publicKey,
-      ip: localIpv4,
-      ipv6: localIpv6
-    };
-
-    node.clashObj = {
-      name,
-      type: 'masque',
-      server,
-      port,
-      'private-key': privateKey,
-      'public-key': publicKey,
-      ip: localIpv4,
-      ipv6: localIpv6,
-      mtu: 1280,
-      udp: true,
-      'remote-dns-resolve': true
-    };
-
-    return node;
-  } catch {
+function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode | null {
+  if (!config.private_key || (!config.endpoint_pub_key && !config.endpoint_v4)) {
     return null;
   }
+
+  const privateKey = config.private_key.trim();
+  const rawPubKey = config.endpoint_pub_key || '';
+  const publicKey = rawPubKey.replace(/-----BEGIN[^-]+-----|-----END[^-]+-----|[\r\n\s]/g, '');
+  const server = (config.endpoint_v4 || '162.159.198.2').trim();
+  const port = 443;
+  const rawIpv4 = (config.ipv4 || '172.16.0.2').trim();
+  const localIpv4 = rawIpv4.includes('/') ? rawIpv4 : `${rawIpv4}/32`;
+  
+  let localIpv6: string | undefined = undefined;
+  if (config.ipv6) {
+    const rawIpv6 = config.ipv6.trim();
+    localIpv6 = rawIpv6.includes('/') ? rawIpv6 : `${rawIpv6}/128`;
+  }
+
+  const name = config.name || (index > 0 ? `WARP-MASQUE-${index + 1}` : 'WARP-MASQUE');
+
+  const masqueConfig: MasqueConfig = {
+    privateKey,
+    publicKey,
+    localIpv4,
+    localIpv6,
+    mtu: 1280
+  };
+
+  const node: ProxyNode = {
+    type: 'masque',
+    name,
+    server,
+    port,
+    udp: true,
+    masque: masqueConfig
+  };
+
+  node.singboxObj = {
+    type: 'masque',
+    tag: name,
+    server,
+    server_port: port,
+    private_key: privateKey,
+    public_key: publicKey,
+    ip: localIpv4,
+    ipv6: localIpv6
+  };
+
+  node.clashObj = {
+    name,
+    type: 'masque',
+    server,
+    port,
+    'private-key': privateKey,
+    'public-key': publicKey,
+    ip: localIpv4,
+    ipv6: localIpv6,
+    mtu: 1280,
+    udp: true,
+    'remote-dns-resolve': true
+  };
+
+  return node;
+}
+
+export function parseMasqueConfigs(text: string): ProxyNode[] {
+  const nodes: ProxyNode[] = [];
+  const trimmed = text.trim();
+
+  // 1. 嘗試解析標準 JSON 陣列或單一物件
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      parsed.forEach((item, idx) => {
+        const n = buildMasqueNode(item, idx);
+        if (n) nodes.push(n);
+      });
+      if (nodes.length > 0) return nodes;
+    } else if (typeof parsed === 'object' && parsed !== null) {
+      const n = buildMasqueNode(parsed, 0);
+      if (n) return [n];
+    }
+  } catch {}
+
+  // 2. 若不是標準 JSON，嘗試用正則提取文字中出現的多個獨立 {...} JSON 塊
+  const objectMatches = trimmed.match(/\{[^{}]*["']private_key["'][^{}]*\}/g);
+  if (objectMatches) {
+    objectMatches.forEach((rawObj, idx) => {
+      try {
+        const obj = JSON.parse(rawObj) as RawMasqueConfig;
+        const n = buildMasqueNode(obj, idx);
+        if (n) nodes.push(n);
+      } catch {}
+    });
+  }
+
+  return nodes;
 }
 
 // --- 解析 masque:// URI 格式 ---
@@ -1151,11 +1177,11 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
     }
   }
 
-  // 2. 優先檢查是否為 Cloudflare WARP MASQUE JSON 配置
-  if (plainText.startsWith('{') && /["']private_key["']/i.test(plainText)) {
-    const masqueNode = parseMasqueJson(plainText);
-    if (masqueNode) {
-      return [masqueNode];
+  // 💥 2. 優先檢查是否包含 Cloudflare WARP MASQUE JSON 配置（支援單一物件、陣列或多個連續 JSON）
+  if (/["']private_key["']/i.test(plainText) && (plainText.includes('{') || plainText.includes('['))) {
+    const masqueNodes = parseMasqueConfigs(plainText);
+    if (masqueNodes.length > 0) {
+      return masqueNodes;
     }
   }
   
@@ -1181,9 +1207,9 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
         if (wgNodes.length > 0) return wgNodes;
       }
 
-      if (decoded.startsWith('{') && /["']private_key["']/i.test(decoded)) {
-        const masqueNode = parseMasqueJson(decoded);
-        if (masqueNode) return [masqueNode];
+      if (/["']private_key["']/i.test(decoded) && (decoded.includes('{') || decoded.includes('['))) {
+        const masqueNodes = parseMasqueConfigs(decoded);
+        if (masqueNodes.length > 0) return masqueNodes;
       }
       
       if (decoded && (protocols.some(p => decoded.includes(p)) || decoded.includes('wireguard'))) {
@@ -1212,8 +1238,7 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
     else if (l.startsWith('anytls://')) { const n = parseAnytls(l); if (n) nodes.push(n); } 
     else if (l.startsWith('trojan://')) { const n = parseTrojan(l); if (n) nodes.push(n); } 
     else if (l.startsWith('wireguard://') || l.startsWith('warp://')) { const n = parseWireGuard(l); if (n) nodes.push(n); } 
-    else if (l.startsWith('masque://')) { const n = parseMasqueUri(l); if (n) nodes.push(n); }
-    // 💥 支援解析 Shadowrocket 原生 WireGuard 行格式
+    else if (l.startsWith('masque://')) { const n = parseMasqueUri(l); if (n) nodes.push(n); } 
     else if (l.includes('=') && l.includes('wireguard')) {
       const n = parseShadowrocketWireGuard(l);
       if (n) nodes.push(n);

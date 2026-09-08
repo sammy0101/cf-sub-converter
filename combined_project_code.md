@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Tue Sep  8 05:15:01 UTC 2026
+Generated on: Tue Sep  8 12:31:42 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -5033,7 +5033,15 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
       { "type": "remote", "tag": "ip-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs" }
     ],
     "rules": [
-      { "action": "sniff" },
+      {
+        "action": "sniff",
+        "sniffer": [
+          "tls",
+          "http",
+          "quic"
+        ],
+        "override_destination": true
+      },
       { "protocol": "dns", "action": "hijack-dns" },
       { "clash_mode": "Direct", "outbound": "direct" },
       { "clash_mode": "Global", "outbound": "🚀 節點選擇" },
@@ -5062,6 +5070,7 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
     }
   }
 }
+
 ````
 
 ## File: .github/workflows/combine-code.yml

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Mon Sep  7 16:44:42 UTC 2026
+Generated on: Tue Sep  8 05:12:19 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -4928,6 +4928,12 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
         "detour": "🚀 節點選擇"
       },
       {
+        "tag": "remote-cf-dns",
+        "type": "https",
+        "server": "1.1.1.1",
+        "detour": "🚀 節點選擇"
+      },
+      {
         "tag": "local-dns",
         "type": "udp",
         "server": "223.5.5.5"
@@ -4935,12 +4941,6 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
       {
         "tag": "system-dns",
         "type": "local"
-      },
-      {
-        "tag": "hk-local-dns",
-        "type": "https",
-        "server": "1.1.1.1",
-        "detour": "direct"
       },
       {
         "tag": "fakeip-dns",
@@ -4980,7 +4980,7 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
         "server": "fakeip-dns"
       }
     ],
-    "final": "system-dns",
+    "final": "remote-dns",
     "strategy": "ipv4_only"
   },
   "inbounds": [
@@ -5063,7 +5063,6 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
     }
   }
 }
-
 ````
 
 ## File: .github/workflows/combine-code.yml

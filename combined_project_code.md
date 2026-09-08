@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Tue Sep  8 17:42:44 UTC 2026
+Generated on: Tue Sep  8 17:47:09 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3199,10 +3199,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
       
-      // 💥 完美符合小火箭 Base64 的 WireGuard URI 標準規範：
-      // 1. 密鑰不放在帳號密碼處（避免等號破壞 URL 結構）
-      // 2. 全部採用 query 參數注入
-      // 3. 不傳入 reserved，徹底杜絕 0,0,0
+      // WireGuard 标准格式
       if (node.type === 'wireguard' && node.wireguard) {
         const wg = node.wireguard;
         const cleanIp = wg.localAddress[0]?.split('/')[0] || '10.2.0.2';
@@ -3301,11 +3298,11 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
   }
 
   if (config.dns) {
-    config.dns.final = 'local-dns';
+    config.dns.final = 'remote-dns';
     if (Array.isArray(config.dns.servers)) {
       config.dns.servers = config.dns.servers.filter((s: Record<string, unknown>) => s.type !== 'rcode');
       config.dns.servers.forEach((s: Record<string, unknown>) => {
-        if (s.detour === 'direct') delete s.detour;
+        if (s.detour === 'direct' || s.detour === 'DIRECT') delete s.detour;
       });
     }
     if (Array.isArray(config.dns.rules)) {
@@ -3323,10 +3320,13 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
+  // 💥 保持 inbounds 中的嗅探配置完整，不進行不必要刪除
   if (Array.isArray(config.inbounds)) {
     config.inbounds.forEach((ib: Record<string, unknown>) => {
-      delete ib.sniff;
-      delete ib.sniff_override_destination;
+      if (ib.type === 'tun') {
+        ib.sniff = true;
+        ib.sniff_override_destination = true;
+      }
     });
   }
 
@@ -3337,7 +3337,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
   nodes.forEach(n => {
     allNodeTags.push(n.name);
     
-    // WireGuard 放進頂層 endpoints，outbounds 陣列中不放非法結構
+    // WireGuard 放進頂層 endpoints
     if (n.type === 'wireguard' && n.wireguard) {
       const wg = n.wireguard;
       const peerObj: Record<string, unknown> = {
@@ -3600,7 +3600,6 @@ export function toLoon(nodes: ProxyNode[]): string {
 
   return lines.join('\n');
 }
-
 ````
 
 ## File: src/constants.ts

@@ -210,13 +210,12 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 💥 保持 inbounds 中的嗅探配置完整，不進行不必要刪除
+  // 💥 徹底清除 inbounds 內已被 Sing-Box 1.13+ 移除的 legacy 嗅探欄位
   if (Array.isArray(config.inbounds)) {
     config.inbounds.forEach((ib: Record<string, unknown>) => {
-      if (ib.type === 'tun') {
-        ib.sniff = true;
-        ib.sniff_override_destination = true;
-      }
+      delete ib.sniff;
+      delete ib.sniff_override_destination;
+      delete ib.domain_strategy;
     });
   }
 

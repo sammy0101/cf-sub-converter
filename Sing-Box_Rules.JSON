@@ -17,6 +17,12 @@
         "detour": "🚀 節點選擇"
       },
       {
+        "tag": "remote-cf-dns",
+        "type": "https",
+        "server": "1.1.1.1",
+        "detour": "🚀 節點選擇"
+      },
+      {
         "tag": "local-dns",
         "type": "udp",
         "server": "223.5.5.5"
@@ -24,12 +30,6 @@
       {
         "tag": "system-dns",
         "type": "local"
-      },
-      {
-        "tag": "hk-local-dns",
-        "type": "https",
-        "server": "1.1.1.1",
-        "detour": "direct"
       },
       {
         "tag": "fakeip-dns",
@@ -69,7 +69,7 @@
         "server": "fakeip-dns"
       }
     ],
-    "final": "system-dns",
+    "final": "remote-dns",
     "strategy": "ipv4_only"
   },
   "inbounds": [

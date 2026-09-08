@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Tue Sep  8 12:31:42 UTC 2026
+Generated on: Tue Sep  8 12:36:41 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -97,14 +97,14 @@ dns:
     - 'rule-set:private'
     - 'rule-set:apple'
 
-  # 1. 基礎 DNS：傳統實體 IP（涵蓋大陸與全球頂級 Anycast，香港與大陸兩用）
+  # 1. 基礎 DNS
   default-nameserver:
     - 223.5.5.5
     - 1.1.1.1
     - 8.8.8.8
     - 119.29.29.29
 
-  # 2. 直連專用 DNS（解析節點域名，香港走 1.1.1.1，大陸走 223.5.5.5，極速啟動）
+  # 2. 節點/直連專用 DNS
   proxy-server-nameserver:
     - https://223.5.5.5/dns-query
     - https://1.1.1.1/dns-query
@@ -112,16 +112,14 @@ dns:
 
   # 3. 網域特殊分流策略
   nameserver-policy:
-    # 國內直連網站
     "rule-set:cn":
       - https://223.5.5.5/dns-query
       - https://doh.pub/dns-query
-    # 蘋果服務（雙通道優化）
     "rule-set:apple":
       - https://1.1.1.1/dns-query
       - https://223.5.5.5/dns-query
 
-  # 💥 4. 國外網站兜底 DNS（未命中的所有域名全部走 8.8.8.8 和 1.1.1.1 的 DoH，自動走代理防污染）
+  # 4. 國外代理兜底 DNS
   nameserver:
     - https://8.8.8.8/dns-query
     - https://1.1.1.1/dns-query
@@ -199,7 +197,7 @@ proxy-groups:
       - DIRECT
 
 # ==================================================
-# 規則集 Rule Providers (採用 MetaCubeX meta 格式優化)
+# 規則集 Rule Providers
 # ==================================================
 rule-providers:
   my-ai:
@@ -323,7 +321,7 @@ rules:
   - RULE-SET,private,🏠 私有網絡
   - RULE-SET,private-ip,🏠 私有網絡,no-resolve
 
-  # 2. 強制代理業務 (專屬 AI 規則集)
+  # 2. 強制代理業務
   - RULE-SET,my-ai,💬 AI 服務
 
   # 3. Microsoft 服務分流
@@ -348,6 +346,7 @@ rules:
 
   # 8. 國外網站兜底：全走代理
   - MATCH,🐟 漏網之魚
+
 ````
 
 ## File: argo.sh

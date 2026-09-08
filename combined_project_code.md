@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Tue Sep  8 12:36:59 UTC 2026
+Generated on: Tue Sep  8 17:42:44 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -4991,7 +4991,9 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
       ],
       "stack": "mixed",
       "auto_route": true,
-      "strict_route": true
+      "strict_route": true,
+      "sniff": true,
+      "sniff_override_destination": true
     }
   ],
   "outbounds": [
@@ -5031,13 +5033,7 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
     ],
     "rules": [
       {
-        "action": "sniff",
-        "sniffer": [
-          "tls",
-          "http",
-          "quic"
-        ],
-        "override_destination": true
+        "action": "sniff"
       },
       { "protocol": "dns", "action": "hijack-dns" },
       { "clash_mode": "Direct", "outbound": "DIRECT" },
@@ -5067,7 +5063,6 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
     }
   }
 }
-
 ````
 
 ## File: .github/workflows/combine-code.yml

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Tue Sep  8 12:36:41 UTC 2026
+Generated on: Tue Sep  8 12:36:59 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -4967,7 +4967,7 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
         "rule_set": [
           "rs-apple"
         ],
-        "server": "system-dns",
+        "server": "remote-cf-dns",
         "disable_cache": true
       },
       {
@@ -4995,21 +4995,19 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
     }
   ],
   "outbounds": [
-    { "type": "selector", "tag": "🚀 節點選擇", "outbounds": ["⚡ 自動選擇", "direct"] },
+    { "type": "selector", "tag": "🚀 節點選擇", "outbounds": ["⚡ 自動選擇", "DIRECT"] },
     { "type": "urltest", "tag": "⚡ 自動選擇", "outbounds": [], "url": "https://www.gstatic.com/generate_204", "interval": "3m", "tolerance": 50 },
     { "type": "selector", "tag": "💬 AI 服務", "outbounds": ["⚡ 自動選擇", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🍎 蘋果服務", "outbounds": ["direct", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "Ⓜ️ 微軟服務", "outbounds": ["direct", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🎮 遊戲平台", "outbounds": ["direct", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🌐 非中國", "outbounds": ["🚀 節點選擇", "direct"] },
-    { "type": "selector", "tag": "🇨🇳 國內服務", "outbounds": ["direct", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🏠 私有網絡", "outbounds": ["direct"] },
-    { "type": "selector", "tag": "🐟 漏網之魚", "outbounds": ["🚀 節點選擇", "direct"] },
-    { "type": "selector", "tag": "🛑 廣告攔截", "outbounds": ["block", "direct"] },
+    { "type": "selector", "tag": "🍎 蘋果服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "Ⓜ️ 微軟服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🎮 遊戲平台", "outbounds": ["DIRECT", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🌐 非中國", "outbounds": ["🚀 節點選擇", "DIRECT"] },
+    { "type": "selector", "tag": "🇨🇳 國內服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🏠 私有網絡", "outbounds": ["DIRECT"] },
+    { "type": "selector", "tag": "🐟 漏網之魚", "outbounds": ["🚀 節點選擇", "DIRECT"] },
+    { "type": "selector", "tag": "🛑 廣告攔截", "outbounds": ["REJECT", "DIRECT"] },
     
-    { "type": "direct", "tag": "direct" },
     { "type": "direct", "tag": "DIRECT" },
-    { "type": "block", "tag": "block" },
     { "type": "block", "tag": "REJECT" }
   ],
   "route": {
@@ -5042,9 +5040,9 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
         "override_destination": true
       },
       { "protocol": "dns", "action": "hijack-dns" },
-      { "clash_mode": "Direct", "outbound": "direct" },
+      { "clash_mode": "Direct", "outbound": "DIRECT" },
       { "clash_mode": "Global", "outbound": "🚀 節點選擇" },
-      { "rule_set": "rs-ads", "outbound": "block" },
+      { "rule_set": "rs-ads", "outbound": "REJECT" },
       { "rule_set": ["rs-private", "ip-private"], "outbound": "🏠 私有網絡" },
       { "rule_set": "rs-ai", "outbound": "💬 AI 服務" },
       { "rule_set": "rs-microsoft", "outbound": "Ⓜ️ 微軟服務" },

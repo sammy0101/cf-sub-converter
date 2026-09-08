@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Tue Sep  8 05:12:19 UTC 2026
+Generated on: Tue Sep  8 05:15:01 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -97,14 +97,14 @@ dns:
     - 'rule-set:private'
     - 'rule-set:apple'
 
-  # 1. 基礎 DNS：傳統實體 IP（涵蓋大陸與全球頂級 Anycast，香港大陸兩用）
+  # 1. 基礎 DNS：傳統實體 IP（涵蓋大陸與全球頂級 Anycast，香港與大陸兩用）
   default-nameserver:
     - 223.5.5.5
     - 1.1.1.1
     - 8.8.8.8
     - 119.29.29.29
 
-  # 2. 直連專用 DNS（在香港走 1.1.1.1，在大陸走 223.5.5.5，自動最快回應）
+  # 2. 直連專用 DNS（解析節點域名，香港走 1.1.1.1，大陸走 223.5.5.5，極速啟動）
   proxy-server-nameserver:
     - https://223.5.5.5/dns-query
     - https://1.1.1.1/dns-query
@@ -121,7 +121,7 @@ dns:
       - https://1.1.1.1/dns-query
       - https://223.5.5.5/dns-query
 
-  # 4. 國外代理兜底 DNS
+  # 💥 4. 國外網站兜底 DNS（未命中的所有域名全部走 8.8.8.8 和 1.1.1.1 的 DoH，自動走代理防污染）
   nameserver:
     - https://8.8.8.8/dns-query
     - https://1.1.1.1/dns-query
@@ -348,7 +348,6 @@ rules:
 
   # 8. 國外網站兜底：全走代理
   - MATCH,🐟 漏網之魚
-
 ````
 
 ## File: argo.sh

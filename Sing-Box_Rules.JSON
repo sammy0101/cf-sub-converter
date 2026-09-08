@@ -123,7 +123,15 @@
       { "type": "remote", "tag": "ip-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs" }
     ],
     "rules": [
-      { "action": "sniff" },
+      {
+        "action": "sniff",
+        "sniffer": [
+          "tls",
+          "http",
+          "quic"
+        ],
+        "override_destination": true
+      },
       { "protocol": "dns", "action": "hijack-dns" },
       { "clash_mode": "Direct", "outbound": "direct" },
       { "clash_mode": "Global", "outbound": "🚀 節點選擇" },

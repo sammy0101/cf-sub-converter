@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Tue Sep  8 17:47:09 UTC 2026
+Generated on: Tue Sep  8 17:51:35 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -4990,9 +4990,7 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
       ],
       "stack": "mixed",
       "auto_route": true,
-      "strict_route": true,
-      "sniff": true,
-      "sniff_override_destination": true
+      "strict_route": true
     }
   ],
   "outbounds": [

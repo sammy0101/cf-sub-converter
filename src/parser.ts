@@ -46,36 +46,17 @@ function parsePluginParams(str: string): Record<string, string> {
   return params;
 }
 
-// 智慧解析 ECH 參數：支援 1, true, cloudflare-ech.com, 或帶有 DoH 前綴的字串
-interface EchConfigInfo {
-  enabled: boolean;
-  queryServerName: string;
+// 嚴格解析 ECH 參數，只有明確開啟時才為 true
+function parseEchParam(val: string | null | undefined): boolean {
+  if (!val) return false;
+  const clean = val.trim().toLowerCase();
+  if (['0', 'false', 'off', 'none', 'no', ''].includes(clean)) {
+    return false;
+  }
+  return true;
 }
 
-function parseEchConfig(raw: string | null | undefined): EchConfigInfo {
-  if (!raw) return { enabled: false, queryServerName: 'cloudflare-ech.com' };
-  const trimmed = raw.trim();
-  const lower = trimmed.toLowerCase();
-  if (['0', 'false', 'off', 'none', 'no', ''].includes(lower)) {
-    return { enabled: false, queryServerName: 'cloudflare-ech.com' };
-  }
-
-  let queryServerName = 'cloudflare-ech.com';
-  if (trimmed !== '1' && lower !== 'true') {
-    const parts = trimmed.split('+');
-    const candidate = parts[0].trim();
-    if (candidate && !candidate.startsWith('http://') && !candidate.startsWith('https://')) {
-      queryServerName = candidate;
-    }
-  }
-
-  return {
-    enabled: true,
-    queryServerName
-  };
-}
-
-// --- 解析 Cloudflare WARP MASQUE JSON 配置（支援單一、陣列或多個物件） ---
+// --- 解析 Cloudflare WARP MASQUE JSON 配置 ---
 interface RawMasqueConfig {
   private_key?: string;
   endpoint_v4?: string;
@@ -328,9 +309,10 @@ function parseShadowrocketWireGuard(line: string): ProxyNode | null {
     node.clashObj = {
       name,
       type: 'wireguard',
-      server,
-      port,
-      ip,
+      server: node.server,
+      port: node.port,
+      ip: localAddress[0]?.split('/')[0] || '10.2.0.2',
+      ipv6: localAddress[1]?.split('/')[0],
       'public-key': publicKey,
       'private-key': privateKey,
       'preshared-key': presharedKey,
@@ -541,15 +523,15 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     const sni = getParam(urlStr, 'sni') || getParam(urlStr, 'host') || server;
     const alpnStr = getParam(urlStr, 'alpn');
     const fp = getParam(urlStr, 'fp') || 'chrome';
-    const echInfo = parseEchConfig(getParam(urlStr, 'ech'));
+    const isEch = parseEchParam(getParam(urlStr, 'ech'));
 
-    const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0) || echInfo.enabled;
+    const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0) || isEch;
     const alpn = alpnStr ? alpnStr.split(',') : undefined;
     const isSs2022 = method.toLowerCase().includes('2022');
 
     const node: ProxyNode = {
       type: 'shadowsocks', name, server, port, cipher: method, password, udp: true,
-      tls: isTls, sni, alpn, fingerprint: fp, ech: echInfo.enabled, echQueryServerName: echInfo.queryServerName
+      tls: isTls, sni, alpn, fingerprint: fp, ech: isEch
     };
 
     const sb: Record<string, unknown> = {
@@ -580,10 +562,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
       cl.smux = { enabled: true };
     }
     if (node.ech) {
-      cl['ech-opts'] = { 
-        enable: true,
-        'query-server-name': node.echQueryServerName || 'cloudflare-ech.com'
-      };
+      cl['ech-opts'] = { enable: true };
     }
     node.clashObj = cl;
 
@@ -631,10 +610,10 @@ function parseVless(urlStr: string): ProxyNode | null {
 
     const isXhttp = netType === 'xhttp' || netType === 'splithttp';
     const isGrpc = netType === 'grpc';
-    const echInfo = parseEchConfig(params.get('ech'));
+    const isEch = parseEchParam(params.get('ech'));
 
-    const security = params.get('security') || (params.get('tls') === '1' || params.get('tls') === 'tls' || echInfo.enabled ? 'tls' : (parsed.port === 443 ? 'tls' : 'none'));
-    const isTls = security === 'tls' || security === 'reality' || echInfo.enabled;
+    const security = params.get('security') || (params.get('tls') === '1' || params.get('tls') === 'tls' || isEch ? 'tls' : (parsed.port === 443 ? 'tls' : 'none'));
+    const isTls = security === 'tls' || security === 'reality' || isEch;
     const hostHeader = params.get('host') || params.get('sni') || parsed.hostname;
     const sniHost = params.get('sni') || params.get('host') || parsed.hostname;
 
@@ -653,8 +632,7 @@ function parseVless(urlStr: string): ProxyNode | null {
       alpn: customAlpn,
       fingerprint: params.get('fp') || 'chrome',
       skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1',
-      ech: echInfo.enabled,
-      echQueryServerName: echInfo.queryServerName
+      ech: isEch
     };
 
     if (security === 'reality') {
@@ -696,10 +674,7 @@ function parseVless(urlStr: string): ProxyNode | null {
       };
 
       if (node.ech) {
-        tlsObj.ech = { 
-          enabled: true,
-          query_server_name: node.echQueryServerName || 'cloudflare-ech.com'
-        };
+        tlsObj.ech = { enabled: true };
       }
 
       if (node.reality) {
@@ -755,10 +730,7 @@ function parseVless(urlStr: string): ProxyNode | null {
       'client-fingerprint': node.fingerprint
     };
     if (node.ech) {
-      cl['ech-opts'] = { 
-        enable: true,
-        'query-server-name': node.echQueryServerName || 'cloudflare-ech.com'
-      };
+      cl['ech-opts'] = { enable: true };
     }
     if (node.flow) cl.flow = node.flow; 
     if (node.reality) {
@@ -1144,7 +1116,7 @@ function parseTrojan(urlStr: string): ProxyNode | null {
 
     const params = parsed.params;
     const name = parsed.hash || 'Trojan';
-    const echInfo = parseEchConfig(params.get('ech'));
+    const isEch = parseEchParam(params.get('ech'));
 
     const node: ProxyNode = {
       type: 'trojan',
@@ -1155,8 +1127,7 @@ function parseTrojan(urlStr: string): ProxyNode | null {
       tls: true,
       sni: params.get('sni') || params.get('peer') || parsed.hostname,
       skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1',
-      ech: echInfo.enabled,
-      echQueryServerName: echInfo.queryServerName
+      ech: isEch
     };
 
     const tlsObj: Record<string, unknown> = {
@@ -1165,10 +1136,7 @@ function parseTrojan(urlStr: string): ProxyNode | null {
       insecure: node.skipCertVerify
     };
     if (node.ech) {
-      tlsObj.ech = { 
-        enabled: true,
-        query_server_name: node.echQueryServerName || 'cloudflare-ech.com'
-      };
+      tlsObj.ech = { enabled: true };
     }
 
     node.singboxObj = {
@@ -1191,10 +1159,7 @@ function parseTrojan(urlStr: string): ProxyNode | null {
       udp: true
     };
     if (node.ech) {
-      cl['ech-opts'] = { 
-        enable: true,
-        'query-server-name': node.echQueryServerName || 'cloudflare-ech.com'
-      };
+      cl['ech-opts'] = { enable: true };
     }
     node.clashObj = cl;
 

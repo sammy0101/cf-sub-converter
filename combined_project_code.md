@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep  9 17:14:21 UTC 2026
+Generated on: Wed Sep  9 17:15:30 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3632,7 +3632,9 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
       { tag: "fakeip-dns", type: "fakeip", inet4_range: "198.18.0.0/15" }
     ],
     rules: [
-      { domain: ["cloudflare-ech.com"], domain_suffix: ["cloudflare-ech.com"], server: "direct-doh" },
+      { clash_mode: "Direct", server: "system-dns" },
+      { clash_mode: "Global", server: "fakeip-dns" },
+      { domain: ["cloudflare-ech.com"], server: "direct-doh" },
       { rule_set: "rs-ads", action: "reject" },
       {
         rule_set: [

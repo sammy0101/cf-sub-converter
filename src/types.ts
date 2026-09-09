@@ -56,6 +56,7 @@ export interface ProxyNode {
   masque?: MasqueConfig;
   // ECH (Encrypted Client Hello)
   ech?: boolean;
+  echQueryServerName?: string;
   // 標籤特徵
   multiplier?: number;
   isIplc?: boolean;

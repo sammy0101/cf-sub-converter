@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep  9 16:45:37 UTC 2026
+Generated on: Wed Sep  9 16:46:19 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3133,7 +3133,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (node.flow) params.set('flow', node.flow);
         if (node.sni) params.set('sni', node.sni);
         if (node.fingerprint) params.set('fp', node.fingerprint);
-        if (node.ech) params.set('ech', 'https://cloudflare-dns.com/dns-query');
+        if (node.ech) params.set('ech', '1');
         if (node.reality) { params.set('pbk', node.reality.publicKey); params.set('sid', node.reality.shortId); }
         if (node.network === 'ws') { if (node.wsPath) params.set('path', node.wsPath); if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host); }
         if (node.network === 'xhttp' || node.network === 'splithttp') {
@@ -3207,7 +3207,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
       
-      // WireGuard 标准格式
+      // WireGuard 標準格式
       if (node.type === 'wireguard' && node.wireguard) {
         const wg = node.wireguard;
         const cleanIp = wg.localAddress[0]?.split('/')[0] || '10.2.0.2';
@@ -3328,7 +3328,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 💥 徹底清除 inbounds 內已被 Sing-Box 1.13+ 移除的 legacy 嗅探欄位
+  // 徹底清除 inbounds 內已被 Sing-Box 1.13+ 移除的 legacy 嗅探欄位
   if (Array.isArray(config.inbounds)) {
     config.inbounds.forEach((ib: Record<string, unknown>) => {
       delete ib.sniff;
@@ -3607,6 +3607,7 @@ export function toLoon(nodes: ProxyNode[]): string {
 
   return lines.join('\n');
 }
+
 ````
 
 ## File: src/constants.ts

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep  9 17:10:32 UTC 2026
+Generated on: Wed Sep  9 17:11:17 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -5030,27 +5030,10 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
       }
     ],
     "rules": [
-      {
-        "clash_mode": "Direct",
-        "server": "system-dns"
-      },
-      {
-        "clash_mode": "Global",
-        "server": "fakeip-dns"
-      },
-      {
-        "domain": [
-          "cloudflare-ech.com"
-        ],
-        "domain_suffix": [
-          "cloudflare-ech.com"
-        ],
-        "server": "direct-doh"
-      },
-      {
-        "rule_set": "rs-ads",
-        "action": "reject"
-      },
+      { "clash_mode": "Direct", "server": "system-dns" },
+      { "clash_mode": "Global", "server": "fakeip-dns" },
+      { "domain": ["cloudflare-ech.com"], "server": "direct-doh" },
+      { "rule_set": "rs-ads", "action": "reject" },
       {
         "rule_set": [
           "rs-cn"

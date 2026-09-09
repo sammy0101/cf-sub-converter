@@ -23,6 +23,11 @@
         "detour": "🚀 節點選擇"
       },
       {
+        "tag": "direct-doh",
+        "type": "https",
+        "server": "223.5.5.5"
+      },
+      {
         "tag": "local-dns",
         "type": "udp",
         "server": "223.5.5.5"
@@ -38,9 +43,27 @@
       }
     ],
     "rules": [
-      { "clash_mode": "Direct", "server": "system-dns" },
-      { "clash_mode": "Global", "server": "fakeip-dns" },
-      { "rule_set": "rs-ads", "action": "reject" },
+      {
+        "clash_mode": "Direct",
+        "server": "system-dns"
+      },
+      {
+        "clash_mode": "Global",
+        "server": "fakeip-dns"
+      },
+      {
+        "domain": [
+          "cloudflare-ech.com"
+        ],
+        "domain_suffix": [
+          "cloudflare-ech.com"
+        ],
+        "server": "direct-doh"
+      },
+      {
+        "rule_set": "rs-ads",
+        "action": "reject"
+      },
       {
         "rule_set": [
           "rs-cn"

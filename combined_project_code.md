@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Tue Sep  8 17:52:30 UTC 2026
+Generated on: Wed Sep  9 16:45:37 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -1902,6 +1902,16 @@ function isIpAddress(host: string): boolean {
   return /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(host) || /^[a-fA-F0-9:]+$/.test(host);
 }
 
+// 嚴格校驗 ECH 參數，杜絕 "0"、"false" 被誤判為 true
+function parseEchParam(val: string | null | undefined): boolean {
+  if (!val) return false;
+  const clean = val.trim().toLowerCase();
+  if (clean === '0' || clean === 'false' || clean === 'off' || clean === 'none' || clean === '') {
+    return false;
+  }
+  return clean === '1' || clean === 'true';
+}
+
 // --- 解析 Cloudflare WARP MASQUE JSON 配置（支援單一、陣列或多個物件） ---
 interface RawMasqueConfig {
   private_key?: string;
@@ -1983,7 +1993,6 @@ export function parseMasqueConfigs(text: string): ProxyNode[] {
   const nodes: ProxyNode[] = [];
   const trimmed = text.trim();
 
-  // 1. 嘗試解析標準 JSON 陣列或單一物件
   try {
     const parsed = JSON.parse(trimmed);
     if (Array.isArray(parsed)) {
@@ -1998,7 +2007,6 @@ export function parseMasqueConfigs(text: string): ProxyNode[] {
     }
   } catch {}
 
-  // 2. 若不是標準 JSON，嘗試用正則提取文字中出現的多個獨立 {...} JSON 塊
   const objectMatches = trimmed.match(/\{[^{}]*["']private_key["'][^{}]*\}/g);
   if (objectMatches) {
     objectMatches.forEach((rawObj, idx) => {
@@ -2370,7 +2378,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     const sni = getParam(urlStr, 'sni') || getParam(urlStr, 'host') || server;
     const alpnStr = getParam(urlStr, 'alpn');
     const fp = getParam(urlStr, 'fp') || 'chrome';
-    const isEch = Boolean(getParam(urlStr, 'ech'));
+    const isEch = parseEchParam(getParam(urlStr, 'ech'));
 
     const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0) || isEch;
     const alpn = alpnStr ? alpnStr.split(',') : undefined;
@@ -2408,7 +2416,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     if (isTls) {
       cl.smux = { enabled: true };
     }
-    if (isEch) {
+    if (isEch && !isIpAddress(node.server)) {
       cl['ech-opts'] = { enable: true };
     }
     node.clashObj = cl;
@@ -2457,7 +2465,7 @@ function parseVless(urlStr: string): ProxyNode | null {
 
     const isXhttp = netType === 'xhttp' || netType === 'splithttp';
     const isGrpc = netType === 'grpc';
-    const isEch = Boolean(params.get('ech'));
+    const isEch = parseEchParam(params.get('ech'));
 
     const security = params.get('security') || (params.get('tls') === '1' || params.get('tls') === 'tls' || isEch ? 'tls' : (parsed.port === 443 ? 'tls' : 'none'));
     const isTls = security === 'tls' || security === 'reality' || isEch;
@@ -2465,12 +2473,11 @@ function parseVless(urlStr: string): ProxyNode | null {
     const sniHost = params.get('sni') || params.get('host') || parsed.hostname;
 
     const customAlpn = params.get('alpn') ? params.get('alpn')!.split(',') : (netType === 'ws' ? ['http/1.1'] : undefined);
-    const singboxServer = (isEch && isIpAddress(parsed.hostname) && sniHost) ? sniHost : parsed.hostname;
 
     const node: ProxyNode = {
       type: 'vless',
       name,
-      server: parsed.hostname,
+      server: parsed.hostname, // 連線目標 IP 或真實域名，絕不可被篡改
       port: parsed.port,
       uuid: parsed.username,
       tls: isTls,
@@ -2506,7 +2513,7 @@ function parseVless(urlStr: string): ProxyNode | null {
     const sb: Record<string, unknown> = {
       tag: name,
       type: 'vless',
-      server: singboxServer,
+      server: node.server, // 嚴格保持與 node.server (優選 IP) 完全一致
       server_port: node.port,
       uuid: node.uuid,
       packet_encoding: 'xudp'
@@ -2521,7 +2528,8 @@ function parseVless(urlStr: string): ProxyNode | null {
         utls: { enabled: true, fingerprint: node.fingerprint }
       };
 
-      if (node.ech) {
+      // 只有當明確啟用 ECH 且目標不是 IP 時才允許在客戶端配置，避免直連 IP 查詢失敗
+      if (node.ech && !isIpAddress(node.server)) {
         tlsObj.ech = { enabled: true };
       }
 
@@ -2577,7 +2585,7 @@ function parseVless(urlStr: string): ProxyNode | null {
       'skip-cert-verify': node.skipCertVerify,
       'client-fingerprint': node.fingerprint
     };
-    if (node.ech) {
+    if (node.ech && !isIpAddress(node.server)) {
       cl['ech-opts'] = { enable: true };
     }
     if (node.flow) cl.flow = node.flow; 
@@ -2964,7 +2972,7 @@ function parseTrojan(urlStr: string): ProxyNode | null {
 
     const params = parsed.params;
     const name = parsed.hash || 'Trojan';
-    const isEch = Boolean(params.get('ech'));
+    const isEch = parseEchParam(params.get('ech'));
 
     const node: ProxyNode = {
       type: 'trojan',
@@ -2983,7 +2991,7 @@ function parseTrojan(urlStr: string): ProxyNode | null {
       server_name: node.sni,
       insecure: node.skipCertVerify
     };
-    if (node.ech) {
+    if (node.ech && !isIpAddress(node.server)) {
       tlsObj.ech = { enabled: true };
     }
 
@@ -3006,7 +3014,7 @@ function parseTrojan(urlStr: string): ProxyNode | null {
       'skip-cert-verify': node.skipCertVerify,
       udp: true
     };
-    if (node.ech) {
+    if (node.ech && !isIpAddress(node.server)) {
       cl['ech-opts'] = { enable: true };
     }
     node.clashObj = cl;
@@ -3029,7 +3037,7 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
     }
   }
 
-  // 💥 2. 優先檢查是否包含 Cloudflare WARP MASQUE JSON 配置（支援單一物件、陣列或多個連續 JSON）
+  // 2. 優先檢查是否包含 Cloudflare WARP MASQUE JSON 配置
   if (/["']private_key["']/i.test(plainText) && (plainText.includes('{') || plainText.includes('['))) {
     const masqueNodes = parseMasqueConfigs(plainText);
     if (masqueNodes.length > 0) {

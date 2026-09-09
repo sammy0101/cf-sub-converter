@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep  9 16:56:24 UTC 2026
+Generated on: Wed Sep  9 17:08:53 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -5010,6 +5010,11 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
         "detour": "🚀 節點選擇"
       },
       {
+        "tag": "direct-doh",
+        "type": "https",
+        "server": "223.5.5.5"
+      },
+      {
         "tag": "local-dns",
         "type": "udp",
         "server": "223.5.5.5"
@@ -5025,9 +5030,27 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
       }
     ],
     "rules": [
-      { "clash_mode": "Direct", "server": "system-dns" },
-      { "clash_mode": "Global", "server": "fakeip-dns" },
-      { "rule_set": "rs-ads", "action": "reject" },
+      {
+        "clash_mode": "Direct",
+        "server": "system-dns"
+      },
+      {
+        "clash_mode": "Global",
+        "server": "fakeip-dns"
+      },
+      {
+        "domain": [
+          "cloudflare-ech.com"
+        ],
+        "domain_suffix": [
+          "cloudflare-ech.com"
+        ],
+        "server": "direct-doh"
+      },
+      {
+        "rule_set": "rs-ads",
+        "action": "reject"
+      },
       {
         "rule_set": [
           "rs-cn"
@@ -5139,6 +5162,7 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
     }
   }
 }
+
 ````
 
 ## File: .github/workflows/combine-code.yml

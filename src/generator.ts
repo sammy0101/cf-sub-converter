@@ -15,7 +15,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (node.flow) params.set('flow', node.flow);
         if (node.sni) params.set('sni', node.sni);
         if (node.fingerprint) params.set('fp', node.fingerprint);
-        if (node.ech) params.set('ech', `${node.echQueryServerName || 'cloudflare-ech.com'}+https://223.5.5.5/dns-query`);
+        if (node.ech) params.set('ech', '1');
         if (node.reality) { params.set('pbk', node.reality.publicKey); params.set('sid', node.reality.shortId); }
         if (node.network === 'ws') { if (node.wsPath) params.set('path', node.wsPath); if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host); }
         if (node.network === 'xhttp' || node.network === 'splithttp') {
@@ -50,7 +50,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
           if (node.sni) params.set('sni', node.sni);
           if (node.alpn) params.set('alpn', node.alpn.join(','));
           if (node.fingerprint) params.set('fp', node.fingerprint);
-          if (node.ech) params.set('ech', `${node.echQueryServerName || 'cloudflare-ech.com'}+https://223.5.5.5/dns-query`);
+          if (node.ech) params.set('ech', '1');
           params.set('type', node.network || 'tcp');
         }
         const clashPlugin = (node.clashObj as Record<string, unknown>)?.plugin as string | undefined;
@@ -85,7 +85,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         const params = new URLSearchParams();
         if (node.sni) params.set('sni', node.sni);
         if (node.skipCertVerify) params.set('allowInsecure', '1');
-        if (node.ech) params.set('ech', `${node.echQueryServerName || 'cloudflare-ech.com'}+https://223.5.5.5/dns-query`);
+        if (node.ech) params.set('ech', '1');
         return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
       
@@ -197,26 +197,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     }
     if (Array.isArray(config.dns.rules)) {
       config.dns.rules = config.dns.rules.filter((r: Record<string, unknown>) => !('outbound' in r));
-    }
-
-    // 💥 解決 ECH DNS 死鎖問題：提取所有節點的 ECH 查詢網域，掛載專屬直連 DoH 解析 Type 65 記錄
-    const echDomains = Array.from(new Set(
-      nodes.filter(n => n.ech).map(n => n.echQueryServerName || 'cloudflare-ech.com')
-    ));
-
-    if (echDomains.length > 0) {
-      if (!config.dns.servers.some((s: Record<string, unknown>) => s.tag === 'direct-doh')) {
-        config.dns.servers.push({
-          tag: 'direct-doh',
-          type: 'https',
-          server: '223.5.5.5'
-        });
-      }
-      config.dns.rules.unshift({
-        domain: echDomains,
-        domain_suffix: echDomains,
-        server: 'direct-doh'
-      });
     }
   }
 
@@ -361,25 +341,6 @@ export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env, forceRe
         if (!arr.includes(name)) arr.push(name);
       });
     });
-  }
-
-  // 💥 在 Clash 中確保 ECH 網域直連解析
-  const echDomains = Array.from(new Set(
-    nodes.filter(n => n.ech).map(n => n.echQueryServerName || 'cloudflare-ech.com')
-  ));
-
-  if (echDomains.length > 0 && config.dns && typeof config.dns === 'object') {
-    const dnsObj = config.dns as Record<string, unknown>;
-    if (!dnsObj['nameserver-policy'] || typeof dnsObj['nameserver-policy'] !== 'object') {
-      dnsObj['nameserver-policy'] = {};
-    }
-    const policy = dnsObj['nameserver-policy'] as Record<string, string[]>;
-    for (const domain of echDomains) {
-      policy[domain] = [
-        'https://223.5.5.5/dns-query',
-        'https://doh.pub/dns-query'
-      ];
-    }
   }
 
   return yaml.dump(config, { indent: 2, noRefs: true });

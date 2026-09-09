@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep  9 16:54:18 UTC 2026
+Generated on: Wed Sep  9 16:55:06 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -1898,18 +1898,33 @@ function parsePluginParams(str: string): Record<string, string> {
   return params;
 }
 
-function isIpAddress(host: string): boolean {
-  return /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(host) || /^[a-fA-F0-9:]+$/.test(host);
+// 智慧解析 ECH 參數：支援 1, true, cloudflare-ech.com, 或帶有 DoH 前綴的字串
+interface EchConfigInfo {
+  enabled: boolean;
+  queryServerName: string;
 }
 
-// 嚴格校驗 ECH 參數，杜絕 "0"、"false" 被誤判為 true
-function parseEchParam(val: string | null | undefined): boolean {
-  if (!val) return false;
-  const clean = val.trim().toLowerCase();
-  if (clean === '0' || clean === 'false' || clean === 'off' || clean === 'none' || clean === '') {
-    return false;
+function parseEchConfig(raw: string | null | undefined): EchConfigInfo {
+  if (!raw) return { enabled: false, queryServerName: 'cloudflare-ech.com' };
+  const trimmed = raw.trim();
+  const lower = trimmed.toLowerCase();
+  if (['0', 'false', 'off', 'none', 'no', ''].includes(lower)) {
+    return { enabled: false, queryServerName: 'cloudflare-ech.com' };
   }
-  return clean === '1' || clean === 'true';
+
+  let queryServerName = 'cloudflare-ech.com';
+  if (trimmed !== '1' && lower !== 'true') {
+    const parts = trimmed.split('+');
+    const candidate = parts[0].trim();
+    if (candidate && !candidate.startsWith('http://') && !candidate.startsWith('https://')) {
+      queryServerName = candidate;
+    }
+  }
+
+  return {
+    enabled: true,
+    queryServerName
+  };
 }
 
 // --- 解析 Cloudflare WARP MASQUE JSON 配置（支援單一、陣列或多個物件） ---
@@ -2378,15 +2393,15 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     const sni = getParam(urlStr, 'sni') || getParam(urlStr, 'host') || server;
     const alpnStr = getParam(urlStr, 'alpn');
     const fp = getParam(urlStr, 'fp') || 'chrome';
-    const isEch = parseEchParam(getParam(urlStr, 'ech'));
+    const echInfo = parseEchConfig(getParam(urlStr, 'ech'));
 
-    const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0) || isEch;
+    const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0) || echInfo.enabled;
     const alpn = alpnStr ? alpnStr.split(',') : undefined;
     const isSs2022 = method.toLowerCase().includes('2022');
 
     const node: ProxyNode = {
       type: 'shadowsocks', name, server, port, cipher: method, password, udp: true,
-      tls: isTls, sni, alpn, fingerprint: fp, ech: isEch
+      tls: isTls, sni, alpn, fingerprint: fp, ech: echInfo.enabled, echQueryServerName: echInfo.queryServerName
     };
 
     const sb: Record<string, unknown> = {
@@ -2416,8 +2431,11 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
     if (isTls) {
       cl.smux = { enabled: true };
     }
-    if (isEch && !isIpAddress(node.server)) {
-      cl['ech-opts'] = { enable: true };
+    if (node.ech) {
+      cl['ech-opts'] = { 
+        enable: true,
+        'query-server-name': node.echQueryServerName || 'cloudflare-ech.com'
+      };
     }
     node.clashObj = cl;
 
@@ -2465,10 +2483,10 @@ function parseVless(urlStr: string): ProxyNode | null {
 
     const isXhttp = netType === 'xhttp' || netType === 'splithttp';
     const isGrpc = netType === 'grpc';
-    const isEch = parseEchParam(params.get('ech'));
+    const echInfo = parseEchConfig(params.get('ech'));
 
-    const security = params.get('security') || (params.get('tls') === '1' || params.get('tls') === 'tls' || isEch ? 'tls' : (parsed.port === 443 ? 'tls' : 'none'));
-    const isTls = security === 'tls' || security === 'reality' || isEch;
+    const security = params.get('security') || (params.get('tls') === '1' || params.get('tls') === 'tls' || echInfo.enabled ? 'tls' : (parsed.port === 443 ? 'tls' : 'none'));
+    const isTls = security === 'tls' || security === 'reality' || echInfo.enabled;
     const hostHeader = params.get('host') || params.get('sni') || parsed.hostname;
     const sniHost = params.get('sni') || params.get('host') || parsed.hostname;
 
@@ -2477,7 +2495,7 @@ function parseVless(urlStr: string): ProxyNode | null {
     const node: ProxyNode = {
       type: 'vless',
       name,
-      server: parsed.hostname, // 連線目標 IP 或真實域名，絕不可被篡改
+      server: parsed.hostname, // 保留真實 IP 或網域，不可被篡改
       port: parsed.port,
       uuid: parsed.username,
       tls: isTls,
@@ -2487,7 +2505,8 @@ function parseVless(urlStr: string): ProxyNode | null {
       alpn: customAlpn,
       fingerprint: params.get('fp') || 'chrome',
       skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1',
-      ech: isEch
+      ech: echInfo.enabled,
+      echQueryServerName: echInfo.queryServerName
     };
 
     if (security === 'reality') {
@@ -2513,7 +2532,7 @@ function parseVless(urlStr: string): ProxyNode | null {
     const sb: Record<string, unknown> = {
       tag: name,
       type: 'vless',
-      server: node.server, // 嚴格保持與 node.server (優選 IP) 完全一致
+      server: node.server,
       server_port: node.port,
       uuid: node.uuid,
       packet_encoding: 'xudp'
@@ -2528,9 +2547,11 @@ function parseVless(urlStr: string): ProxyNode | null {
         utls: { enabled: true, fingerprint: node.fingerprint }
       };
 
-      // 只有當明確啟用 ECH 且目標不是 IP 時才允許在客戶端配置，避免直連 IP 查詢失敗
-      if (node.ech && !isIpAddress(node.server)) {
-        tlsObj.ech = { enabled: true };
+      if (node.ech) {
+        tlsObj.ech = { 
+          enabled: true,
+          query_server_name: node.echQueryServerName || 'cloudflare-ech.com'
+        };
       }
 
       if (node.reality) {
@@ -2585,8 +2606,11 @@ function parseVless(urlStr: string): ProxyNode | null {
       'skip-cert-verify': node.skipCertVerify,
       'client-fingerprint': node.fingerprint
     };
-    if (node.ech && !isIpAddress(node.server)) {
-      cl['ech-opts'] = { enable: true };
+    if (node.ech) {
+      cl['ech-opts'] = { 
+        enable: true,
+        'query-server-name': node.echQueryServerName || 'cloudflare-ech.com'
+      };
     }
     if (node.flow) cl.flow = node.flow; 
     if (node.reality) {
@@ -2972,7 +2996,7 @@ function parseTrojan(urlStr: string): ProxyNode | null {
 
     const params = parsed.params;
     const name = parsed.hash || 'Trojan';
-    const isEch = parseEchParam(params.get('ech'));
+    const echInfo = parseEchConfig(params.get('ech'));
 
     const node: ProxyNode = {
       type: 'trojan',
@@ -2983,7 +3007,8 @@ function parseTrojan(urlStr: string): ProxyNode | null {
       tls: true,
       sni: params.get('sni') || params.get('peer') || parsed.hostname,
       skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1',
-      ech: isEch
+      ech: echInfo.enabled,
+      echQueryServerName: echInfo.queryServerName
     };
 
     const tlsObj: Record<string, unknown> = {
@@ -2991,8 +3016,11 @@ function parseTrojan(urlStr: string): ProxyNode | null {
       server_name: node.sni,
       insecure: node.skipCertVerify
     };
-    if (node.ech && !isIpAddress(node.server)) {
-      tlsObj.ech = { enabled: true };
+    if (node.ech) {
+      tlsObj.ech = { 
+        enabled: true,
+        query_server_name: node.echQueryServerName || 'cloudflare-ech.com'
+      };
     }
 
     node.singboxObj = {
@@ -3014,8 +3042,11 @@ function parseTrojan(urlStr: string): ProxyNode | null {
       'skip-cert-verify': node.skipCertVerify,
       udp: true
     };
-    if (node.ech && !isIpAddress(node.server)) {
-      cl['ech-opts'] = { enable: true };
+    if (node.ech) {
+      cl['ech-opts'] = { 
+        enable: true,
+        'query-server-name': node.echQueryServerName || 'cloudflare-ech.com'
+      };
     }
     node.clashObj = cl;
 

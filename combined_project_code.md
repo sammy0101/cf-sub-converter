@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep  9 17:11:17 UTC 2026
+Generated on: Wed Sep  9 17:12:11 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -110,8 +110,11 @@ dns:
     - https://1.1.1.1/dns-query
     - https://doh.pub/dns-query
 
-  # 3. 網域特殊分流策略
+  # 3. 網域特殊分流策略 (與 Sing-Box 完全鏡像一致)
   nameserver-policy:
+    "cloudflare-ech.com":
+      - https://223.5.5.5/dns-query
+      - https://doh.pub/dns-query
     "rule-set:cn":
       - https://223.5.5.5/dns-query
       - https://doh.pub/dns-query

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep  9 16:46:19 UTC 2026
+Generated on: Wed Sep  9 16:54:18 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -4694,6 +4694,7 @@ export interface ProxyNode {
   masque?: MasqueConfig;
   // ECH (Encrypted Client Hello)
   ech?: boolean;
+  echQueryServerName?: string;
   // 標籤特徵
   multiplier?: number;
   isIplc?: boolean;

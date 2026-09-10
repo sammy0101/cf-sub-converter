@@ -13,23 +13,19 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
   dns: {
     servers: [
       { tag: "remote-dns", type: "https", server: "8.8.8.8", detour: "🚀 節點選擇" },
-      { tag: "direct-doh", type: "https", server: "223.5.5.5" },
+      { tag: "remote-cf-dns", type: "https", server: "1.1.1.1", detour: "🚀 節點選擇" },
+      { tag: "direct-ali-doh", type: "https", server: "223.5.5.5" },
+      { tag: "direct-pub-doh", type: "https", server: "119.29.29.29" },
       { tag: "local-dns", type: "udp", server: "223.5.5.5" },
       { tag: "system-dns", type: "local" },
       { tag: "fakeip-dns", type: "fakeip", inet4_range: "198.18.0.0/15" }
     ],
     rules: [
-      { clash_mode: "Direct", server: "system-dns" },
-      { clash_mode: "Global", server: "fakeip-dns" },
-      { domain: ["cloudflare-ech.com"], server: "direct-doh" },
+      { domain: ["cloudflare-ech.com"], domain_suffix: ["cloudflare-ech.com"], server: "direct-ali-doh" },
       { rule_set: "rs-ads", action: "reject" },
-      {
-        rule_set: [
-          "rs-cn",
-          "rs-private"
-        ],
-        server: "local-dns"
-      },
+      { rule_set: ["rs-cn"], server: "direct-pub-doh", disable_cache: true },
+      { rule_set: ["rs-private"], server: "system-dns" },
+      { rule_set: ["rs-apple"], server: "remote-cf-dns", disable_cache: true },
       {
         rule_set: [
           "rs-geolocation-!cn",
@@ -38,7 +34,7 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
         server: "fakeip-dns"
       }
     ],
-    final: "local-dns",
+    final: "remote-dns",
     strategy: "ipv4_only"
   },
   inbounds: [{ type: "tun", tag: "tun-in", interface_name: "tun0", auto_route: true, address: ["172.19.0.1/30"], stack: "mixed" }],
@@ -79,6 +75,21 @@ proxy-groups:
     url: http://www.gstatic.com/generate_204
     interval: 300
     proxies: []
+dns:
+  enable: true
+  enhanced-mode: fake-ip
+  nameserver-policy:
+    "rule-set:cn":
+      - https://223.5.5.5/dns-query
+      - https://doh.pub/dns-query
+    "rule-set:apple":
+      - https://1.1.1.1/dns-query
+      - https://223.5.5.5/dns-query
+    "cloudflare-ech.com":
+      - https://223.5.5.5/dns-query
+  nameserver:
+    - https://8.8.8.8/dns-query
+    - https://1.1.1.1/dns-query
 rules:
   - GEOIP,CN,DIRECT
   - MATCH,🚀 節點選擇
@@ -317,7 +328,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
           </div>
-          <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · 支援 ECH 錨定</div></div>
+          <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · 雙 DoH 高可用</div></div>
           <div class="result-input-wrapper"><input type="text" id="singboxUrl" readonly></div>
           <div class="result-actions">
             <button class="btn-icon" onclick="copyResult('singboxUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
@@ -330,7 +341,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"></path><line x1="16" y1="8" x2="2" y2="22"></line><line x1="17.5" y1="15" x2="9" y2="6.5"></line></svg>
           </div>
-          <div class="result-info"><div class="result-name">Clash Meta (Mihomo)</div><div class="result-desc">YAML 配置 · 支援 WireGuard / ECH</div></div>
+          <div class="result-info"><div class="result-name">Clash Meta (Mihomo)</div><div class="result-desc">YAML 配置 · 並發 DoH 競速</div></div>
           <div class="result-input-wrapper"><input type="text" id="clashUrl" readonly></div>
           <div class="result-actions">
             <button class="btn-icon" onclick="copyResult('clashUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>

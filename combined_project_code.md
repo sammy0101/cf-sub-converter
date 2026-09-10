@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep  9 17:15:30 UTC 2026
+Generated on: Thu Sep 10 06:50:49 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -4941,9 +4941,14 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
         "detour": "🚀 節點選擇"
       },
       {
-        "tag": "direct-doh",
+        "tag": "direct-ali-doh",
         "type": "https",
         "server": "223.5.5.5"
+      },
+      {
+        "tag": "direct-pub-doh",
+        "type": "https",
+        "server": "119.29.29.29"
       },
       {
         "tag": "local-dns",
@@ -4961,15 +4966,32 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
       }
     ],
     "rules": [
-      { "clash_mode": "Direct", "server": "system-dns" },
-      { "clash_mode": "Global", "server": "fakeip-dns" },
-      { "domain": ["cloudflare-ech.com"], "server": "direct-doh" },
-      { "rule_set": "rs-ads", "action": "reject" },
+      {
+        "clash_mode": "Direct",
+        "server": "system-dns"
+      },
+      {
+        "clash_mode": "Global",
+        "server": "fakeip-dns"
+      },
+      {
+        "domain": [
+          "cloudflare-ech.com"
+        ],
+        "domain_suffix": [
+          "cloudflare-ech.com"
+        ],
+        "server": "direct-ali-doh"
+      },
+      {
+        "rule_set": "rs-ads",
+        "action": "reject"
+      },
       {
         "rule_set": [
           "rs-cn"
         ],
-        "server": "local-dns",
+        "server": "direct-pub-doh",
         "disable_cache": true
       },
       {
@@ -5076,7 +5098,6 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
     }
   }
 }
-
 ````
 
 ## File: .github/workflows/combine-code.yml

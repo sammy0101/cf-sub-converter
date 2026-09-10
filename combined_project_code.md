@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Sep 10 06:53:28 UTC 2026
+Generated on: Thu Sep 10 06:54:18 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -481,7 +481,7 @@ fi
 ````json
 {
   "name": "cf-sub-converter",
-  "version": "3.5.1",
+  "version": "3.5.2",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",

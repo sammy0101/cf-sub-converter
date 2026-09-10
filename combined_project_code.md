@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Sep 10 06:50:49 UTC 2026
+Generated on: Thu Sep 10 06:51:23 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -97,32 +97,31 @@ dns:
     - 'rule-set:private'
     - 'rule-set:apple'
 
-  # 1. 基礎 DNS
+  # 1. 基礎引導 DNS (直連)
   default-nameserver:
     - 223.5.5.5
+    - 119.29.29.29
     - 1.1.1.1
     - 8.8.8.8
-    - 119.29.29.29
 
-  # 2. 節點/直連專用 DNS
+  # 2. 節點/直連專用 DNS (DoH)
   proxy-server-nameserver:
     - https://223.5.5.5/dns-query
-    - https://1.1.1.1/dns-query
     - https://doh.pub/dns-query
+    - https://1.1.1.1/dns-query
 
-  # 3. 網域特殊分流策略 (與 Sing-Box 完全鏡像一致)
+  # 3. 網域特殊分流策略
   nameserver-policy:
-    "cloudflare-ech.com":
-      - https://223.5.5.5/dns-query
-      - https://doh.pub/dns-query
     "rule-set:cn":
       - https://223.5.5.5/dns-query
       - https://doh.pub/dns-query
     "rule-set:apple":
       - https://1.1.1.1/dns-query
       - https://223.5.5.5/dns-query
+    "cloudflare-ech.com":
+      - https://223.5.5.5/dns-query
 
-  # 4. 國外代理兜底 DNS
+  # 4. 國外代理兜底 DNS (並發競速查詢 8.8.8.8 與 1.1.1.1)
   nameserver:
     - https://8.8.8.8/dns-query
     - https://1.1.1.1/dns-query
@@ -349,7 +348,6 @@ rules:
 
   # 8. 國外網站兜底：全走代理
   - MATCH,🐟 漏網之魚
-
 ````
 
 ## File: argo.sh

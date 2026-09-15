@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Tue Sep 15 11:40:37 UTC 2026
+Generated on: Tue Sep 15 11:41:12 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -1200,8 +1200,17 @@ async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
     return allNodes;
   }
 
-  // 💥 2. 優先完整辨識多組或單組 MASQUE JSON (物件或陣列)
+  // 2. 優先完整辨識多組或單組 MASQUE JSON (物件或陣列)
   if (/["']private_key["']/i.test(trimmed) && (trimmed.includes('{') || trimmed.includes('['))) {
+    try {
+      const parsed = await parseContent(trimmed);
+      allNodes.push(...parsed);
+    } catch {}
+    return allNodes;
+  }
+
+  // 3. 優先完整辨識多行 Clash YAML 配置 (含 proxies:)
+  if (/(^|\n)\s*proxies\s*:/i.test(trimmed)) {
     try {
       const parsed = await parseContent(trimmed);
       allNodes.push(...parsed);
@@ -1621,7 +1630,7 @@ export default {
         errors.push(`[WireGuard 配置] 失敗原因: ${msg}`);
       }
     } 
-    // 💥 2. 優先完整辨識多組或單組 MASQUE JSON
+    // 2. 優先完整辨識多組或單組 MASQUE JSON
     else if (/["']private_key["']/i.test(trimmedParam) && (trimmedParam.includes('{') || trimmedParam.includes('['))) {
       try {
         const parsed = await parseContent(trimmedParam);
@@ -1631,6 +1640,16 @@ export default {
         errors.push(`[MASQUE 配置] 失敗原因: ${msg}`);
       }
     } 
+    // 3. 優先完整辨識多行 Clash YAML 配置
+    else if (/(^|\n)\s*proxies\s*:/i.test(trimmedParam)) {
+      try {
+        const parsed = await parseContent(trimmedParam);
+        allNodes.push(...parsed);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`[Clash YAML 配置] 失敗原因: ${msg}`);
+      }
+    }
     else {
       const inputs = urlParam.split(/[\n\r|]+/); 
       for (const input of inputs) {

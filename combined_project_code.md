@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Tue Sep 15 11:41:12 UTC 2026
+Generated on: Tue Sep 15 11:41:55 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3536,6 +3536,10 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (m.localIpv4) params.set('ip', m.localIpv4);
         if (m.localIpv6) params.set('ipv6', m.localIpv6);
         if (m.mtu) params.set('mtu', String(m.mtu));
+        if (m.uri) params.set('uri', m.uri);
+        if (m.sni) params.set('sni', m.sni);
+        if (m.congestion_controller) params.set('congestion_controller', m.congestion_controller);
+        if (m.dns && m.dns.length > 0) params.set('dns', m.dns.join(','));
         return `masque://${encodeURIComponent(m.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
       return null;
@@ -3950,6 +3954,7 @@ export function toLoon(nodes: ProxyNode[]): string {
 
   return lines.join('\n');
 }
+
 ````
 
 ## File: src/constants.ts

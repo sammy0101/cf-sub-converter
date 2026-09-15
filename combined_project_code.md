@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Sep 10 06:54:18 UTC 2026
+Generated on: Tue Sep 15 11:39:46 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -4702,6 +4702,10 @@ export interface MasqueConfig {
   localIpv4?: string;
   localIpv6?: string;
   mtu?: number;
+  uri?: string;
+  sni?: string;
+  congestion_controller?: string;
+  dns?: string[];
 }
 
 export interface ProxyNode {

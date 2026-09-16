@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep 16 10:30:49 UTC 2026
+Generated on: Wed Sep 16 10:40:03 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3545,7 +3545,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         return `wireguard://${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
 
-      // MASQUE 標準與擴展格式 (兼容 Shadowrocket 與 Mihomo)
+      // MASQUE 標準格式（針對 Shadowrocket 與其他客戶端全方位相容）
       if (node.type === 'masque' && node.masque) {
         const m = node.masque;
         const params = new URLSearchParams();
@@ -3556,10 +3556,14 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (m.uri) params.set('uri', m.uri);
         if (m.sni) params.set('sni', m.sni);
         
-        // 雙重兼容：Shadowrocket 慣用的 congestion_control 與通用 congestion_controller
+        // 💥 小火箭專用精確鍵名注入：
+        // Shadowrocket 對 QUIC / MASQUE 的擁塞控制參數匹配 cca / cc / congestion_control
         const cc = m.congestion_controller || 'bbr';
+        params.set('cca', cc);
+        params.set('cc', cc);
         params.set('congestion_control', cc);
         params.set('congestion_controller', cc);
+        params.set('congestion-controller', cc);
         
         if (m.dns && m.dns.length > 0) params.set('dns', m.dns.join(','));
         return `masque://${encodeURIComponent(m.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
@@ -3649,7 +3653,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
       config.dns.rules = config.dns.rules.filter((r: Record<string, unknown>) => !('outbound' in r));
     }
 
-    // 確保直連 AliDNS DoH 用於解析 ECH
     const echDomains = Array.from(new Set(
       nodes.filter(n => n.ech).map(n => n.echQueryServerName || 'cloudflare-ech.com')
     ));
@@ -3680,7 +3683,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
     });
   }
 
-  // 徹底清除 inbounds 內已被 Sing-Box 1.13+ 移除的 legacy 嗅探欄位
   if (Array.isArray(config.inbounds)) {
     config.inbounds.forEach((ib: Record<string, unknown>) => {
       delete ib.sniff;
@@ -3696,7 +3698,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
   nodes.forEach(n => {
     allNodeTags.push(n.name);
     
-    // WireGuard 放進頂層 endpoints
     if (n.type === 'wireguard' && n.wireguard) {
       const wg = n.wireguard;
       const peerObj: Record<string, unknown> = {

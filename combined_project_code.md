@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep 16 10:40:03 UTC 2026
+Generated on: Wed Sep 16 10:40:34 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -1948,6 +1948,9 @@ interface RawMasqueConfig {
   sni?: string;
   congestion_controller?: string;
   'congestion-controller'?: string;
+  congestion_control?: string;
+  cca?: string;
+  cc?: string;
   dns?: string[] | string;
   mtu?: number | string;
 }
@@ -1975,7 +1978,17 @@ function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode | null {
   const name = config.name || (index > 0 ? `WARP-MASQUE-${index + 1}` : 'WARP-MASQUE');
   const uri = (config.uri || 'https://cloudflareaccess.com').trim();
   const sni = (config.sni || 'www.microsoft.com').trim();
-  const congestionController = (config.congestion_controller || config['congestion-controller'] || 'bbr').trim();
+  
+  // 兼顧所有擁塞控制寫法
+  const congestionController = (
+    config.cca ||
+    config.cc ||
+    config.congestion_control ||
+    config.congestion_controller ||
+    config['congestion-controller'] ||
+    'bbr'
+  ).trim();
+
   const mtu = parseInt(String(config.mtu || 1280), 10) || 1280;
   
   let dnsList: string[] = ['1.1.1.1', '8.8.8.8'];
@@ -2007,7 +2020,6 @@ function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode | null {
     masque: masqueConfig
   };
 
-  // 💥 完整補齊 Sing-Box (戰未來 / 擴展分支) 的 BBR 與 TLS 欄位
   node.singboxObj = {
     type: 'masque',
     tag: name,
@@ -2094,7 +2106,10 @@ function parseMasqueUri(urlStr: string): ProxyNode | null {
     const name = parsed.hash || 'WARP-MASQUE';
     const uri = params.get('uri') || 'https://cloudflareaccess.com';
     const sni = params.get('sni') || 'www.microsoft.com';
-    const congestionController = params.get('congestion_controller') || params.get('congestion-controller') || 'bbr';
+    
+    // 支援小火箭的 cca / cc 與常規參數
+    const congestionController = params.get('cca') || params.get('cc') || params.get('congestion_control') || params.get('congestion_controller') || params.get('congestion-controller') || 'bbr';
+    
     const dnsParam = params.get('dns');
     const dnsList = dnsParam ? dnsParam.split(',').map(d => d.trim()).filter(Boolean) : ['1.1.1.1', '8.8.8.8'];
 
@@ -2122,7 +2137,6 @@ function parseMasqueUri(urlStr: string): ProxyNode | null {
       masque: masqueConfig
     };
 
-    // 💥 同步補齊 Sing-Box 欄位
     node.singboxObj = {
       type: 'masque',
       tag: name,
@@ -2833,7 +2847,7 @@ function parseTuic(urlStr: string): ProxyNode | null {
     const params = parsed.params;
     const name = parsed.hash || 'TUIC';
 
-    const congestion_control = params.get('congestion_control') || 'bbr';
+    const congestion_control = params.get('congestion_control') || params.get('cca') || params.get('cc') || 'bbr';
     const udp_relay_mode = params.get('udp_relay_mode') || 'native';
     const alpnStr = params.get('alpn');
     const skipCertVerify = params.get('allow_insecure') === '1' || params.get('insecure') === '1';

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Tue Sep 15 11:55:50 UTC 2026
+Generated on: Wed Sep 16 10:27:23 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3529,16 +3529,22 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         return `wireguard://${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
 
+      // MASQUE 標準與擴展格式 (兼容 Shadowrocket 與 Mihomo)
       if (node.type === 'masque' && node.masque) {
         const m = node.masque;
         const params = new URLSearchParams();
         params.set('public_key', m.publicKey);
-        if (m.localIpv4) params.set('ip', m.localIpv4);
-        if (m.localIpv6) params.set('ipv6', m.localIpv6);
+        if (m.localIpv4) params.set('ip', m.localIpv4.split('/')[0]);
+        if (m.localIpv6) params.set('ipv6', m.localIpv6.split('/')[0]);
         if (m.mtu) params.set('mtu', String(m.mtu));
         if (m.uri) params.set('uri', m.uri);
         if (m.sni) params.set('sni', m.sni);
-        if (m.congestion_controller) params.set('congestion_controller', m.congestion_controller);
+        
+        // 雙重兼容：Shadowrocket 慣用的 congestion_control 與通用 congestion_controller
+        const cc = m.congestion_controller || 'bbr';
+        params.set('congestion_control', cc);
+        params.set('congestion_controller', cc);
+        
         if (m.dns && m.dns.length > 0) params.set('dns', m.dns.join(','));
         return `masque://${encodeURIComponent(m.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }

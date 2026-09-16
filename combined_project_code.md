@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep 16 10:42:50 UTC 2026
+Generated on: Wed Sep 16 10:44:42 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -833,14 +833,19 @@ main();
 ## 🌟 核心特性
 
 ### 1. 🔌 全主流與新興協議深度解析
+- **完整 Clash / Mihomo YAML 跨協議智慧解析（新增）**：
+  - 支援將任何網上下載或機場提供的完整 `.yaml` 設定檔整份貼入主輸入框。
+  - 後端解析器自動跳過頂層 `port:`、`rules:` 與策略組，精準提取 `proxies:` 陣列中的所有節點，並無縫轉換為 Sing-Box、Surge、Base64 等任何目標格式。
+- **Cloudflare WARP MASQUE 萬能解析與高階調優（升級）**：
+  - **多元來源識別**：支援貼入單一 JSON 物件、多組連續 JSON 物件、標準 JSON 陣列 `[ { ... } ]`、單行 `masque://` URI，或包含 MASQUE 的 Clash YAML 設定檔。
+  - **Mihomo 專屬全規格補齊**：自動注入 `uri: https://cloudflareaccess.com`、`sni: www.microsoft.com`（防封鎖偽裝）、`congestion-controller: bbr`，以及 `dns: [1.1.1.1, 8.8.8.8]`。
+  - **客戶端 IP 遮罩規範化**：針對 Clash 自動剝離子網掩碼（純 IP：`172.16.0.2`），避免舊版或部分核心解析異常；針對 Sing-Box 精準保留標準 CIDR（`172.16.0.2/32`）。
+  - **Shadowrocket（小火箭）自動點亮 BBR**：在 Base64 明文 URI 中注入多別名 `cca=bbr`、`cc=bbr` 與 `congestion_control=bbr`，小火箭掃碼導入後**「擁塞控制」自動精確設定為 `bbr`**。
+  - **Sing-Box 戰未來支援**：輸出結構完整對齊現代規範與社群擴展分支（如 `sing-box-lx`、`sing-box-extended`），內嵌 `congestion_control: "bbr"` 與 `tls` 物件。
 - **WireGuard 官方 `.conf` 深度支援（支援多組批次貼入）**：
   - 直接貼入多組 Proton VPN、Mullvad 或 WARP 的 `[Interface] ... [Peer] ...` 設定檔，自動批次辨識並分割為獨立節點。
   - 自動提取 Proton 專屬 NetShield 內部 DNS（`10.2.0.1`），完整保留原生去廣告與極致防洩漏功能。
   - 智慧辨識伺服器備註與國家標籤（例如 `# JP-FREE#23` 自動轉換為 `🇯🇵 JP-FREE#23`）。
-- **Cloudflare WARP MASQUE 萬能解析**：
-  - 支援單一 JSON 物件、多個連續 `{ "private_key": ... }` 物件。
-  - 支援標準 JSON 陣列 `[ { ... }, { ... } ]`。
-  - 支援通用 `masque://` 單行 URI 協議。
 - **VLESS**：支援最新 `xhttp` / `splithttp`、`Reality`、`Vision`、`WebSocket (含 ?ed=2560 Early Data 淨化)`、`gRPC`。
 - **ECH (Encrypted Client Hello)**：自動解析 `&ech=` 參數，在 Sing-Box 與 Clash 中開啟 ECH 加密問候，徹底繞過 GFW 針對 SNI 網域的阻斷。
 - **WebSocket ALPN 智慧鎖定**：自動為 WS+TLS 節點指定 `alpn: ["http/1.1"]`，解決 Cloudflare 邊緣節點錯誤協商 HTTP/2 導致的斷流問題。
@@ -858,7 +863,7 @@ main();
 - **Quantumult X**：支援包含 `vless=` 在內的標準 `server_remote` 節點清單。
 - **Loon**：標準 `[Proxy]` 格式。
 - **通用 Base64 / Shadowrocket (小火箭)**：
-  - 完整對齊標準 URI 結構（私鑰、公鑰、IP、DNS、MTU 與 Keepalive 參數全規格映射），解決小火箭解碼錯誤並支援原生通連。
+  - 完整對齊標準 URI 結構（私鑰、公鑰、IP、DNS、MTU、CCA/BBR 與 Keepalive 參數全規格映射），解決小火箭解碼錯誤並支援原生通連。
 - **🚀 專屬喚醒二維碼與自動命名**：
   - 點擊 QR Code 圖示自動產生符合各客戶端規範的條碼（例如 Sing-Box 官方標準 `sing-box://import-remote-profile?url=...#name`）。
   - 手機相機或 App 掃描**全自動填入名稱與網址**，亦可點擊按鈕直接喚醒 App 一鍵導入。
@@ -983,7 +988,7 @@ main();
 ### 1. 視覺化 Web 面板
 訪問您部署完成的 Workers 網址：
 - **資料來源設定**：
-  - 貼上機場訂閱連結、WireGuard `.conf` 設定檔（支援多組 `[Interface]...[Peer]` 連續貼入）、Cloudflare WARP MASQUE JSON（支援陣列或多個物件），或各類代理節點。
+  - 貼上完整 **Clash Meta (.yaml) 設定檔**、機場訂閱連結、WireGuard `.conf` 設定檔（支援多組 `[Interface]...[Peer]` 連續貼入）、Cloudflare WARP MASQUE JSON（支援陣列或多個物件），或各類代理節點。
 - **過濾與替換**：設定保留/排除關鍵字或名稱替換規則。
 - **短連結雲端儲存**：設定自訂短代碼（如 `my-sub`），規則將自動打包存入 KV，各客戶端自動以此命名。
 - **多平台訂閱面板**：
@@ -993,9 +998,31 @@ main();
 
 ---
 
-### 2. 批次輸入範例
+### 2. 多元輸入範例
 
-#### 多組 WireGuard (.conf) 連續貼入
+#### (1) 直接貼入完整 Clash YAML 設定檔（自動提取 proxies）
+```yaml
+mixed-port: 7890
+mode: rule
+proxies:
+  - name: "WARP-MASQUE-01"
+    type: masque
+    server: 162.159.198.2
+    port: 443
+    private-key: <REDACTED_PRIVATE_KEY>
+    public-key: <REDACTED_PUBLIC_KEY>
+    ip: 172.16.0.2
+    ipv6: 2606:4700:110:8f56:aae5:fd77:ac85:2622
+    uri: https://cloudflareaccess.com
+    mtu: 1280
+    udp: true
+    remote-dns-resolve: true
+    congestion-controller: bbr
+    dns: [ 1.1.1.1, 8.8.8.8 ]
+    sni: www.microsoft.com
+```
+
+#### (2) 多組 WireGuard (.conf) 連續貼入
 ```ini
 [Interface]
 PrivateKey = <REDACTED_PRIVATE_KEY_1>
@@ -1022,7 +1049,7 @@ Endpoint = 198.51.100.2:51820
 PersistentKeepalive = 25
 ```
 
-#### 多組 Cloudflare WARP MASQUE JSON 貼入
+#### (3) 多組 Cloudflare WARP MASQUE JSON 貼入
 ```json
 [
   {
@@ -1071,7 +1098,7 @@ https://your-worker.workers.dev
 
 | 參數 | 說明 | 範例 |
 | :--- | :--- | :--- |
-| `url` | 原始訂閱連結或節點內容（需 URL 編碼） | `https://example.com/sub` |
+| `url` | 原始訂閱連結、YAML 或節點內容（需 URL 編碼） | `https://example.com/sub` |
 | `target` | 目標格式：`clash` / `singbox` / `surge` / `quanx` / `loon` / `base64` | `target=clash` |
 | `include` | 僅保留符合正則之節點 | `include=HK\|TW` |
 | `exclude` | 排除符合正則之節點（自動相容乘號 `×`） | `exclude=5x\|官網` |
@@ -1115,15 +1142,19 @@ https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox&force=1
 
 ## ❓ 常見問題排錯 (FAQ)
 
-### 1. WireGuard 節點在小火箭（Shadowrocket）測速顯示超時/紅燈（TCP 無延遲），但打開開關能正常上網？
+### 1. 為什麼小火箭（Shadowrocket）裡的 MASQUE 節點可以開啟 BBR，但官方 Sing-Box 無法使用 MASQUE？
+- **Shadowrocket**：原生實作了標準 HTTP/3 CONNECT-IP 協議。本轉換器在導出 Base64 時已精確寫入 `cca=bbr&cc=bbr&congestion_control=bbr` 雙別名鍵名，因此導入小火箭後**「擁塞控制」會全自動勾選為 `bbr`**。
+- **Sing-Box**：官方 SagerNet/sing-box 上游主線（1.14 / 1.15）尚未正式合併 MASQUE 模組（若強行載入會報 `unknown outbound type: masque`）。僅社群編譯分支（如 `sing-box-lx`、`sing-box-extended`）支援 MASQUE。若使用官方 Sing-Box，建議透過本轉換器將 WARP 轉為 **WireGuard 格式**。
+
+### 2. WireGuard 節點在小火箭（Shadowrocket）測速顯示超時/紅燈（TCP 無延遲），但打開開關能正常上網？
 - **原因**：WireGuard 是工作在第 3 層（網路層）的虛擬網卡 TUN 隧道協議。小火箭首頁的「連通性測試」預設發送的是 **TCP/HTTP Ping**；在開關未開啟前，TUN 路由尚未真正建立，因此向私有 DNS（如 Proton 的 `10.2.0.1`）發起的 TCP 域名解析必定超時。
 - **說明**：這是所有包含內部私有 DNS 的 WireGuard / WARP 節點在小火箭中的**正常現象**。只要上方連線開關開啟後能順暢瀏覽網頁、查 IP 正確，即代表握手與代理功能完全正常。若需測出延遲數值，可在小火箭「設定」➔「測試方法」中切換為 **ICMP** 測速。
 
-### 2. Windows 上運行 WireGuard 節點報錯 `listen udp6: An invalid argument was supplied`？
+### 3. Windows 上運行 WireGuard 節點報錯 `listen udp6: An invalid argument was supplied`？
 - **原因**：Windows 電腦未開啟 IPv6 協議元件，導致 Sing-Box 核心在嘗試雙棧 UDP 監聽時被 Windows Winsock 攔截。
 - **解法**：在 Windows 按 `Win + R` ➔ 輸入 `ncpa.cpl` ➔ 在連線的網卡（乙太網路或 Wi-Fi）點右鍵「內容」➔ **將「網際網路通訊協定第 6 版 (TCP/IPv6)」打勾啟用** 即可正常握手連通。若電腦完全無法開啟 IPv6，建議使用 **Clash Meta** 格式訂閱。
 
-### 3. Cloudflare EdgeTunnel 節點在手機端連線逾時？
+### 4. Cloudflare EdgeTunnel 節點在手機端連線逾時？
 - **原因**：部分 Cloudflare 節點啟用了 ECH（加密問候）或自訂 WebSocket Early Data。
 - **解法**：本工具已全面自動淨化路徑中的 `?ed=2560`，並鎖定 `alpn: ["http/1.1"]`，只要透過本轉換器更新至最新訂閱，即可完美相容。
 
@@ -1136,8 +1167,8 @@ cf-sub-converter/
 ├── src/
 │   ├── index.ts          # Worker 核心路由、並發請求控制、安全鑒權與 API 接口
 │   ├── constants.ts      # 響應式深色 UI 模板、QR Code 生成器與 SWR 內嵌降級規則
-│   ├── parser.ts         # 萬能節點解析器 (WireGuard .conf 多組批次, MASQUE 陣列/物件, VLESS 等)
-│   ├── generator.ts      # 多平台格式生成器 (Sing-Box 現代 endpoints, Clash, Surge 5, Base64)
+│   ├── parser.ts         # 萬能節點解析器 (Clash YAML proxies 提取, WireGuard .conf, MASQUE, VLESS 等)
+│   ├── generator.ts      # 多平台格式生成器 (Sing-Box 現代 endpoints, Clash Meta, Surge 5, Base64)
 │   ├── utils.ts          # 倍率與專線特徵提取、Base64 安全編碼、萬國國旗對齊演算法
 │   └── types.ts          # 嚴格 TypeScript 類型定義
 ├── argo.sh               # VPS Argo 隧道 2.0 一鍵安裝與自我修復通用腳本

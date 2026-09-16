@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep 16 10:27:23 UTC 2026
+Generated on: Wed Sep 16 10:30:49 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -2007,6 +2007,7 @@ function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode | null {
     masque: masqueConfig
   };
 
+  // 💥 完整補齊 Sing-Box (戰未來 / 擴展分支) 的 BBR 與 TLS 欄位
   node.singboxObj = {
     type: 'masque',
     tag: name,
@@ -2015,7 +2016,14 @@ function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode | null {
     private_key: privateKey,
     public_key: publicKey,
     ip: localIpv4,
-    ipv6: localIpv6
+    ipv6: localIpv6,
+    uri,
+    congestion_control: congestionController,
+    mtu,
+    tls: {
+      enabled: true,
+      server_name: sni
+    }
   };
 
   node.clashObj = {
@@ -2114,6 +2122,7 @@ function parseMasqueUri(urlStr: string): ProxyNode | null {
       masque: masqueConfig
     };
 
+    // 💥 同步補齊 Sing-Box 欄位
     node.singboxObj = {
       type: 'masque',
       tag: name,
@@ -2122,7 +2131,14 @@ function parseMasqueUri(urlStr: string): ProxyNode | null {
       private_key: privateKey,
       public_key: publicKey,
       ip: ipv4,
-      ipv6: ipv6
+      ipv6: ipv6,
+      uri,
+      congestion_control: congestionController,
+      mtu,
+      tls: {
+        enabled: true,
+        server_name: sni
+      }
     };
 
     node.clashObj = {

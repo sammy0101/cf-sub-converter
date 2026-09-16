@@ -74,6 +74,8 @@ interface RawMasqueConfig {
   name?: string;
   uri?: string;
   sni?: string;
+  servername?: string;
+  server_name?: string;
   congestion_controller?: string;
   'congestion-controller'?: string;
   congestion_control?: string;
@@ -81,6 +83,9 @@ interface RawMasqueConfig {
   cc?: string;
   dns?: string[] | string;
   mtu?: number | string;
+  udp?: boolean;
+  'remote-dns-resolve'?: boolean;
+  [key: string]: unknown;
 }
 
 function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode | null {
@@ -99,32 +104,44 @@ function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode | null {
   
   let localIpv6: string | undefined = undefined;
   if (config.ipv6) {
-    const rawIpv6 = config.ipv6.trim();
+    const rawIpv6 = String(config.ipv6).trim();
     localIpv6 = rawIpv6.includes('/') ? rawIpv6 : `${rawIpv6}/128`;
   }
 
   const name = config.name || (index > 0 ? `WARP-MASQUE-${index + 1}` : 'WARP-MASQUE');
-  const uri = (config.uri || 'https://cloudflareaccess.com').trim();
-  const sni = (config.sni || 'www.microsoft.com').trim();
-  
-  // 兼顧所有擁塞控制寫法
-  const congestionController = (
+
+  // 1. URI：若使用者輸入已有則優先使用，缺省時自動補齊
+  const uri = (config.uri && String(config.uri).trim()) ? String(config.uri).trim() : 'https://cloudflareaccess.com';
+
+  // 2. SNI：若使用者輸入已有 (sni / servername) 則優先使用，缺省時自動補齊
+  const customSni = config.sni || config.servername || config.server_name;
+  const sni = (customSni && String(customSni).trim()) ? String(customSni).trim() : 'www.microsoft.com';
+
+  // 3. 擁塞控制演算法：若使用者輸入已有 (cca / cc / congestion-controller 等) 則優先使用，缺省時自動補齊 bbr
+  const rawCc = (
     config.cca ||
     config.cc ||
     config.congestion_control ||
     config.congestion_controller ||
-    config['congestion-controller'] ||
-    'bbr'
-  ).trim();
+    config['congestion-controller']
+  );
+  const congestionController = (rawCc && String(rawCc).trim()) ? String(rawCc).trim() : 'bbr';
 
-  const mtu = parseInt(String(config.mtu || 1280), 10) || 1280;
+  // 4. MTU：優先採用使用者輸入，缺省為 1280
+  const mtu = config.mtu ? (parseInt(String(config.mtu), 10) || 1280) : 1280;
   
+  // 5. DNS：若使用者輸入已有則優先採用其陣列，缺省時自動補齊 [1.1.1.1, 8.8.8.8]
   let dnsList: string[] = ['1.1.1.1', '8.8.8.8'];
-  if (Array.isArray(config.dns)) {
+  if (Array.isArray(config.dns) && config.dns.length > 0) {
     dnsList = config.dns.map(d => String(d).trim()).filter(Boolean);
   } else if (typeof config.dns === 'string' && config.dns.trim()) {
     dnsList = config.dns.split(',').map(d => d.trim()).filter(Boolean);
   }
+
+  // 6. remote-dns-resolve：若使用者在 YAML 明確指定了 false 則保留，否則預設 true
+  const remoteDnsResolve = config['remote-dns-resolve'] !== undefined 
+    ? Boolean(config['remote-dns-resolve']) 
+    : true;
 
   const masqueConfig: MasqueConfig = {
     privateKey,
@@ -148,6 +165,7 @@ function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode | null {
     masque: masqueConfig
   };
 
+  // Sing-Box 結構構建（保留使用者指定參數）
   node.singboxObj = {
     type: 'masque',
     tag: name,
@@ -156,7 +174,7 @@ function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode | null {
     private_key: privateKey,
     public_key: publicKey,
     ip: localIpv4,
-    ipv6: localIpv6,
+    ...(localIpv6 ? { ipv6: localIpv6 } : {}),
     uri,
     congestion_control: congestionController,
     mtu,
@@ -166,7 +184,20 @@ function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode | null {
     }
   };
 
+  // Clash Meta 結構構建：完整繼承原 YAML 中的自訂非衝突欄位（例如 dialer-proxy 等）
+  const originalClashProps = { ...config };
+  // 清理 JSON 輸入時多餘的元數據欄位，避免污染 YAML 產物
+  const cleanKeys = [
+    'private_key', 'private-key', 'public_key', 'public-key', 'endpoint_pub_key',
+    'endpoint_v4', 'endpoint_v6', 'endpoint_h2_v4', 'endpoint_h2_v6',
+    'ipv4', 'license', 'id', 'access_token', 'MASQUE导航'
+  ];
+  for (const k of cleanKeys) {
+    delete originalClashProps[k];
+  }
+
   node.clashObj = {
+    ...originalClashProps,
     name,
     type: 'masque',
     server,
@@ -174,11 +205,11 @@ function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode | null {
     'private-key': privateKey,
     'public-key': publicKey,
     ip: localIpv4.split('/')[0],
-    ipv6: localIpv6 ? localIpv6.split('/')[0] : undefined,
+    ...(localIpv6 ? { ipv6: localIpv6.split('/')[0] } : {}),
     uri,
     mtu,
-    udp: true,
-    'remote-dns-resolve': true,
+    udp: config.udp !== undefined ? Boolean(config.udp) : true,
+    'remote-dns-resolve': remoteDnsResolve,
     'congestion-controller': congestionController,
     dns: dnsList,
     sni
@@ -232,11 +263,13 @@ function parseMasqueUri(urlStr: string): ProxyNode | null {
     const ipv6 = params.get('ipv6') || undefined;
     const mtu = parseInt(params.get('mtu') || '1280', 10);
     const name = parsed.hash || 'WARP-MASQUE';
-    const uri = params.get('uri') || 'https://cloudflareaccess.com';
-    const sni = params.get('sni') || 'www.microsoft.com';
     
-    // 支援小火箭的 cca / cc 與常規參數
-    const congestionController = params.get('cca') || params.get('cc') || params.get('congestion_control') || params.get('congestion_controller') || params.get('congestion-controller') || 'bbr';
+    // 使用者若有傳入參數則使用，無則安全兜底
+    const uri = (params.get('uri') && params.get('uri')!.trim()) ? params.get('uri')!.trim() : 'https://cloudflareaccess.com';
+    const sni = (params.get('sni') && params.get('sni')!.trim()) ? params.get('sni')!.trim() : 'www.microsoft.com';
+    
+    const rawCc = params.get('cca') || params.get('cc') || params.get('congestion_control') || params.get('congestion_controller') || params.get('congestion-controller');
+    const congestionController = (rawCc && rawCc.trim()) ? rawCc.trim() : 'bbr';
     
     const dnsParam = params.get('dns');
     const dnsList = dnsParam ? dnsParam.split(',').map(d => d.trim()).filter(Boolean) : ['1.1.1.1', '8.8.8.8'];
@@ -273,7 +306,7 @@ function parseMasqueUri(urlStr: string): ProxyNode | null {
       private_key: privateKey,
       public_key: publicKey,
       ip: ipv4,
-      ipv6: ipv6,
+      ...(ipv6 ? { ipv6 } : {}),
       uri,
       congestion_control: congestionController,
       mtu,
@@ -291,7 +324,7 @@ function parseMasqueUri(urlStr: string): ProxyNode | null {
       'private-key': privateKey,
       'public-key': publicKey,
       ip: ipv4.split('/')[0],
-      ipv6: ipv6 ? ipv6.split('/')[0] : undefined,
+      ...(ipv6 ? { ipv6: ipv6.split('/')[0] } : {}),
       uri,
       mtu,
       udp: true,

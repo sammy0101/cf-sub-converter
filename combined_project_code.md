@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep 16 10:51:59 UTC 2026
+Generated on: Wed Sep 16 11:01:53 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -2012,15 +2012,11 @@ function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode | null {
   }
 
   const name = config.name || (index > 0 ? `WARP-MASQUE-${index + 1}` : 'WARP-MASQUE');
-
-  // 1. URI：若使用者輸入已有則優先使用，缺省時自動補齊
   const uri = (config.uri && String(config.uri).trim()) ? String(config.uri).trim() : 'https://cloudflareaccess.com';
 
-  // 2. SNI：若使用者輸入已有 (sni / servername) 則優先使用，缺省時自動補齊
   const customSni = config.sni || config.servername || config.server_name;
   const sni = (customSni && String(customSni).trim()) ? String(customSni).trim() : 'www.microsoft.com';
 
-  // 3. 擁塞控制演算法：若使用者輸入已有 (cca / cc / congestion-controller 等) 則優先使用，缺省時自動補齊 bbr
   const rawCc = (
     config.cca ||
     config.cc ||
@@ -2029,11 +2025,8 @@ function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode | null {
     config['congestion-controller']
   );
   const congestionController = (rawCc && String(rawCc).trim()) ? String(rawCc).trim() : 'bbr';
-
-  // 4. MTU：優先採用使用者輸入，缺省為 1280
   const mtu = config.mtu ? (parseInt(String(config.mtu), 10) || 1280) : 1280;
   
-  // 5. DNS：若使用者輸入已有則優先採用其陣列，缺省時自動補齊 [1.1.1.1, 8.8.8.8]
   let dnsList: string[] = ['1.1.1.1', '8.8.8.8'];
   if (Array.isArray(config.dns) && config.dns.length > 0) {
     dnsList = config.dns.map(d => String(d).trim()).filter(Boolean);
@@ -2041,7 +2034,6 @@ function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode | null {
     dnsList = config.dns.split(',').map(d => d.trim()).filter(Boolean);
   }
 
-  // 6. remote-dns-resolve：若使用者在 YAML 明確指定了 false 則保留，否則預設 true
   const remoteDnsResolve = config['remote-dns-resolve'] !== undefined 
     ? Boolean(config['remote-dns-resolve']) 
     : true;
@@ -2068,7 +2060,6 @@ function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode | null {
     masque: masqueConfig
   };
 
-  // Sing-Box 結構構建（保留使用者指定參數）
   node.singboxObj = {
     type: 'masque',
     tag: name,
@@ -2087,9 +2078,7 @@ function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode | null {
     }
   };
 
-  // Clash Meta 結構構建：完整繼承原 YAML 中的自訂非衝突欄位（例如 dialer-proxy 等）
   const originalClashProps = { ...config };
-  // 清理 JSON 輸入時多餘的元數據欄位，避免污染 YAML 產物
   const cleanKeys = [
     'private_key', 'private-key', 'public_key', 'public-key', 'endpoint_pub_key',
     'endpoint_v4', 'endpoint_v6', 'endpoint_h2_v4', 'endpoint_h2_v6',
@@ -2166,8 +2155,6 @@ function parseMasqueUri(urlStr: string): ProxyNode | null {
     const ipv6 = params.get('ipv6') || undefined;
     const mtu = parseInt(params.get('mtu') || '1280', 10);
     const name = parsed.hash || 'WARP-MASQUE';
-    
-    // 使用者若有傳入參數則使用，無則安全兜底
     const uri = (params.get('uri') && params.get('uri')!.trim()) ? params.get('uri')!.trim() : 'https://cloudflareaccess.com';
     const sni = (params.get('sni') && params.get('sni')!.trim()) ? params.get('sni')!.trim() : 'www.microsoft.com';
     
@@ -3183,7 +3170,7 @@ function parseTrojan(urlStr: string): ProxyNode | null {
   }
 }
 
-// --- 解析 Clash YAML 格式的單一 Proxy 項目 ---
+// --- 解析 Clash YAML 格式的單一 Proxy 項目（嚴格執行用戶貼入優先） ---
 function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNode | null {
   try {
     const type = String(p.type || '').toLowerCase();
@@ -3197,6 +3184,95 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
 
     if (!server) return null;
 
+    // 1. VLESS (完全尊重使用者原汁原味的屬性，包含 EdgeTunnel CM 的特殊結構)
+    if (type === 'vless') {
+      const uuid = String(p.uuid || '').trim();
+      if (!uuid) return null;
+      const tls = Boolean(p.tls);
+      const sni = p.servername ? String(p.servername).trim() : (p.sni ? String(p.sni).trim() : server);
+      const flow = p.flow ? String(p.flow).trim() : undefined;
+      const network = p.network ? String(p.network).toLowerCase() : (p['ws-opts'] ? 'ws' : (p['xhttp-opts'] ? 'xhttp' : (p['grpc-opts'] ? 'grpc' : 'tcp')));
+      
+      const wsOpts = p['ws-opts'] as Record<string, unknown> | undefined;
+      const wsPath = wsOpts?.path ? String(wsOpts.path) : undefined;
+      const wsHeaders = wsOpts?.headers as Record<string, string> | undefined;
+
+      const realityOpts = p['reality-opts'] as Record<string, unknown> | undefined;
+      const reality = (p.reality || realityOpts) ? {
+        publicKey: String(realityOpts?.['public-key'] || ''),
+        shortId: String(realityOpts?.['short-id'] || '')
+      } : undefined;
+
+      // 💥 完整擷取 ECH 選項
+      const echOpts = p['ech-opts'] as Record<string, unknown> | undefined;
+      const isEch = Boolean(p.ech || (echOpts && echOpts.enable === true));
+
+      // 💥 嚴格遵循使用者輸入的 skip-cert-verify（有傳 false 就保留 false，絕不覆寫為 true）
+      const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
+      const fingerprint = p['client-fingerprint'] ? String(p['client-fingerprint']).trim() : 'chrome';
+      const alpn = Array.isArray(p.alpn) ? p.alpn.map(String) : (network === 'ws' ? ['http/1.1'] : undefined);
+
+      let earlyDataLength: number | undefined = undefined;
+      if (wsOpts?.['max-early-data']) {
+        earlyDataLength = parseInt(String(wsOpts['max-early-data']), 10);
+      } else if (wsPath) {
+        const edMatch = wsPath.match(/[?&]ed=([0-9]+)/);
+        if (edMatch && edMatch[1]) {
+          earlyDataLength = parseInt(edMatch[1], 10);
+        }
+      }
+
+      const node: ProxyNode = {
+        type: 'vless', name, server, port, uuid, tls, sni, network, flow,
+        wsPath, wsHeaders, reality,
+        udp: p.udp !== undefined ? Boolean(p.udp) : true,
+        skipCertVerify,
+        fingerprint,
+        alpn,
+        ech: isEch,
+        clashObj: { ...p } // 💥 100% 完整原封不動保留使用者貼入的所有 Clash 欄位
+      };
+
+      // 跨平台對齊 Sing-Box 輸出
+      const sb: Record<string, unknown> = {
+        tag: name, type: 'vless', server, server_port: port, uuid, packet_encoding: 'xudp'
+      };
+      if (tls) {
+        const tlsObj: Record<string, unknown> = {
+          enabled: true,
+          server_name: sni,
+          insecure: skipCertVerify,
+          utls: { enabled: true, fingerprint }
+        };
+        if (alpn) {
+          tlsObj.alpn = alpn;
+        }
+        if (isEch) {
+          tlsObj.ech = { enabled: true };
+        }
+        if (reality) {
+          tlsObj.reality = { enabled: true, public_key: reality.publicKey, short_id: reality.shortId };
+        }
+        sb.tls = tlsObj;
+      }
+      if (flow) sb.flow = flow;
+      if (network === 'ws') {
+        const wsTransport: Record<string, unknown> = {
+          type: 'ws',
+          path: wsPath || '/',
+          headers: wsHeaders
+        };
+        if (earlyDataLength) {
+          wsTransport.max_early_data = earlyDataLength;
+          wsTransport.early_data_header_name = 'Sec-WebSocket-Protocol';
+        }
+        sb.transport = wsTransport;
+      }
+      node.singboxObj = sb;
+      return node;
+    }
+
+    // 2. Shadowsocks
     if (type === 'ss' || type === 'shadowsocks') {
       const cipher = String(p.cipher || '');
       const password = String(p.password || '');
@@ -3213,53 +3289,7 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
       return node;
     }
 
-    if (type === 'vless') {
-      const uuid = String(p.uuid || '');
-      if (!uuid) return null;
-      const tls = Boolean(p.tls);
-      const sni = p.servername ? String(p.servername) : (p.sni ? String(p.sni) : server);
-      const flow = p.flow ? String(p.flow) : undefined;
-      const network = p.network ? String(p.network).toLowerCase() : (p['ws-opts'] ? 'ws' : (p['xhttp-opts'] ? 'xhttp' : (p['grpc-opts'] ? 'grpc' : 'tcp')));
-      const wsOpts = p['ws-opts'] as Record<string, unknown> | undefined;
-      const wsPath = wsOpts?.path ? String(wsOpts.path) : undefined;
-      const wsHeaders = wsOpts?.headers as Record<string, string> | undefined;
-      const realityOpts = p['reality-opts'] as Record<string, unknown> | undefined;
-      const reality = (p.reality || realityOpts) ? {
-        publicKey: String(realityOpts?.['public-key'] || ''),
-        shortId: String(realityOpts?.['short-id'] || '')
-      } : undefined;
-
-      const node: ProxyNode = {
-        type: 'vless', name, server, port, uuid, tls, sni, network, flow,
-        wsPath, wsHeaders, reality, udp: true,
-        skipCertVerify: Boolean(p['skip-cert-verify']),
-        fingerprint: p['client-fingerprint'] ? String(p['client-fingerprint']) : undefined,
-        clashObj: { ...p }
-      };
-
-      const sb: Record<string, unknown> = {
-        tag: name, type: 'vless', server, server_port: port, uuid, packet_encoding: 'xudp'
-      };
-      if (tls) {
-        const tlsObj: Record<string, unknown> = {
-          enabled: true,
-          server_name: sni,
-          insecure: node.skipCertVerify,
-          utls: { enabled: true, fingerprint: node.fingerprint || 'chrome' }
-        };
-        if (reality) {
-          tlsObj.reality = { enabled: true, public_key: reality.publicKey, short_id: reality.shortId };
-        }
-        sb.tls = tlsObj;
-      }
-      if (flow) sb.flow = flow;
-      if (network === 'ws') {
-        sb.transport = { type: 'ws', path: wsPath || '/', headers: wsHeaders };
-      }
-      node.singboxObj = sb;
-      return node;
-    }
-
+    // 3. VMess
     if (type === 'vmess') {
       const uuid = String(p.uuid || '');
       if (!uuid) return null;
@@ -3271,14 +3301,15 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
       const wsHeaders = wsOpts?.headers as Record<string, string> | undefined;
 
       const node: ProxyNode = {
-        type: 'vmess', name, server, port, uuid, tls, sni, network, wsPath, wsHeaders, udp: true,
+        type: 'vmess', name, server, port, uuid, tls, sni, network, wsPath, wsHeaders,
+        udp: p.udp !== undefined ? Boolean(p.udp) : true,
         clashObj: { ...p }
       };
       const sb: Record<string, unknown> = {
         tag: name, type: 'vmess', server, server_port: port, uuid, security: 'auto', packet_encoding: 'xudp'
       };
       if (tls) {
-        sb.tls = { enabled: true, server_name: sni, insecure: true };
+        sb.tls = { enabled: true, server_name: sni, insecure: p['skip-cert-verify'] ? Boolean(p['skip-cert-verify']) : false };
       }
       if (network === 'ws') {
         sb.transport = { type: 'ws', path: wsPath || '/', headers: wsHeaders };
@@ -3287,14 +3318,16 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
       return node;
     }
 
+    // 4. Trojan
     if (type === 'trojan') {
       const password = String(p.password || '');
       if (!password) return null;
-      const sni = p.sni ? String(p.sni) : server;
-      const skipCertVerify = Boolean(p['skip-cert-verify']);
+      const sni = p.sni ? String(p.sni) : (p.servername ? String(p.servername) : server);
+      const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
 
       const node: ProxyNode = {
-        type: 'trojan', name, server, port, password, tls: true, sni, skipCertVerify, udp: true,
+        type: 'trojan', name, server, port, password, tls: true, sni, skipCertVerify,
+        udp: p.udp !== undefined ? Boolean(p.udp) : true,
         clashObj: { ...p }
       };
       node.singboxObj = {
@@ -3304,14 +3337,16 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
       return node;
     }
 
+    // 5. Hysteria 2
     if (type === 'hysteria2' || type === 'hy2') {
       const password = String(p.password || p.auth || '');
       if (!password) return null;
-      const sni = p.sni ? String(p.sni) : server;
-      const skipCertVerify = Boolean(p['skip-cert-verify']);
+      const sni = p.sni ? String(p.sni) : (p.servername ? String(p.servername) : server);
+      const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
 
       const node: ProxyNode = {
-        type: 'hysteria2', name, server, port, password, tls: true, sni, skipCertVerify, udp: true,
+        type: 'hysteria2', name, server, port, password, tls: true, sni, skipCertVerify,
+        udp: p.udp !== undefined ? Boolean(p.udp) : true,
         obfs: p.obfs ? String(p.obfs) : undefined,
         obfsPassword: p['obfs-password'] ? String(p['obfs-password']) : undefined,
         clashObj: { ...p }
@@ -3327,19 +3362,21 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
       return node;
     }
 
+    // 6. TUIC
     if (type === 'tuic') {
       const uuid = String(p.uuid || '');
       const password = String(p.password || '');
       if (!uuid) return null;
-      const sni = p.sni ? String(p.sni) : server;
-      const skipCertVerify = Boolean(p['skip-cert-verify']);
+      const sni = p.sni ? String(p.sni) : (p.servername ? String(p.servername) : server);
+      const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
       const congestion_control = p['congestion-controller'] ? String(p['congestion-controller']) : 'bbr';
       const udp_relay_mode = p['udp-relay-mode'] ? String(p['udp-relay-mode']) : 'native';
       const alpn = Array.isArray(p.alpn) ? p.alpn.map(String) : ['h3'];
 
       const node: ProxyNode = {
         type: 'tuic', name, server, port, uuid, password, tls: true, sni, skipCertVerify,
-        congestion_control, udp_relay_mode, alpn, udp: true,
+        congestion_control, udp_relay_mode, alpn,
+        udp: p.udp !== undefined ? Boolean(p.udp) : true,
         clashObj: { ...p }
       };
       node.singboxObj = {
@@ -3350,6 +3387,7 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
       return node;
     }
 
+    // 7. WireGuard
     if (type === 'wireguard') {
       const privateKey = String(p['private-key'] || '');
       const publicKey = String(p['public-key'] || '');
@@ -3377,7 +3415,7 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
       return node;
     }
 
-    // 泛型通用兜底節點
+    // 8. 兜底通用節點
     return {
       type, name, server, port, udp: true,
       clashObj: { ...p }

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep 16 11:01:53 UTC 2026
+Generated on: Wed Sep 16 15:23:52 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -1142,9 +1142,13 @@ https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox&force=1
 
 ## ❓ 常見問題排錯 (FAQ)
 
-### 1. 為什麼小火箭（Shadowrocket）裡的 MASQUE 節點可以開啟 BBR，但官方 Sing-Box 無法使用 MASQUE？
-- **Shadowrocket**：原生實作了標準 HTTP/3 CONNECT-IP 協議。本轉換器在導出 Base64 時已精確寫入 `cca=bbr&cc=bbr&congestion_control=bbr` 雙別名鍵名，因此導入小火箭後**「擁塞控制」會全自動勾選為 `bbr`**。
-- **Sing-Box**：官方 SagerNet/sing-box 上游主線（1.14 / 1.15）尚未正式合併 MASQUE 模組（若強行載入會報 `unknown outbound type: masque`）。僅社群編譯分支（如 `sing-box-lx`、`sing-box-extended`）支援 MASQUE。若使用官方 Sing-Box，建議透過本轉換器將 WARP 轉為 **WireGuard 格式**。
+### 1. 為什麼官方原版 Sing-Box 無法使用 MASQUE 節點？如何在 Sing-Box 使用 WARP？
+- **原因說明**：
+  - **MASQUE 協議現狀**：官方 `SagerNet/sing-box` 主線尚未合併 MASQUE 模組（若強行載入會報 `unknown outbound type: masque`）。目前僅社群擴展分支（如 `sing-box-lx`、`sing-box-extended`）支援 MASQUE。
+  - **協議不可互轉**：MASQUE（ECDSA P-256 / HTTP/3）與 WireGuard（Curve25519 / UDP）是兩套完全獨立的密碼學體系，轉換器**無法直接將 MASQUE 金鑰轉換成 WireGuard 節點**。
+- **解法（官方 Sing-Box 如何使用 WARP）**：
+  - 若需在官方原版 Sing-Box 使用 WARP，請直接獲取 **WARP 的 WireGuard 設定檔**（例如使用 `wgcf` 工具產生內含 `[Interface]...[Peer]` 的 `.conf` 檔）。
+  - 將該 WireGuard `.conf` 貼入本轉換器，即可轉出符合官方規範的頂層現代 `endpoints` 結構，流暢連通。
 
 ### 2. WireGuard 節點在小火箭（Shadowrocket）測速顯示超時/紅燈（TCP 無延遲），但打開開關能正常上網？
 - **原因**：WireGuard 是工作在第 3 層（網路層）的虛擬網卡 TUN 隧道協議。小火箭首頁的「連通性測試」預設發送的是 **TCP/HTTP Ping**；在開關未開啟前，TUN 路由尚未真正建立，因此向私有 DNS（如 Proton 的 `10.2.0.1`）發起的 TCP 域名解析必定超時。

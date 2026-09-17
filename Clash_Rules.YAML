@@ -12,8 +12,8 @@ external-controller: 0.0.0.0:9090
 tcp-concurrent: true
 unified-delay: true
 
-# 啟用 TCP Fast Open，降低握手延遲
-fast-open: true
+# 停用 TCP Fast Open，防止部分 ISP / CDN 邊緣節點在 TLS 握手時丟包
+fast-open: false
 
 # ==================== 設定檔快取 ====================
 profile:

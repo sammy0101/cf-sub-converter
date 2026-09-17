@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Sep 17 11:53:59 UTC 2026
+Generated on: Thu Sep 17 11:59:53 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -2578,7 +2578,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
   }
 }
 
-// --- 解析 VLESS (修復 ALPN 與指紋衝突) ---
+// --- 解析 VLESS (核心修復：精確注入 network: ws) ---
 function parseVless(urlStr: string): ProxyNode | null {
   try {
     const parsed = parseProxyUri(urlStr, 443);
@@ -2623,7 +2623,7 @@ function parseVless(urlStr: string): ProxyNode | null {
     const hostHeader = params.get('host') || params.get('sni') || parsed.hostname;
     const sniHost = params.get('sni') || params.get('host') || parsed.hostname;
 
-    // 💥 只有使用者明確提供了 alpn 參數才使用，絕不擅自強塞 ['http/1.1'] 破壞指紋！
+    // 只有使用者在連結明確帶入 alpn 時才使用，不強塞 http/1.1
     const customAlpn = params.get('alpn') ? params.get('alpn')!.split(',') : undefined;
 
     const node: ProxyNode = {
@@ -2738,6 +2738,7 @@ function parseVless(urlStr: string): ProxyNode | null {
       'skip-cert-verify': node.skipCertVerify,
       'client-fingerprint': node.fingerprint
     };
+
     if (node.alpn) {
       cl.alpn = node.alpn;
     }
@@ -2749,7 +2750,10 @@ function parseVless(urlStr: string): ProxyNode | null {
       cl.reality = true;
       cl['reality-opts'] = { 'public-key': node.reality.publicKey, 'short-id': node.reality.shortId };
     }
+
+    // 💥 核心修正：為 WebSocket 節點明確設定 network: ws 標籤！
     if (node.network === 'ws') {
+      cl.network = 'ws'; // 過去遺漏此處，導致 Clash Meta 當成純 TCP 連線
       cl['ws-opts'] = {
         path: cleanPath,
         headers: node.wsHeaders,
@@ -3077,6 +3081,7 @@ function parseVmess(vmessUrl: string): ProxyNode | null {
       sb.tls = {
         enabled: true,
         server_name: node.sni || node.server,
+        alpn: netType === 'ws' ? ['http/1.1'] : undefined,
         insecure: true
       };
     }
@@ -3194,7 +3199,7 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
 
     if (!server) return null;
 
-    // 1. VLESS (完全尊重使用者設定，不強制寫入破壞指紋的 ALPN)
+    // 1. VLESS (完全保全使用者設定，且補齊 network 標籤)
     if (type === 'vless') {
       const uuid = String(p.uuid || '').trim();
       if (!uuid) return null;
@@ -3218,8 +3223,6 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
 
       const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
       const fingerprint = p['client-fingerprint'] ? String(p['client-fingerprint']).trim() : 'chrome';
-      
-      // 💥 僅當使用者顯式在節點內寫了 alpn 才保留，絕不自動強行塞入 ['http/1.1']！
       const alpn = Array.isArray(p.alpn) ? p.alpn.map(String) : undefined;
 
       let earlyDataLength: number | undefined = undefined;
@@ -3232,8 +3235,9 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
         }
       }
 
-      // 產生純淨的 Clash 物件
+      // 產生純淨的 Clash 物件，並強保證 network 字段存在
       const clashObjCopy: Record<string, unknown> = { ...p };
+      clashObjCopy.network = network;
       if (!alpn) {
         delete clashObjCopy.alpn;
       }
@@ -3318,7 +3322,7 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
       const node: ProxyNode = {
         type: 'vmess', name, server, port, uuid, tls, sni, network, wsPath, wsHeaders,
         udp: p.udp !== undefined ? Boolean(p.udp) : true,
-        clashObj: { ...p }
+        clashObj: { ...p, network }
       };
       const sb: Record<string, unknown> = {
         tag: name, type: 'vmess', server, server_port: port, uuid, security: 'auto', packet_encoding: 'xudp'

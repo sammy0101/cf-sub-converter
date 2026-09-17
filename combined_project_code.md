@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Sep 17 11:53:32 UTC 2026
+Generated on: Thu Sep 17 11:53:59 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -36,8 +36,8 @@ external-controller: 0.0.0.0:9090
 tcp-concurrent: true
 unified-delay: true
 
-# 啟用 TCP Fast Open，降低握手延遲
-fast-open: true
+# 停用 TCP Fast Open，防止部分 ISP / CDN 邊緣節點在 TLS 握手時丟包
+fast-open: false
 
 # ==================== 設定檔快取 ====================
 profile:
@@ -348,6 +348,7 @@ rules:
 
   # 8. 國外網站兜底：全走代理
   - MATCH,🐟 漏網之魚
+
 ````
 
 ## File: argo.sh

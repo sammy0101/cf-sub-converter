@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep 16 15:23:52 UTC 2026
+Generated on: Thu Sep 17 11:53:32 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -2577,7 +2577,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
   }
 }
 
-// --- 解析 VLESS ---
+// --- 解析 VLESS (修復 ALPN 與指紋衝突) ---
 function parseVless(urlStr: string): ProxyNode | null {
   try {
     const parsed = parseProxyUri(urlStr, 443);
@@ -2622,7 +2622,8 @@ function parseVless(urlStr: string): ProxyNode | null {
     const hostHeader = params.get('host') || params.get('sni') || parsed.hostname;
     const sniHost = params.get('sni') || params.get('host') || parsed.hostname;
 
-    const customAlpn = params.get('alpn') ? params.get('alpn')!.split(',') : (netType === 'ws' ? ['http/1.1'] : undefined);
+    // 💥 只有使用者明確提供了 alpn 參數才使用，絕不擅自強塞 ['http/1.1'] 破壞指紋！
+    const customAlpn = params.get('alpn') ? params.get('alpn')!.split(',') : undefined;
 
     const node: ProxyNode = {
       type: 'vless',
@@ -2673,10 +2674,13 @@ function parseVless(urlStr: string): ProxyNode | null {
       const tlsObj: Record<string, unknown> = {
         enabled: true,
         server_name: node.sni || node.server,
-        alpn: node.alpn || (node.network === 'ws' ? ['http/1.1'] : undefined),
         insecure: node.skipCertVerify,
         utls: { enabled: true, fingerprint: node.fingerprint }
       };
+
+      if (node.alpn) {
+        tlsObj.alpn = node.alpn;
+      }
 
       if (node.ech) {
         tlsObj.ech = { enabled: true };
@@ -2730,10 +2734,12 @@ function parseVless(urlStr: string): ProxyNode | null {
       udp: true,
       tls: node.tls,
       servername: node.sni || node.server,
-      alpn: node.alpn,
       'skip-cert-verify': node.skipCertVerify,
       'client-fingerprint': node.fingerprint
     };
+    if (node.alpn) {
+      cl.alpn = node.alpn;
+    }
     if (node.ech) {
       cl['ech-opts'] = { enable: true };
     }
@@ -3070,7 +3076,6 @@ function parseVmess(vmessUrl: string): ProxyNode | null {
       sb.tls = {
         enabled: true,
         server_name: node.sni || node.server,
-        alpn: netType === 'ws' ? ['http/1.1'] : undefined,
         insecure: true
       };
     }
@@ -3174,7 +3179,7 @@ function parseTrojan(urlStr: string): ProxyNode | null {
   }
 }
 
-// --- 解析 Clash YAML 格式的單一 Proxy 項目（嚴格執行用戶貼入優先） ---
+// --- 解析 Clash YAML 格式的單一 Proxy 項目 ---
 function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNode | null {
   try {
     const type = String(p.type || '').toLowerCase();
@@ -3188,12 +3193,12 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
 
     if (!server) return null;
 
-    // 1. VLESS (完全尊重使用者原汁原味的屬性，包含 EdgeTunnel CM 的特殊結構)
+    // 1. VLESS (完全尊重使用者設定，不強制寫入破壞指紋的 ALPN)
     if (type === 'vless') {
       const uuid = String(p.uuid || '').trim();
       if (!uuid) return null;
       const tls = Boolean(p.tls);
-      const sni = p.servername ? String(p.servername).trim() : (p.sni ? String(p.sni).trim() : server);
+      const sni = p.servername ? String(p.servername).trim() : (p.sni ? String(p.sni) : server);
       const flow = p.flow ? String(p.flow).trim() : undefined;
       const network = p.network ? String(p.network).toLowerCase() : (p['ws-opts'] ? 'ws' : (p['xhttp-opts'] ? 'xhttp' : (p['grpc-opts'] ? 'grpc' : 'tcp')));
       
@@ -3207,14 +3212,14 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
         shortId: String(realityOpts?.['short-id'] || '')
       } : undefined;
 
-      // 💥 完整擷取 ECH 選項
       const echOpts = p['ech-opts'] as Record<string, unknown> | undefined;
       const isEch = Boolean(p.ech || (echOpts && echOpts.enable === true));
 
-      // 💥 嚴格遵循使用者輸入的 skip-cert-verify（有傳 false 就保留 false，絕不覆寫為 true）
       const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
       const fingerprint = p['client-fingerprint'] ? String(p['client-fingerprint']).trim() : 'chrome';
-      const alpn = Array.isArray(p.alpn) ? p.alpn.map(String) : (network === 'ws' ? ['http/1.1'] : undefined);
+      
+      // 💥 僅當使用者顯式在節點內寫了 alpn 才保留，絕不自動強行塞入 ['http/1.1']！
+      const alpn = Array.isArray(p.alpn) ? p.alpn.map(String) : undefined;
 
       let earlyDataLength: number | undefined = undefined;
       if (wsOpts?.['max-early-data']) {
@@ -3226,6 +3231,12 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
         }
       }
 
+      // 產生純淨的 Clash 物件
+      const clashObjCopy: Record<string, unknown> = { ...p };
+      if (!alpn) {
+        delete clashObjCopy.alpn;
+      }
+
       const node: ProxyNode = {
         type: 'vless', name, server, port, uuid, tls, sni, network, flow,
         wsPath, wsHeaders, reality,
@@ -3234,10 +3245,9 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
         fingerprint,
         alpn,
         ech: isEch,
-        clashObj: { ...p } // 💥 100% 完整原封不動保留使用者貼入的所有 Clash 欄位
+        clashObj: clashObjCopy
       };
 
-      // 跨平台對齊 Sing-Box 輸出
       const sb: Record<string, unknown> = {
         tag: name, type: 'vless', server, server_port: port, uuid, packet_encoding: 'xudp'
       };

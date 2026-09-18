@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Sep 17 15:48:09 UTC 2026
+Generated on: Fri Sep 18 11:59:55 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -2324,7 +2324,8 @@ function parseShadowrocketWireGuard(line: string): ProxyNode | null {
       'preshared-key': presharedKey,
       mtu,
       udp: true,
-      'remote-dns-resolve': true
+      'remote-dns-resolve': true,
+      dns: [dns || '10.2.0.1'] // 💥 注入隧道專屬 DNS
     };
 
     return node;
@@ -2333,7 +2334,7 @@ function parseShadowrocketWireGuard(line: string): ProxyNode | null {
   }
 }
 
-// --- 解析 WireGuard 官方 .conf 格式 ---
+// --- 解析 WireGuard 官方 .conf 格式 (核心修復：注入 dns 陣列) ---
 function parseWireGuardConf(text: string): ProxyNode[] {
   const nodes: ProxyNode[] = [];
   const sections = text.split(/(?=\[Interface\])/i).filter(s => s.trim().length > 0);
@@ -2375,7 +2376,8 @@ function parseWireGuardConf(text: string): ProxyNode[] {
     const privateKey = getVal('PrivateKey');
     const addressStr = getVal('Address');
     const localAddress = addressStr ? addressStr.split(',').map(s => s.trim()) : ['10.2.0.2/32'];
-    const dns = getVal('DNS') || '10.2.0.1';
+    const rawDns = getVal('DNS');
+    const dns = rawDns ? rawDns.split(',')[0].trim() : '10.2.0.1';
     const publicKey = getVal('PublicKey');
     const presharedKey = getVal('PresharedKey') || undefined;
     const endpoint = getVal('Endpoint');
@@ -2433,6 +2435,7 @@ function parseWireGuardConf(text: string): ProxyNode[] {
       mtu
     };
 
+    // 💥 核心修復：把 NetShield 內網 DNS 10.2.0.1 精確傳遞給 Clash Meta 節點！
     node.clashObj = {
       name,
       type: 'wireguard',
@@ -2445,7 +2448,8 @@ function parseWireGuardConf(text: string): ProxyNode[] {
       'preshared-key': presharedKey,
       mtu,
       udp: true,
-      'remote-dns-resolve': true
+      'remote-dns-resolve': true,
+      dns: [dns || '10.2.0.1'] // 解決「有延遲但不能上網」的根因
     };
 
     nodes.push(node);
@@ -2578,7 +2582,7 @@ function parseShadowsocks(urlStr: string): ProxyNode | null {
   }
 }
 
-// --- 解析 VLESS (核心修復：精確注入 network: ws) ---
+// --- 解析 VLESS ---
 function parseVless(urlStr: string): ProxyNode | null {
   try {
     const parsed = parseProxyUri(urlStr, 443);
@@ -2623,7 +2627,6 @@ function parseVless(urlStr: string): ProxyNode | null {
     const hostHeader = params.get('host') || params.get('sni') || parsed.hostname;
     const sniHost = params.get('sni') || params.get('host') || parsed.hostname;
 
-    // 只有使用者在連結明確帶入 alpn 時才使用，不強塞 http/1.1
     const customAlpn = params.get('alpn') ? params.get('alpn')!.split(',') : undefined;
 
     const node: ProxyNode = {
@@ -2751,9 +2754,8 @@ function parseVless(urlStr: string): ProxyNode | null {
       cl['reality-opts'] = { 'public-key': node.reality.publicKey, 'short-id': node.reality.shortId };
     }
 
-    // 💥 核心修正：為 WebSocket 節點明確設定 network: ws 標籤！
     if (node.network === 'ws') {
-      cl.network = 'ws'; // 過去遺漏此處，導致 Clash Meta 當成純 TCP 連線
+      cl.network = 'ws';
       cl['ws-opts'] = {
         path: cleanPath,
         headers: node.wsHeaders,
@@ -2839,7 +2841,8 @@ function parseWireGuard(urlStr: string): ProxyNode | null {
       'preshared-key': presharedKey,
       mtu,
       udp: true,
-      'remote-dns-resolve': true
+      'remote-dns-resolve': true,
+      dns: [dns || '10.2.0.1'] // 💥 注入內網 DNS
     };
 
     return node;
@@ -3199,7 +3202,7 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
 
     if (!server) return null;
 
-    // 1. VLESS (完全保全使用者設定，且補齊 network 標籤)
+    // 1. VLESS
     if (type === 'vless') {
       const uuid = String(p.uuid || '').trim();
       if (!uuid) return null;
@@ -3235,7 +3238,6 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
         }
       }
 
-      // 產生純淨的 Clash 物件，並強保證 network 字段存在
       const clashObjCopy: Record<string, unknown> = { ...p };
       clashObjCopy.network = network;
       if (!alpn) {
@@ -3406,7 +3408,7 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
       return node;
     }
 
-    // 7. WireGuard
+    // 7. WireGuard (修復：注入專屬 dns)
     if (type === 'wireguard') {
       const privateKey = String(p['private-key'] || '');
       const publicKey = String(p['public-key'] || '');
@@ -3418,13 +3420,14 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
       const presharedKey = p['preshared-key'] ? String(p['preshared-key']) : undefined;
       const mtu = parseInt(String(p.mtu || 1420), 10) || 1420;
       const reserved = Array.isArray(p.reserved) ? p.reserved.map(Number) : undefined;
+      const dnsList = p.dns ? (Array.isArray(p.dns) ? p.dns.map(String) : [String(p.dns)]) : ['10.2.0.1'];
 
       const wgConfig: WireGuardConfig = {
-        privateKey, localAddress, publicKey, presharedKey, mtu, reserved
+        privateKey, localAddress, publicKey, presharedKey, mtu, reserved, dns: dnsList[0]
       };
       const node: ProxyNode = {
         type: 'wireguard', name, server, port, udp: true, wireguard: wgConfig,
-        clashObj: { ...p }
+        clashObj: { ...p, dns: dnsList }
       };
       node.singboxObj = {
         type: 'wireguard', tag: name, address: localAddress, private_key: privateKey,

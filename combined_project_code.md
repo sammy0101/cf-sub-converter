@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Fri Sep 18 12:08:17 UTC 2026
+Generated on: Sat Sep 19 10:48:39 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3686,7 +3686,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         return `wireguard://${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
 
-      // MASQUE 標準格式（針對 Shadowrocket 與其他客戶端全方位相容）
+      // MASQUE 標準格式
       if (node.type === 'masque' && node.masque) {
         const m = node.masque;
         const params = new URLSearchParams();
@@ -3697,8 +3697,6 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (m.uri) params.set('uri', m.uri);
         if (m.sni) params.set('sni', m.sni);
         
-        // 💥 小火箭專用精確鍵名注入：
-        // Shadowrocket 對 QUIC / MASQUE 的擁塞控制參數匹配 cca / cc / congestion_control
         const cc = m.congestion_controller || 'bbr';
         params.set('cca', cc);
         params.set('cc', cc);
@@ -3724,52 +3722,26 @@ export function toBase64(nodes: ProxyNode[]): string {
   return utf8ToBase64(rawLinks);
 }
 
-// --- 動態 SWR 模板拉取機制 ---
-async function fetchTemplateWithSWR(
+// --- 直接自 GitHub 讀取遠端模板 (無 KV 快取，失敗時由內建降級規則兜底) ---
+async function fetchTemplateDirect(
   url: string,
-  cacheType: 'singbox' | 'clash',
-  fallbackJsonStr: string,
-  env?: Env,
-  forceRefresh = false
+  fallbackStr: string
 ): Promise<string> {
-  const dynamicKey = `tpl:${cacheType}`;
-
-  if (!forceRefresh && env?.SUB_CACHE) {
-    try {
-      const cached = await env.SUB_CACHE.get(dynamicKey);
-      if (cached) {
-        fetch(`${url}?t=${Date.now()}`, {
-          headers: { 'User-Agent': 'v2rayNG/1.8.5' }
-        }).then(async res => {
-          if (res.ok) {
-            const freshText = await res.text();
-            await env.SUB_CACHE.put(dynamicKey, freshText, { expirationTtl: 600 });
-          }
-        }).catch(() => {});
-        return cached;
-      }
-    } catch {}
-  }
-
   try {
     const resp = await fetch(`${url}?t=${Date.now()}`, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
     });
     if (resp.ok) {
-      const text = await resp.text();
-      if (env?.SUB_CACHE) {
-        await env.SUB_CACHE.put(dynamicKey, text, { expirationTtl: 600 });
-      }
-      return text;
+      return await resp.text();
     }
   } catch {}
 
-  return fallbackJsonStr;
+  return fallbackStr;
 }
 
 // --- Sing-Box 配置生成 ---
-export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
-  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.singbox, 'singbox', FALLBACK_SINGBOX_RULES, env, forceRefresh);
+export async function toSingBoxWithTemplate(nodes: ProxyNode[], _env?: Env, _forceRefresh = false): Promise<string> {
+  const text = await fetchTemplateDirect(REMOTE_CONFIG.singbox, FALLBACK_SINGBOX_RULES);
   const config = JSON.parse(text);
   
   if (!config.http_clients || !Array.isArray(config.http_clients) || config.http_clients.length === 0) {
@@ -3910,8 +3882,8 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], env?: Env, force
 }
 
 // --- Clash Meta 配置生成 ---
-export async function toClashWithTemplate(nodes: ProxyNode[], env?: Env, forceRefresh = false): Promise<string> {
-  const text = await fetchTemplateWithSWR(REMOTE_CONFIG.clash, 'clash', FALLBACK_CLASH_RULES, env, forceRefresh);
+export async function toClashWithTemplate(nodes: ProxyNode[], _env?: Env, _forceRefresh = false): Promise<string> {
+  const text = await fetchTemplateDirect(REMOTE_CONFIG.clash, FALLBACK_CLASH_RULES);
   const config = yaml.load(text) as Record<string, unknown>;
   
   const proxies = nodes.map(n => {

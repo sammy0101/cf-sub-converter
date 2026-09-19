@@ -708,7 +708,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       if (!favs[index]) return;
       var f = favs[index];
       document.getElementById('urlInput').value = f.url || '';
-      document.getElementById('shortCode').value = (f.name || '').replace(/\\s+/g, '-').toLowerCase();
+      document.getElementById('shortCode').value = f.name || '';
       document.getElementById('includeKeywords').value = f.include || '';
       document.getElementById('excludeKeywords').value = f.exclude || '';
       document.getElementById('renameKeywords').value = f.rename || '';
@@ -829,7 +829,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify({ path: shortCode, content: raw, include: include, exclude: exclude, rename: rename }) 
         }).then(function() {
-          proceed(host + '/' + shortCode);
+          proceed(host + '/' + encodeURIComponent(shortCode));
         }).catch(function() {
           showToast('短連結儲存失敗，請檢查 KV 配置', false);
         });

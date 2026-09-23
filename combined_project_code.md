@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep 23 10:05:23 UTC 2026
+Generated on: Wed Sep 23 10:05:52 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -4108,7 +4108,7 @@ export const REMOTE_CONFIG = {
   clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML'
 };
 
-// 方案 B1 內嵌緊急降級模板 (純 IPv4 純淨版，全面使用 system-dns)
+// 方案 B1 內嵌緊急降級模板 (純 IPv4 純淨版，全面使用 system-dns，移除 Apple 獨立 DNS 鎖定)
 export const FALLBACK_SINGBOX_RULES = JSON.stringify({
   log: { level: "info" },
   http_clients: [
@@ -4129,7 +4129,6 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
       { rule_set: "rs-ads", action: "reject" },
       { rule_set: ["rs-private"], server: "system-dns" },
       { rule_set: ["rs-cn"], server: "system-dns", disable_cache: true },
-      { rule_set: ["rs-apple"], server: "system-dns", disable_cache: true },
       {
         rule_set: [
           "rs-geolocation-!cn",
@@ -4197,9 +4196,6 @@ dns:
       - system
       - https://223.5.5.5/dns-query
       - https://doh.pub/dns-query
-    "rule-set:apple":
-      - system
-      - https://1.1.1.1/dns-query
     "cloudflare-ech.com":
       - https://223.5.5.5/dns-query
   nameserver:
@@ -5145,6 +5141,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
 </body>
 </html>
 `;
+
 ````
 
 ## File: src/types.ts

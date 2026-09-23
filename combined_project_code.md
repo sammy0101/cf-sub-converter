@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep 23 06:10:53 UTC 2026
+Generated on: Wed Sep 23 06:12:06 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -3798,7 +3798,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], _env?: Env, _for
   }
 
   if (!config.route) config.route = {};
-  config.route.default_domain_resolver = 'local-dns';
+  config.route.default_domain_resolver = 'system-dns';
   config.route.default_http_client = 'default';
   
   if (Array.isArray(config.route.rule_set)) {
@@ -4101,7 +4101,6 @@ export function toLoon(nodes: ProxyNode[]): string {
 
   return lines.join('\n');
 }
-
 ````
 
 ## File: src/constants.ts

@@ -206,7 +206,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], _env?: Env, _for
   }
 
   if (!config.route) config.route = {};
-  config.route.default_domain_resolver = 'local-dns';
+  config.route.default_domain_resolver = 'system-dns';
   config.route.default_http_client = 'default';
   
   if (Array.isArray(config.route.rule_set)) {

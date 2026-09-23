@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep 23 10:09:26 UTC 2026
+Generated on: Wed Sep 23 10:10:03 UTC 2026
 
 ## File: .github/workflows/combine-code.yml
 ````yml
@@ -522,6 +522,7 @@ dns:
     - '+.pool.ntp.org'
     - 'rule-set:cn'
     - 'rule-set:private'
+    - 'rule-set:apple'
 
   # 1. 基礎引導 DNS (直連)
   default-nameserver:
@@ -549,6 +550,8 @@ dns:
       - system
       - https://223.5.5.5/dns-query
       - https://doh.pub/dns-query
+    "rule-set:apple":
+      - system
     "cloudflare-ech.com":
       - https://223.5.5.5/dns-query
 

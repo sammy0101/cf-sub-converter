@@ -83,13 +83,6 @@
       },
       {
         "rule_set": [
-          "rs-apple"
-        ],
-        "server": "system-dns",
-        "disable_cache": true
-      },
-      {
-        "rule_set": [
           "rs-geolocation-!cn",
           "rs-ai"
         ],

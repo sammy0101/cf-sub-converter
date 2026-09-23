@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep 23 06:12:06 UTC 2026
+Generated on: Wed Sep 23 06:13:00 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -4111,7 +4111,7 @@ export const REMOTE_CONFIG = {
   clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML'
 };
 
-// 方案 B1 內嵌緊急降級模板 (純 IPv4 純淨版)
+// 方案 B1 內嵌緊急降級模板 (純 IPv4 純淨版，全面使用 system-dns)
 export const FALLBACK_SINGBOX_RULES = JSON.stringify({
   log: { level: "info" },
   http_clients: [
@@ -4123,16 +4123,16 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
       { tag: "remote-cf-dns", type: "https", server: "1.1.1.1", detour: "🚀 節點選擇" },
       { tag: "direct-ali-doh", type: "https", server: "223.5.5.5" },
       { tag: "direct-pub-doh", type: "https", server: "119.29.29.29" },
-      { tag: "local-dns", type: "udp", server: "223.5.5.5" },
       { tag: "system-dns", type: "local" },
+      { tag: "local-dns", type: "local" },
       { tag: "fakeip-dns", type: "fakeip", inet4_range: "198.18.0.0/15" }
     ],
     rules: [
       { domain: ["cloudflare-ech.com"], domain_suffix: ["cloudflare-ech.com"], server: "direct-ali-doh" },
       { rule_set: "rs-ads", action: "reject" },
-      { rule_set: ["rs-cn"], server: "direct-pub-doh", disable_cache: true },
       { rule_set: ["rs-private"], server: "system-dns" },
-      { rule_set: ["rs-apple"], server: "remote-cf-dns", disable_cache: true },
+      { rule_set: ["rs-cn"], server: "system-dns", disable_cache: true },
+      { rule_set: ["rs-apple"], server: "system-dns", disable_cache: true },
       {
         rule_set: [
           "rs-geolocation-!cn",
@@ -4152,7 +4152,7 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
     { type: "block", tag: "block" }
   ],
   route: {
-    default_domain_resolver: "local-dns",
+    default_domain_resolver: "system-dns",
     default_http_client: "default",
     rules: [
       { action: "sniff" },
@@ -4185,13 +4185,24 @@ proxy-groups:
 dns:
   enable: true
   enhanced-mode: fake-ip
+  default-nameserver:
+    - system
+    - 119.29.29.29
+    - 223.5.5.5
+    - 1.1.1.1
+    - 8.8.8.8
+  direct-nameserver:
+    - system
   nameserver-policy:
+    "rule-set:private":
+      - system
     "rule-set:cn":
+      - system
       - https://223.5.5.5/dns-query
       - https://doh.pub/dns-query
     "rule-set:apple":
+      - system
       - https://1.1.1.1/dns-query
-      - https://223.5.5.5/dns-query
     "cloudflare-ech.com":
       - https://223.5.5.5/dns-query
   nameserver:
@@ -4863,7 +4874,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       var url = document.getElementById('favUrl').value.trim();
       var include = document.getElementById('favInclude').value.trim();
       var exclude = document.getElementById('favExclude').value.trim();
-      var rename = document.getElementById('favRename').value.trim();
+      var rename = document.getElementById('renameKeywords').value.trim();
       if (!name || !url) return showToast('請完整填寫名稱與節點內容', false);
 
       var editIndex = document.getElementById('modal').dataset.edit;
@@ -5137,7 +5148,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
 </body>
 </html>
 `;
-
 ````
 
 ## File: src/types.ts

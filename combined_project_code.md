@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep 23 06:13:00 UTC 2026
+Generated on: Wed Sep 23 10:05:08 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -95,7 +95,6 @@ dns:
     - '+.pool.ntp.org'
     - 'rule-set:cn'
     - 'rule-set:private'
-    - 'rule-set:apple'
 
   # 1. 基礎引導 DNS (直連)
   default-nameserver:
@@ -105,7 +104,7 @@ dns:
     - 1.1.1.1
     - 8.8.8.8
 
-  # 直連專用 DNS (Mihomo 原生支援)
+  # 直連專用 DNS
   direct-nameserver:
     - system
 
@@ -123,9 +122,6 @@ dns:
       - system
       - https://223.5.5.5/dns-query
       - https://doh.pub/dns-query
-    "rule-set:apple":
-      - system
-      - https://1.1.1.1/dns-query
     "cloudflare-ech.com":
       - https://223.5.5.5/dns-query
 
@@ -356,6 +352,7 @@ rules:
 
   # 8. 國外網站兜底：全走代理
   - MATCH,🐟 漏網之魚
+
 ````
 
 ## File: argo.sh

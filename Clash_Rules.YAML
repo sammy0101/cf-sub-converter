@@ -75,10 +75,15 @@ dns:
 
   # 1. 基礎引導 DNS (直連)
   default-nameserver:
-    - 223.5.5.5
+    - system
     - 119.29.29.29
+    - 223.5.5.5
     - 1.1.1.1
     - 8.8.8.8
+
+  # 直連專用 DNS (Mihomo 原生支援)
+  direct-nameserver:
+    - system
 
   # 2. 節點/直連專用 DNS (DoH)
   proxy-server-nameserver:
@@ -88,12 +93,15 @@ dns:
 
   # 3. 網域特殊分流策略
   nameserver-policy:
+    "rule-set:private":
+      - system
     "rule-set:cn":
+      - system
       - https://223.5.5.5/dns-query
       - https://doh.pub/dns-query
     "rule-set:apple":
+      - system
       - https://1.1.1.1/dns-query
-      - https://223.5.5.5/dns-query
     "cloudflare-ech.com":
       - https://223.5.5.5/dns-query
 

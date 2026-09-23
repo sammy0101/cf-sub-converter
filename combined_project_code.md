@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Sep 23 10:05:08 UTC 2026
+Generated on: Wed Sep 23 10:05:23 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -5517,13 +5517,6 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
       },
       {
         "rule_set": [
-          "rs-apple"
-        ],
-        "server": "system-dns",
-        "disable_cache": true
-      },
-      {
-        "rule_set": [
           "rs-geolocation-!cn",
           "rs-ai"
         ],
@@ -5613,6 +5606,7 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
     }
   }
 }
+
 ````
 
 ## File: .github/workflows/combine-code.yml

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sat Sep 19 11:27:00 UTC 2026
+Generated on: Wed Sep 23 06:10:23 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -5454,12 +5454,11 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
         "server": "119.29.29.29"
       },
       {
-        "tag": "local-dns",
-        "type": "udp",
-        "server": "223.5.5.5"
+        "tag": "system-dns",
+        "type": "local"
       },
       {
-        "tag": "system-dns",
+        "tag": "local-dns",
         "type": "local"
       },
       {
@@ -5492,22 +5491,22 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
       },
       {
         "rule_set": [
-          "rs-cn"
-        ],
-        "server": "direct-pub-doh",
-        "disable_cache": true
-      },
-      {
-        "rule_set": [
           "rs-private"
         ],
         "server": "system-dns"
       },
       {
         "rule_set": [
+          "rs-cn"
+        ],
+        "server": "system-dns",
+        "disable_cache": true
+      },
+      {
+        "rule_set": [
           "rs-apple"
         ],
-        "server": "remote-cf-dns",
+        "server": "system-dns",
         "disable_cache": true
       },
       {
@@ -5551,7 +5550,7 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
     { "type": "block", "tag": "REJECT" }
   ],
   "route": {
-    "default_domain_resolver": "local-dns",
+    "default_domain_resolver": "system-dns",
     "default_http_client": "default",
     "rule_set": [
       { "type": "remote", "tag": "rs-ai", "format": "binary", "url": "https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.srs" },

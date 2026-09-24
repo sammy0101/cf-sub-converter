@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Sep 24 10:57:59 UTC 2026
+Generated on: Thu Sep 24 16:18:52 UTC 2026
 
 ## File: .github/workflows/combine-code.yml
 ````yml
@@ -3927,7 +3927,8 @@ export default {
     if (request.method === 'POST' && url.pathname === '/save') {
       try {
         const body = (await request.json()) as { path?: string; content?: string; include?: string; exclude?: string; rename?: string };
-        if (!body.path || !body.content) return new Response('Missing path or content', { status: 400 });
+        const cleanPath = (body.path || '').trim();
+        if (!cleanPath || !body.content) return new Response('Missing path or content', { status: 400 });
         
         const saveData = {
           content: body.content,
@@ -3935,9 +3936,13 @@ export default {
           exclude: body.exclude || '',
           rename: body.rename || ''
         };
-        await env.SUB_CACHE.put(body.path, JSON.stringify(saveData));
+        // 儲存原始字元路徑
+        await env.SUB_CACHE.put(cleanPath, JSON.stringify(saveData));
         
-        return new Response('OK', { status: 200 });
+        return new Response('OK', { 
+          status: 200,
+          headers: { 'Access-Control-Allow-Origin': '*' }
+        });
       } catch {
         return new Response('Error saving profile', { status: 500 });
       }
@@ -4036,13 +4041,16 @@ export default {
     let nameParam = url.searchParams.get('name') || '';
     const forceRefresh = url.searchParams.has('force') || url.searchParams.has('nocache');
 
-    const path = decodeURIComponent(url.pathname.slice(1)); 
+    // 取得路徑短代碼 (去除首位斜線並完整 URL 解碼)
+    const rawPath = url.pathname.replace(/^\/+/, '');
+    const path = decodeURIComponent(rawPath).trim();
     let detectedProfileName = nameParam;
 
     if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
       if (!detectedProfileName) {
         detectedProfileName = path;
       }
+      // 多重容災讀取 KV：原始鍵值 -> 小寫鍵值
       let stored = await env.SUB_CACHE.get(path);
       if (!stored && path !== path.toLowerCase()) {
         stored = await env.SUB_CACHE.get(path.toLowerCase());
@@ -4063,6 +4071,7 @@ export default {
       }
     }
 
+    // 若沒有內容，且非 sub 端點，才顯示首頁 Web 前端
     if (!urlParam || urlParam.trim() === '') {
       if (path === 'sub') {
         return new Response('Error: Missing parameter "url"', { status: 400 });
@@ -4101,7 +4110,7 @@ export default {
         errors.push(`[MASQUE 配置] 失敗原因: ${msg}`);
       }
     } 
-    // 3. 優先完整辨識多行 Clash YAML 配置
+    // 3. 優先完整辨識多行 Clash YAML 配置 (含 proxies:)
     else if (/(^|\n)\s*proxies\s*:/i.test(trimmedParam)) {
       try {
         const parsed = await parseContent(trimmedParam);

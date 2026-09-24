@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Sep 24 16:19:25 UTC 2026
+Generated on: Thu Sep 24 16:25:59 UTC 2026
 
 ## File: .github/workflows/combine-code.yml
 ````yml
@@ -3927,7 +3927,7 @@ export default {
       });
     }
 
-    // POST /save 
+    // POST /save (雙向儲存原始與全小寫路徑)
     if (request.method === 'POST' && url.pathname === '/save') {
       try {
         const body = (await request.json()) as { path?: string; content?: string; include?: string; exclude?: string; rename?: string };
@@ -3940,8 +3940,15 @@ export default {
           exclude: body.exclude || '',
           rename: body.rename || ''
         };
-        // 儲存原始字元路徑
-        await env.SUB_CACHE.put(cleanPath, JSON.stringify(saveData));
+        const jsonStr = JSON.stringify(saveData);
+
+        // 1. 寫入原始鍵值
+        await env.SUB_CACHE.put(cleanPath, jsonStr);
+
+        // 2. 若含大寫，同步備份全小寫鍵值
+        if (cleanPath !== cleanPath.toLowerCase()) {
+          await env.SUB_CACHE.put(cleanPath.toLowerCase(), jsonStr);
+        }
         
         return new Response('OK', { 
           status: 200,
@@ -3989,6 +3996,20 @@ export default {
           rename: body.rename || ''
         });
         await saveFavs(favs);
+
+        // 同步在獨立短代碼建立映射
+        const cleanName = body.name.trim();
+        const syncData = JSON.stringify({
+          content: body.url,
+          include: body.include || '',
+          exclude: body.exclude || '',
+          rename: body.rename || ''
+        });
+        await env.SUB_CACHE.put(cleanName, syncData);
+        if (cleanName !== cleanName.toLowerCase()) {
+          await env.SUB_CACHE.put(cleanName.toLowerCase(), syncData);
+        }
+
         return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
       } catch {
         return new Response('Error saving favorite', { status: 500 });
@@ -4012,6 +4033,18 @@ export default {
             rename: body.rename || ''
           };
           await saveFavs(favs);
+
+          const cleanName = body.name.trim();
+          const syncData = JSON.stringify({
+            content: body.url,
+            include: body.include || '',
+            exclude: body.exclude || '',
+            rename: body.rename || ''
+          });
+          await env.SUB_CACHE.put(cleanName, syncData);
+          if (cleanName !== cleanName.toLowerCase()) {
+            await env.SUB_CACHE.put(cleanName.toLowerCase(), syncData);
+          }
         }
         return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
       } catch {
@@ -4028,8 +4061,12 @@ export default {
         if (body.index === undefined) return new Response('Missing index', { status: 400 });
         const favs = await getFavs();
         if (body.index >= 0 && body.index < favs.length) {
-          favs.splice(body.index, 1);
+          const removed = favs.splice(body.index, 1)[0];
           await saveFavs(favs);
+          if (removed && removed.name) {
+            await env.SUB_CACHE.delete(removed.name.trim());
+            await env.SUB_CACHE.delete(removed.name.trim().toLowerCase());
+          }
         }
         return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
       } catch {
@@ -4054,10 +4091,18 @@ export default {
       if (!detectedProfileName) {
         detectedProfileName = path;
       }
-      // 多重容災讀取 KV：原始鍵值 -> 小寫鍵值
+      
+      // 1. 優先直接讀取原始 path
       let stored = await env.SUB_CACHE.get(path);
+      
+      // 2. 若未找到，嘗試小寫
       if (!stored && path !== path.toLowerCase()) {
         stored = await env.SUB_CACHE.get(path.toLowerCase());
+      }
+
+      // 3. 若未找到，嘗試大寫 (關鍵修復：輸入 cf_masque 亦可尋獲 CF_MASQUE)
+      if (!stored && path !== path.toUpperCase()) {
+        stored = await env.SUB_CACHE.get(path.toUpperCase());
       }
 
       if (stored) { 
@@ -4072,6 +4117,26 @@ export default {
         } catch {
           urlParam = stored; 
         }
+      }
+
+      // 4. 終極容災：若獨立 Key 未找到，搜尋收藏夾列表 (Favorites)
+      if (!urlParam || urlParam.trim() === '') {
+        try {
+          const favsData = await env.SUB_CACHE.get('favorites');
+          if (favsData) {
+            const favsList = JSON.parse(favsData) as Array<Record<string, string>>;
+            const matched = favsList.find(f => 
+              f.name && f.name.trim().toLowerCase() === path.toLowerCase()
+            );
+            if (matched && matched.url) {
+              urlParam = matched.url;
+              if (!includeParam) includeParam = matched.include || '';
+              if (!excludeParam) excludeParam = matched.exclude || '';
+              if (!renameParam) renameParam = matched.rename || '';
+              detectedProfileName = matched.name;
+            }
+          }
+        } catch {}
       }
     }
 

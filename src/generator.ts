@@ -4,10 +4,6 @@ import { Env, ProxyNode } from './types';
 import { REMOTE_CONFIG, FALLBACK_SINGBOX_RULES, FALLBACK_CLASH_RULES } from './constants';
 import { utf8ToBase64 } from './utils';
 
-function isIpAddress(str: string): boolean {
-  return /^(\d{1,3}\.){3}\d{1,3}$/.test(str) || str.includes(':');
-}
-
 // --- 明文 URI / 節點行格式導出 ---
 export function toRawLinks(nodes: ProxyNode[]): string {
   const links = nodes.map(node => {
@@ -20,11 +16,13 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (node.sni) params.set('sni', node.sni);
         if (node.fingerprint) params.set('fp', node.fingerprint);
         if (node.ech) {
-          const domain = (node.echQueryServerName && !isIpAddress(node.echQueryServerName)) 
-            ? node.echQueryServerName 
-            : 'cloudflare-ech.com';
-          const echParam = node.echDoh ? `${domain}+${node.echDoh}` : domain;
-          params.set('ech', echParam);
+          if (node.echDoh) {
+            params.set('ech', `${node.echQueryServerName || 'cloudflare-ech.com'}+${node.echDoh}`);
+          } else if (node.echQueryServerName) {
+            params.set('ech', node.echQueryServerName);
+          } else {
+            params.set('ech', '1');
+          }
         }
         if (node.reality) { params.set('pbk', node.reality.publicKey); params.set('sid', node.reality.shortId); }
         if (node.network === 'ws') { if (node.wsPath) params.set('path', node.wsPath); if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host); }
@@ -61,11 +59,13 @@ export function toRawLinks(nodes: ProxyNode[]): string {
           if (node.alpn) params.set('alpn', node.alpn.join(','));
           if (node.fingerprint) params.set('fp', node.fingerprint);
           if (node.ech) {
-            const domain = (node.echQueryServerName && !isIpAddress(node.echQueryServerName)) 
-              ? node.echQueryServerName 
-              : 'cloudflare-ech.com';
-            const echParam = node.echDoh ? `${domain}+${node.echDoh}` : domain;
-            params.set('ech', echParam);
+            if (node.echDoh) {
+              params.set('ech', `${node.echQueryServerName || 'cloudflare-ech.com'}+${node.echDoh}`);
+            } else if (node.echQueryServerName) {
+              params.set('ech', node.echQueryServerName);
+            } else {
+              params.set('ech', '1');
+            }
           }
           params.set('type', node.network || 'tcp');
         }
@@ -102,11 +102,13 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (node.sni) params.set('sni', node.sni);
         if (node.skipCertVerify) params.set('allowInsecure', '1');
         if (node.ech) {
-          const domain = (node.echQueryServerName && !isIpAddress(node.echQueryServerName)) 
-            ? node.echQueryServerName 
-            : 'cloudflare-ech.com';
-          const echParam = node.echDoh ? `${domain}+${node.echDoh}` : domain;
-          params.set('ech', echParam);
+          if (node.echDoh) {
+            params.set('ech', `${node.echQueryServerName || 'cloudflare-ech.com'}+${node.echDoh}`);
+          } else if (node.echQueryServerName) {
+            params.set('ech', node.echQueryServerName);
+          } else {
+            params.set('ech', '1');
+          }
         }
         return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
       }
@@ -207,27 +209,23 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], _env?: Env, _for
       config.dns.rules = config.dns.rules.filter((r: Record<string, unknown>) => !('outbound' in r));
     }
 
-    // 只有節點真正啟用 ECH 時，按「唯一網域」去重掛載，杜絕幾十條重複規則
-    const echNodes = nodes.filter(n => n.ech);
-    if (echNodes.length > 0) {
-      const echMap = new Map<string, string>(); // domain -> doh
-      for (const n of echNodes) {
-        const domain = (n.echQueryServerName && !isIpAddress(n.echQueryServerName)) 
-          ? n.echQueryServerName 
-          : 'cloudflare-ech.com';
-        const doh = n.echDoh || '1.1.1.1';
-        if (!echMap.has(domain)) {
-          echMap.set(domain, doh);
+    // 只有節點「明確以 https:// 給出 DoH」時，才動態掛載 DoH 與網域
+    const nodesWithCustomDoh = nodes.filter(n => n.ech && n.echDoh && /^https?:\/\//i.test(n.echDoh));
+    if (nodesWithCustomDoh.length > 0) {
+      const dohMap = new Map<string, string>(); // domain -> dohUrl
+      for (const n of nodesWithCustomDoh) {
+        const domain = n.echQueryServerName || 'cloudflare-ech.com';
+        const dohUrl = n.echDoh!;
+        if (!dohMap.has(domain)) {
+          dohMap.set(domain, dohUrl);
         }
       }
 
-      for (const [domain, doh] of echMap.entries()) {
-        let serverHost = doh;
+      for (const [domain, dohUrl] of dohMap.entries()) {
+        let serverHost = dohUrl;
         try {
-          if (doh.startsWith('http')) {
-            const u = new URL(doh);
-            serverHost = u.hostname;
-          }
+          const u = new URL(dohUrl);
+          serverHost = u.hostname;
         } catch {}
 
         const tag = `ech-doh-${domain.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
@@ -239,7 +237,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], _env?: Env, _for
           });
         }
 
-        // 嚴格檢查是否已存在該網域規則，保證絕不重複插入
         const alreadyExists = config.dns.rules.some((r: Record<string, unknown>) => {
           const doms = r.domain as string[] | undefined;
           return Array.isArray(doms) && doms.includes(domain);
@@ -397,20 +394,17 @@ export async function toClashWithTemplate(nodes: ProxyNode[], _env?: Env, _force
     });
   }
 
-  // 依據節點輸入動態掛載 ECH DNS policy（防呆排除 IP 充當網域）
-  const echNodes = nodes.filter(n => n.ech);
-  if (echNodes.length > 0 && config.dns && typeof config.dns === 'object') {
+  // 只有當節點明確給出以 https:// 開頭的 DoH 時，才在 Clash 中掛載 nameserver-policy
+  const nodesWithCustomDoh = nodes.filter(n => n.ech && n.echDoh && /^https?:\/\//i.test(n.echDoh));
+  if (nodesWithCustomDoh.length > 0 && config.dns && typeof config.dns === 'object') {
     const dnsObj = config.dns as Record<string, unknown>;
     if (!dnsObj['nameserver-policy'] || typeof dnsObj['nameserver-policy'] !== 'object') {
       dnsObj['nameserver-policy'] = {};
     }
     const policy = dnsObj['nameserver-policy'] as Record<string, string[]>;
-    for (const n of echNodes) {
-      const domain = (n.echQueryServerName && !isIpAddress(n.echQueryServerName))
-        ? n.echQueryServerName
-        : 'cloudflare-ech.com';
-      const doh = n.echDoh || 'https://1.1.1.1/dns-query';
-      policy[domain] = [doh];
+    for (const n of nodesWithCustomDoh) {
+      const domain = n.echQueryServerName || 'cloudflare-ech.com';
+      policy[domain] = [n.echDoh!];
     }
   }
 

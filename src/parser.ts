@@ -47,11 +47,7 @@ function parsePluginParams(str: string): Record<string, string> {
   return params;
 }
 
-function isIpAddress(str: string): boolean {
-  return /^(\d{1,3}\.){3}\d{1,3}$/.test(str) || str.includes(':');
-}
-
-// 智慧解析 ECH 參數，動態提取網域與 DoH URL (嚴格防呆排除 IP 充當網域)
+// 嚴格判斷 ECH 參數：只有以 https:// 開頭才視為 DoH，不再任意腦補 IP
 function parseEchInfo(val: string | null | undefined): { enabled: boolean; domain?: string; doh?: string } {
   if (!val) return { enabled: false };
   const raw = val.trim();
@@ -60,31 +56,38 @@ function parseEchInfo(val: string | null | undefined): { enabled: boolean; domai
     return { enabled: false };
   }
   
-  // 1. domain+doh 格式 (例如: cloudflare-ech.com+https://1.1.1.1/dns-query)
+  // 1. 純開關 (例如: ech=1 或 ech=true)
+  if (clean === '1' || clean === 'true') {
+    return { enabled: true };
+  }
+
+  // 2. 格式: domain+doh (例如: cloudflare-ech.com+https://1.1.1.1/dns-query)
   if (raw.includes('+')) {
     const parts = raw.split('+');
-    const domain = parts[0]?.trim();
-    const doh = parts.slice(1).join('+').trim();
-    const validDomain = (domain && !isIpAddress(domain)) ? domain : undefined;
-    return { enabled: true, domain: validDomain, doh: doh || undefined };
+    const domainPart = parts[0]?.trim();
+    const dohPart = parts.slice(1).join('+').trim();
+    // 嚴格只有以 https:// 或 http:// 開頭才認定為 DoH
+    const validDoh = /^https?:\/\//i.test(dohPart) ? dohPart : undefined;
+    return {
+      enabled: true,
+      domain: domainPart || undefined,
+      doh: validDoh
+    };
   }
 
-  // 2. 若直接輸入 DoH 網址 (例如: https://1.1.1.1/dns-query)
+  // 3. 只有以 https:// 或 http:// 開頭，才認定為 DoH
   if (/^https?:\/\//i.test(raw)) {
-    return { enabled: true, doh: raw };
+    return {
+      enabled: true,
+      doh: raw
+    };
   }
 
-  // 3. 若輸入純 IP 地址 (例如: 1.1.1.1 或 223.5.5.5)，則是 DoH 伺服器 IP
-  if (isIpAddress(raw)) {
-    return { enabled: true, doh: `https://${raw}/dns-query` };
-  }
-
-  // 4. 若為單純網域名稱 (例如: cloudflare-ech.com)
-  if (clean !== '1' && clean !== 'true') {
-    return { enabled: true, domain: raw };
-  }
-
-  return { enabled: true };
+  // 4. 其餘普通字串視為自訂 ECH 查詢網域名稱
+  return {
+    enabled: true,
+    domain: raw
+  };
 }
 
 // --- 解析 Cloudflare WARP MASQUE 配置 ---
@@ -326,7 +329,7 @@ function parseMasqueUri(urlStr: string): ProxyNode {
     type: 'masque',
     tag: name,
     server: parsed.hostname,
-    server_port: parsed.port,
+    server_port: port,
     private_key: privateKey,
     public_key: publicKey,
     ip: masqueConfig.localIpv4,
@@ -1345,8 +1348,10 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
     } else if (echOpts && echOpts.enable === true) {
       echEnabled = true;
       if (echOpts['query-server-name']) echDomain = String(echOpts['query-server-name']);
-      if (echOpts['doh-server']) echDoh = String(echOpts['doh-server']);
-      else if (echOpts.doh) echDoh = String(echOpts.doh);
+      const rawDoh = echOpts['doh-server'] || echOpts.doh;
+      if (rawDoh && /^https?:\/\//i.test(String(rawDoh))) {
+        echDoh = String(rawDoh);
+      }
     }
 
     const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;

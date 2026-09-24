@@ -735,6 +735,8 @@ export const HTML_PAGE = `<!DOCTYPE html>
       document.getElementById('renameKeywords').value = f.rename || '';
       window.scrollTo({ top: 0, behavior: 'smooth' });
       showToast('已載入配置：' + f.name);
+      // 點擊載入收藏時，自動為用戶註冊短路徑並產生下方轉換連結
+      generate();
     }
 
     function editFav(index) {

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Sep 24 10:33:08 UTC 2026
+Generated on: Thu Sep 24 10:33:41 UTC 2026
 
 ## File: .github/workflows/combine-code.yml
 ````yml
@@ -5220,16 +5220,6 @@ fi
         "detour": "🚀 節點選擇"
       },
       {
-        "tag": "direct-ali-doh",
-        "type": "https",
-        "server": "223.5.5.5"
-      },
-      {
-        "tag": "direct-pub-doh",
-        "type": "https",
-        "server": "119.29.29.29"
-      },
-      {
         "tag": "system-dns",
         "type": "local"
       },
@@ -5251,15 +5241,6 @@ fi
       {
         "clash_mode": "Global",
         "server": "fakeip-dns"
-      },
-      {
-        "domain": [
-          "cloudflare-ech.com"
-        ],
-        "domain_suffix": [
-          "cloudflare-ech.com"
-        ],
-        "server": "direct-ali-doh"
       },
       {
         "rule_set": "rs-ads",

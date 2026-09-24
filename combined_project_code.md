@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Sep 24 10:34:33 UTC 2026
+Generated on: Thu Sep 24 10:48:46 UTC 2026
 
 ## File: wrangler.toml
 ````toml
@@ -1964,7 +1964,11 @@ function parsePluginParams(str: string): Record<string, string> {
   return params;
 }
 
-// 智慧解析 ECH 參數，動態提取網域與 DoH URL
+function isIpAddress(str: string): boolean {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(str) || str.includes(':');
+}
+
+// 智慧解析 ECH 參數，動態提取網域與 DoH URL (嚴格防呆排除 IP 充當網域)
 function parseEchInfo(val: string | null | undefined): { enabled: boolean; domain?: string; doh?: string } {
   if (!val) return { enabled: false };
   const raw = val.trim();
@@ -1972,26 +1976,31 @@ function parseEchInfo(val: string | null | undefined): { enabled: boolean; domai
   if (['0', 'false', 'off', 'none', 'no', ''].includes(clean)) {
     return { enabled: false };
   }
-  // 支援格式: domain+dohURL (例如 cloudflare-ech.com+https://223.5.5.5/dns-query)
+  
+  // 1. domain+doh 格式 (例如: cloudflare-ech.com+https://1.1.1.1/dns-query)
   if (raw.includes('+')) {
     const parts = raw.split('+');
     const domain = parts[0]?.trim();
     const doh = parts.slice(1).join('+').trim();
-    return { enabled: true, domain: domain || undefined, doh: doh || undefined };
+    const validDomain = (domain && !isIpAddress(domain)) ? domain : undefined;
+    return { enabled: true, domain: validDomain, doh: doh || undefined };
   }
-  // 若直接輸入 DoH 網址
+
+  // 2. 若直接輸入 DoH 網址 (例如: https://1.1.1.1/dns-query)
   if (/^https?:\/\//i.test(raw)) {
-    try {
-      const u = new URL(raw);
-      return { enabled: true, domain: u.hostname, doh: raw };
-    } catch {
-      return { enabled: true, doh: raw };
-    }
+    return { enabled: true, doh: raw };
   }
-  // 若為單純網域名稱
+
+  // 3. 若輸入純 IP 地址 (例如: 1.1.1.1 或 223.5.5.5)，則是 DoH 伺服器 IP
+  if (isIpAddress(raw)) {
+    return { enabled: true, doh: `https://${raw}/dns-query` };
+  }
+
+  // 4. 若為單純網域名稱 (例如: cloudflare-ech.com)
   if (clean !== '1' && clean !== 'true') {
     return { enabled: true, domain: raw };
   }
+
   return { enabled: true };
 }
 

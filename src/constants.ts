@@ -777,7 +777,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       var url = document.getElementById('favUrl').value.trim();
       var include = document.getElementById('favInclude').value.trim();
       var exclude = document.getElementById('favExclude').value.trim();
-      var rename = document.getElementById('favRename').value.trim();
+      var rename = document.getElementById('renameKeywords').value.trim();
       if (!name || !url) return showToast('請完整填寫名稱與節點內容', false);
 
       var editIndex = document.getElementById('modal').dataset.edit;
@@ -845,14 +845,18 @@ export const HTML_PAGE = `<!DOCTYPE html>
       };
 
       if (shortCode) {
+        showToast('正在儲存短代碼配置...');
         fetch('/save', { 
           method: 'POST', 
           headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify({ path: shortCode, content: raw, include: include, exclude: exclude, rename: rename }) 
-        }).then(function() {
+        }).then(function(resp) {
+          if (!resp.ok) {
+            throw new Error('伺服器儲存失敗: HTTP ' + resp.status);
+          }
           proceed(host + '/' + encodeURIComponent(shortCode));
-        }).catch(function() {
-          showToast('短連結儲存失敗，請檢查 KV 配置', false);
+        }).catch(function(err) {
+          showToast('短連結儲存失敗，請確認 KV 綁定: ' + err.message, false);
         });
       } else {
         var bUrl = host + '/?url=' + encodeURIComponent(raw);

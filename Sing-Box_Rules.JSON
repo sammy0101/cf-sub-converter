@@ -23,16 +23,6 @@
         "detour": "🚀 節點選擇"
       },
       {
-        "tag": "direct-ali-doh",
-        "type": "https",
-        "server": "223.5.5.5"
-      },
-      {
-        "tag": "direct-pub-doh",
-        "type": "https",
-        "server": "119.29.29.29"
-      },
-      {
         "tag": "system-dns",
         "type": "local"
       },
@@ -54,15 +44,6 @@
       {
         "clash_mode": "Global",
         "server": "fakeip-dns"
-      },
-      {
-        "domain": [
-          "cloudflare-ech.com"
-        ],
-        "domain_suffix": [
-          "cloudflare-ech.com"
-        ],
-        "server": "direct-ali-doh"
       },
       {
         "rule_set": "rs-ads",

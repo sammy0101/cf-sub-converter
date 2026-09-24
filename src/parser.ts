@@ -47,14 +47,35 @@ function parsePluginParams(str: string): Record<string, string> {
   return params;
 }
 
-// 嚴格解析 ECH 參數，只有明確開啟時才為 true
-function parseEchParam(val: string | null | undefined): boolean {
-  if (!val) return false;
-  const clean = val.trim().toLowerCase();
+// 智慧解析 ECH 參數，動態提取網域與 DoH URL
+function parseEchInfo(val: string | null | undefined): { enabled: boolean; domain?: string; doh?: string } {
+  if (!val) return { enabled: false };
+  const raw = val.trim();
+  const clean = raw.toLowerCase();
   if (['0', 'false', 'off', 'none', 'no', ''].includes(clean)) {
-    return false;
+    return { enabled: false };
   }
-  return true;
+  // 支援格式: domain+dohURL (例如 cloudflare-ech.com+https://223.5.5.5/dns-query)
+  if (raw.includes('+')) {
+    const parts = raw.split('+');
+    const domain = parts[0]?.trim();
+    const doh = parts.slice(1).join('+').trim();
+    return { enabled: true, domain: domain || undefined, doh: doh || undefined };
+  }
+  // 若直接輸入 DoH 網址
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const u = new URL(raw);
+      return { enabled: true, domain: u.hostname, doh: raw };
+    } catch {
+      return { enabled: true, doh: raw };
+    }
+  }
+  // 若為單純網域名稱
+  if (clean !== '1' && clean !== 'true') {
+    return { enabled: true, domain: raw };
+  }
+  return { enabled: true };
 }
 
 // --- 解析 Cloudflare WARP MASQUE 配置 ---
@@ -96,7 +117,6 @@ function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode {
   const port = parseInt(String(config.port || 443), 10) || 443;
   const rawIpv4 = (config.ip || config.ipv4 || '').trim();
 
-  // 缺失欄位嚴格報錯
   if (!privateKey) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: private_key (私鑰)`);
   if (!publicKey) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: public_key / endpoint_pub_key (公鑰)`);
   if (!server) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: server / endpoint_v4 (伺服器端點)`);
@@ -111,8 +131,6 @@ function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode {
   }
 
   const name = config.name || (index > 0 ? `WARP-MASQUE-${index + 1}` : 'WARP-MASQUE');
-
-  // 100% 優先使用使用者貼上的值
   const uri = (config.uri && String(config.uri).trim()) ? String(config.uri).trim() : 'https://cloudflareaccess.com';
   const customSni = config.sni || config.servername || config.server_name;
   const sni = (customSni && String(customSni).trim()) ? String(customSni).trim() : 'www.microsoft.com';
@@ -127,7 +145,6 @@ function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode {
   const congestionController = (rawCc && String(rawCc).trim()) ? String(rawCc).trim() : 'bbr';
   const mtu = config.mtu ? (parseInt(String(config.mtu), 10) || 1280) : 1280;
   
-  // DNS 嚴格依據貼上內容解析
   let dnsList: string[] = [];
   if (Array.isArray(config.dns) && config.dns.length > 0) {
     dnsList = config.dns.map(d => String(d).trim()).filter(Boolean);
@@ -373,7 +390,6 @@ function parseShadowrocketWireGuard(line: string): ProxyNode {
     else if (k === 'reserved') reserved = v.split(',').map(n => parseInt(n.trim(), 10));
   }
 
-  // 嚴格校驗缺失欄位
   if (!server) throw new Error(`[WireGuard] 節點 [${name}] 缺少伺服器地址`);
   if (!privateKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 private-key (私鑰)`);
   if (!publicKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 public-key (公鑰)`);
@@ -437,7 +453,7 @@ function parseShadowrocketWireGuard(line: string): ProxyNode {
   return node;
 }
 
-// --- 解析 WireGuard 官方 .conf 格式 (嚴格校驗與 100% 依據貼上內容提取) ---
+// --- 解析 WireGuard 官方 .conf 格式 ---
 function parseWireGuardConf(text: string): ProxyNode[] {
   const nodes: ProxyNode[] = [];
   const sections = text.split(/(?=\[Interface\])/i).filter(s => s.trim().length > 0);
@@ -486,25 +502,12 @@ function parseWireGuardConf(text: string): ProxyNode[] {
     const mtuStr = getVal('MTU');
     const mtu = mtuStr ? parseInt(mtuStr, 10) : 1420;
 
-    // 💥 缺失欄位嚴格報錯並指明缺漏項
-    if (!privateKey) {
-      throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: PrivateKey (私鑰)`);
-    }
-    if (!addressStr) {
-      throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: Address (客戶端內網 IP)`);
-    }
-    if (!rawDns) {
-      throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: DNS。請在 [Interface] 中填入 DNS = ...（例如 DNS = 10.2.0.1），否則隧道無法解析域名`);
-    }
-    if (!/\[Peer\]/i.test(sec)) {
-      throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少 [Peer] 節點區塊`);
-    }
-    if (!publicKey) {
-      throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: PublicKey (節點公鑰)`);
-    }
-    if (!endpoint) {
-      throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: Endpoint (伺服器端點 IP:Port)`);
-    }
+    if (!privateKey) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: PrivateKey (私鑰)`);
+    if (!addressStr) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: Address (客戶端內網 IP)`);
+    if (!rawDns) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: DNS。請在 [Interface] 中填入 DNS = ...（例如 DNS = 10.2.0.1）`);
+    if (!/\[Peer\]/i.test(sec)) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少 [Peer] 節點區塊`);
+    if (!publicKey) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: PublicKey (節點公鑰)`);
+    if (!endpoint) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: Endpoint (伺服器端點 IP:Port)`);
 
     let server = endpoint;
     let port = 51820;
@@ -517,12 +520,9 @@ function parseWireGuardConf(text: string): ProxyNode[] {
       port = parseInt(endpoint.slice(lastColon + 1).trim(), 10) || 51820;
     }
 
-    if (!name) {
-      name = `WireGuard-${server}`;
-    }
+    if (!name) name = `WireGuard-${server}`;
 
     const localAddress = addressStr.split(',').map(s => s.trim()).filter(Boolean);
-    // 💥 100% 依據貼上內容提取 DNS 陣列，不寫死任何特定 IP
     const dnsArray = rawDns.split(',').map(s => s.trim()).filter(Boolean);
 
     const wgConfig: WireGuardConfig = {
@@ -572,7 +572,7 @@ function parseWireGuardConf(text: string): ProxyNode[] {
       mtu,
       udp: true,
       'remote-dns-resolve': true,
-      dns: dnsArray // 100% 傳遞使用者貼上的 DNS 陣列
+      dns: dnsArray
     };
 
     nodes.push(node);
@@ -658,15 +658,16 @@ function parseShadowsocks(urlStr: string): ProxyNode {
   const sni = getParam(urlStr, 'sni') || getParam(urlStr, 'host') || server;
   const alpnStr = getParam(urlStr, 'alpn');
   const fp = getParam(urlStr, 'fp') || 'chrome';
-  const isEch = parseEchParam(getParam(urlStr, 'ech'));
+  const echInfo = parseEchInfo(getParam(urlStr, 'ech'));
 
-  const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0) || isEch;
+  const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0) || echInfo.enabled;
   const alpn = alpnStr ? alpnStr.split(',') : undefined;
   const isSs2022 = method.toLowerCase().includes('2022');
 
   const node: ProxyNode = {
     type: 'shadowsocks', name, server, port, cipher: method, password, udp: true,
-    tls: isTls, sni, alpn, fingerprint: fp, ech: isEch
+    tls: isTls, sni, alpn, fingerprint: fp,
+    ech: echInfo.enabled, echQueryServerName: echInfo.domain, echDoh: echInfo.doh
   };
 
   const sb: Record<string, unknown> = {
@@ -738,10 +739,10 @@ function parseVless(urlStr: string): ProxyNode {
   const cleanPath = rawPath ? (rawPath.replace(/[?&]ed=[0-9]+/g, '').replace(/\?$/, '') || '/') : '/';
   const isXhttp = netType === 'xhttp' || netType === 'splithttp';
   const isGrpc = netType === 'grpc';
-  const isEch = parseEchParam(params.get('ech'));
+  const echInfo = parseEchInfo(params.get('ech'));
 
-  const security = params.get('security') || (params.get('tls') === '1' || params.get('tls') === 'tls' || isEch ? 'tls' : (parsed.port === 443 ? 'tls' : 'none'));
-  const isTls = security === 'tls' || security === 'reality' || isEch;
+  const security = params.get('security') || (params.get('tls') === '1' || params.get('tls') === 'tls' || echInfo.enabled ? 'tls' : (parsed.port === 443 ? 'tls' : 'none'));
+  const isTls = security === 'tls' || security === 'reality' || echInfo.enabled;
   const hostHeader = params.get('host') || params.get('sni') || parsed.hostname;
   const sniHost = params.get('sni') || params.get('host') || parsed.hostname;
   const customAlpn = params.get('alpn') ? params.get('alpn')!.split(',') : undefined;
@@ -759,7 +760,9 @@ function parseVless(urlStr: string): ProxyNode {
     alpn: customAlpn,
     fingerprint: params.get('fp') || 'chrome',
     skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1',
-    ech: isEch
+    ech: echInfo.enabled,
+    echQueryServerName: echInfo.domain,
+    echDoh: echInfo.doh
   };
 
   if (security === 'reality') {
@@ -1235,7 +1238,7 @@ function parseTrojan(urlStr: string): ProxyNode {
   if (!parsed.username) throw new Error(`[Trojan] 節點 [${name}] 缺少密碼`);
   if (!parsed.hostname) throw new Error(`[Trojan] 節點 [${name}] 缺少伺服器地址`);
 
-  const isEch = parseEchParam(params.get('ech'));
+  const echInfo = parseEchInfo(params.get('ech'));
 
   const node: ProxyNode = {
     type: 'trojan',
@@ -1246,7 +1249,9 @@ function parseTrojan(urlStr: string): ProxyNode {
     tls: true,
     sni: params.get('sni') || params.get('peer') || parsed.hostname,
     skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1',
-    ech: isEch
+    ech: echInfo.enabled,
+    echQueryServerName: echInfo.domain,
+    echDoh: echInfo.doh
   };
 
   const tlsObj: Record<string, unknown> = {
@@ -1319,7 +1324,21 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
     } : undefined;
 
     const echOpts = p['ech-opts'] as Record<string, unknown> | undefined;
-    const isEch = Boolean(p.ech || (echOpts && echOpts.enable === true));
+    let echEnabled = false;
+    let echDomain: string | undefined = undefined;
+    let echDoh: string | undefined = undefined;
+
+    if (p.ech) {
+      const info = parseEchInfo(String(p.ech));
+      echEnabled = info.enabled;
+      echDomain = info.domain;
+      echDoh = info.doh;
+    } else if (echOpts && echOpts.enable === true) {
+      echEnabled = true;
+      if (echOpts['query-server-name']) echDomain = String(echOpts['query-server-name']);
+      if (echOpts['doh-server']) echDoh = String(echOpts['doh-server']);
+      else if (echOpts.doh) echDoh = String(echOpts.doh);
+    }
 
     const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
     const fingerprint = p['client-fingerprint'] ? String(p['client-fingerprint']).trim() : 'chrome';
@@ -1348,7 +1367,9 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
       skipCertVerify,
       fingerprint,
       alpn,
-      ech: isEch,
+      ech: echEnabled,
+      echQueryServerName: echDomain,
+      echDoh: echDoh,
       clashObj: clashObjCopy
     };
 
@@ -1363,7 +1384,7 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
         utls: { enabled: true, fingerprint }
       };
       if (alpn) tlsObj.alpn = alpn;
-      if (isEch) tlsObj.ech = { enabled: true };
+      if (echEnabled) tlsObj.ech = { enabled: true };
       if (reality) {
         tlsObj.reality = { enabled: true, public_key: reality.publicKey, short_id: reality.shortId };
       }
@@ -1502,7 +1523,7 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
     return node;
   }
 
-  // 7. WireGuard (嚴格提取使用者貼入的 dns 陣列)
+  // 7. WireGuard
   if (type === 'wireguard') {
     const privateKey = String(p['private-key'] || '');
     const publicKey = String(p['public-key'] || '');
@@ -1572,28 +1593,19 @@ export function parseClashYaml(content: string): ProxyNode[] {
 export async function parseContent(content: string): Promise<ProxyNode[]> {
   let plainText = content.replace(/^\uFEFF/, '').trim(); 
 
-  // 1. 優先檢查是否為標準 WireGuard INI 配置 ([Interface] 與 [Peer])
   if (/\[Interface\]/i.test(plainText) && /\[Peer\]/i.test(plainText)) {
     const wgNodes = parseWireGuardConf(plainText);
-    if (wgNodes.length > 0) {
-      return wgNodes;
-    }
+    if (wgNodes.length > 0) return wgNodes;
   }
 
-  // 2. 優先檢查是否包含 Cloudflare WARP MASQUE JSON 配置
   if (/["']private_key["']/i.test(plainText) && (plainText.includes('{') || plainText.includes('['))) {
     const masqueNodes = parseMasqueConfigs(plainText);
-    if (masqueNodes.length > 0) {
-      return masqueNodes;
-    }
+    if (masqueNodes.length > 0) return masqueNodes;
   }
 
-  // 3. 優先檢查是否為完整 Clash YAML 配置 (含 proxies:)
   if (/(^|\n)\s*proxies\s*:/i.test(plainText)) {
     const clashNodes = parseClashYaml(plainText);
-    if (clashNodes.length > 0) {
-      return clashNodes;
-    }
+    if (clashNodes.length > 0) return clashNodes;
   }
   
   const protocols = ['ss://', 'vmess://', 'vless://', 'trojan://', 'tuic://', 'hysteria2://', 'hy2://', 'anytls://', 'wireguard://', 'warp://', 'masque://'];
@@ -1603,7 +1615,6 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
   if (!isPlainText) { 
     try {
       let b64 = plainText.replace(/[\s\r\n]+/g, '').replace(/-/g, '+').replace(/_/g, '/');
-      b64 = b64.replace(/=+$/, '');
       while (b64.length % 4 > 0) b64 += '=';
       
       const binaryStr = atob(b64);

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Sep 24 16:25:59 UTC 2026
+Generated on: Thu Sep 24 16:26:26 UTC 2026
 
 ## File: .github/workflows/combine-code.yml
 ````yml
@@ -1522,6 +1522,8 @@ export const HTML_PAGE = `<!DOCTYPE html>
       document.getElementById('renameKeywords').value = f.rename || '';
       window.scrollTo({ top: 0, behavior: 'smooth' });
       showToast('已載入配置：' + f.name);
+      // 點擊載入收藏時，自動為用戶註冊短路徑並產生下方轉換連結
+      generate();
     }
 
     function editFav(index) {

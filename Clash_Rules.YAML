@@ -101,8 +101,6 @@ dns:
       - https://doh.pub/dns-query
     "rule-set:apple":
       - system
-    "cloudflare-ech.com":
-      - https://223.5.5.5/dns-query
 
   # 4. 國外代理兜底 DNS (並發競速查詢 8.8.8.8 與 1.1.1.1)
   nameserver:

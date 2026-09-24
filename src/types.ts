@@ -61,6 +61,7 @@ export interface ProxyNode {
   // ECH (Encrypted Client Hello)
   ech?: boolean;
   echQueryServerName?: string;
+  echDoh?: string;
   // 標籤特徵
   multiplier?: number;
   isIplc?: boolean;

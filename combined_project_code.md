@@ -1,449 +1,22 @@
 # Complete Project Codebase
-Generated on: Thu Sep 24 10:30:18 UTC 2026
+Generated on: Thu Sep 24 10:31:41 UTC 2026
 
-## File: .github/workflows/combine-code.yml
-````yml
-name: Generate All Codebase to MD
+## File: wrangler.toml
+````toml
+name = "my-sub-converter"
+main = "src/index.ts"
+compatibility_date = "2024-04-01"
 
-on:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - 'combined_project_code.md' # 避免此檔案自身更新引發無限循環
-  workflow_dispatch: # 支援在 GitHub 網頁上手動觸發執行
+[placement]
+mode = "smart"
 
-permissions:
-  contents: write
+[[kv_namespaces]]
+binding = "SUB_CACHE"
+id = "KV_ID_PLACEHOLDER"
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Combine All Files into MD
-        run: |
-          OUT_FILE="combined_project_code.md"
-          echo "# Complete Project Codebase" > "$OUT_FILE"
-          echo "Generated on: $(date)" >> "$OUT_FILE"
-          echo "" >> "$OUT_FILE"
-
-          # 遍歷專案內的所有檔案，排除依賴、Git 歷史、打包產物及二進位檔案
-          find . -type f \
-            -not -path "*/node_modules/*" \
-            -not -path "*/.git/*" \
-            -not -path "*/dist/*" \
-            -not -name "package-lock.json" \
-            -not -name "yarn.lock" \
-            -not -name "pnpm-lock.yaml" \
-            -not -name "$OUT_FILE" \
-            -not -name "*.png" \
-            -not -name "*.jpg" \
-            -not -name "*.jpeg" \
-            -not -name "*.gif" \
-            -not -name "*.ico" \
-            -not -name "*.woff*" \
-            -not -name "*.ttf" | while read -r file; do
-              
-              # 取得相對路徑與副檔名
-              rel_path="${file#./}"
-              ext="${file##*.}"
-              
-              # 如果無副檔名，清除變數避免格式混亂
-              if [ "$ext" = "$rel_path" ]; then
-                ext=""
-              fi
-              
-              # 寫入檔案標題
-              echo "## File: $rel_path" >> "$OUT_FILE"
-              # 使用四個反單引號（````）包裹，防止內部程式碼的三個反單引號造成排版衝突
-              echo "\`\`\`\`$ext" >> "$OUT_FILE"
-              cat "$file" >> "$OUT_FILE"
-              echo "" >> "$OUT_FILE"
-              echo "\`\`\`\`" >> "$OUT_FILE"
-              echo "" >> "$OUT_FILE"
-          done
-
-      - name: Commit and Push changes
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git add combined_project_code.md
-          
-          if git diff --staged --quiet; then
-            echo "No changes in codebase."
-          else
-            git commit -m "docs: auto-generate complete codebase [skip ci]"
-            git push origin main
-          fi
-
-````
-
-## File: .github/workflows/deploy.yml
-````yml
-# .github/workflows/deploy.yml
-name: Deploy to Cloudflare Workers
-
-on:
-  # 1. 當推送到 main 或 master 分支時自動執行
-  push:
-    branches:
-      - main
-      - master
-  
-  # 2. 保留手動執行按鈕
-  workflow_dispatch:
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    name: Deploy
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-      
-      # 已將 Node.js 環境升級至 Node 24 以消除棄用警告
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          # 暫時移除 cache: 'npm'，避免因缺少 package-lock.json 報錯
-
-      # 替換成相容無鎖定檔的普通安裝（加入 --prefer-offline 稍微加速）
-      - name: Install dependencies
-        run: npm install --prefer-offline
-
-      # 替換 KV ID
-      - name: Inject KV ID from Secrets
-        run: |
-          sed -i 's/KV_ID_PLACEHOLDER/${{ secrets.CF_KV_ID }}/g' wrangler.toml
-
-      # 部署步驟
-      - name: Deploy
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-
-````
-
-## File: scripts/argo-converter.ts
-````ts
-// scripts/argo-converter.ts
-import fs from 'fs';
-import path from 'path';
-import readline from 'readline';
-import { Buffer } from 'buffer';
-
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout
-});
-
-const question = (query: string): Promise<string> => {
-  return new Promise((resolve) => rl.question(query, resolve));
-};
-
-interface VlessNode {
-  originalLink: string;
-  uuid: string;
-  server: string;
-  port: string;
-  type: string;
-  path: string;
-  host: string;
-  sni: string;
-  name: string;
-}
-
-// 簡易 VLESS 連結解析器
-function parseVlessLink(link: string): VlessNode | null {
-  try {
-    const urlStr = link.replace('vless://', 'http://');
-    const url = new URL(urlStr);
-    const params = url.searchParams;
-    return {
-      originalLink: link,
-      uuid: url.username,
-      server: url.hostname,
-      port: url.port,
-      type: params.get('type') || 'ws',
-      path: params.get('path') || '/',
-      host: params.get('host') || params.get('sni') || url.hostname,
-      sni: params.get('sni') || url.hostname,
-      name: decodeURIComponent(url.hash.slice(1)) || 'VLESS Node'
-    };
-  } catch (e) {
-    return null;
-  }
-}
-
-// 獲取並解析訂閱
-async function fetchAndParse(input: string): Promise<VlessNode[]> {
-  let content = input.trim();
-  if (input.startsWith('http')) {
-    console.log('正在獲取網址內容...');
-    try {
-      const res = await fetch(input, {
-        headers: { 'User-Agent': 'v2rayNG/1.8.5' }
-      });
-      if (!res.ok) throw new Error(`HTTP 狀態碼 ${res.status}`);
-      content = await res.text();
-    } catch (e: any) {
-      console.log(`獲取訂閱失敗: ${e.message}`);
-      return [];
-    }
-  }
-
-  // 嘗試 Base64 解碼
-  let decoded = content;
-  try {
-    const cleaned = content.replace(/[\s\r\n]+/g, '');
-    decoded = Buffer.from(cleaned, 'base64').toString('utf8');
-  } catch (e) {
-    // 解碼失敗則視為純文字
-  }
-
-  const lines = decoded.split(/\r?\n/);
-  const vlessNodes: VlessNode[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('vless://')) {
-      const parsed = parseVlessLink(trimmed);
-      if (parsed) vlessNodes.push(parsed);
-    }
-  }
-  return vlessNodes;
-}
-
-// 生成 VPS 安裝腳本模板
-function generateVpsScript(node: VlessNode, port: string, token: string, domain: string): string {
-  return `#!/bin/bash
-# Cloudflare Argo Tunnel 一鍵部署腳本 (由 cf-sub-converter 自動生成)
-# 適用於已使用 mack-a v2ray-agent 部署之 Xray/Sing-box 環境
-
-GREEN='\\033[0;32m'
-RED='\\033[0;31m'
-NC='\\033[0m'
-
-echo -e "\${GREEN}=== 開始部署 Cloudflare Argo 隧道 ===\${NC}"
-
-if [ "$EUID" -ne 0 ]; then
-  echo -e "\${RED}錯誤: 請使用 root 權限執行此腳本！\${NC}"
-  exit 1
-fi
-
-# 節點參數配置
-VLESS_UUID="${node.uuid}"
-VLESS_PATH="${node.path}"
-VLESS_TYPE="${node.type}"
-VLESS_PORT="${port}"
-NODE_NAME="${node.name}"
-TUNNEL_TOKEN="${token.trim()}"
-CUSTOM_DOMAIN="${domain.trim()}"
-
-# 下載安裝 cloudflared
-if ! command -v cloudflared &> /dev/null; then
-    echo "正在下載安裝 cloudflared..."
-    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
-    chmod +x /usr/local/bin/cloudflared
-    echo "cloudflared 安裝完成！"
-else
-    echo "cloudflared 已存在，跳過安裝。"
-fi
-
-# 判斷是否使用固定隧道
-if [ -n "$TUNNEL_TOKEN" ]; then
-    echo -e "\${GREEN}【固定隧道模式】正在配置服務...\${NC}"
-    cloudflared service uninstall &> /dev/null
-    cloudflared service install "$TUNNEL_TOKEN"
-    systemctl daemon-reload
-    systemctl enable cloudflared
-    systemctl restart cloudflared
-    
-    echo -e "\${GREEN}部署成功！\${NC}"
-    echo "請確保已在 Cloudflare Dashboard 中將網域 '$CUSTOM_DOMAIN' 指向本地 'http://localhost:$VLESS_PORT'"
-    
-    # 輸出用戶端連結
-    FINAL_LINK="vless://$VLESS_UUID@$CUSTOM_DOMAIN:443?encryption=none&security=tls&type=$VLESS_TYPE&host=$CUSTOM_DOMAIN"
-    if [ "$VLESS_TYPE" = "ws" ]; then
-        FINAL_LINK="$FINAL_LINK&path=$(echo -n "$VLESS_PATH" | jq -s -R -r @uri 2>/dev/null || echo -n "$VLESS_PATH")"
-    fi
-    FINAL_LINK="$FINAL_LINK#Argo-$NODE_NAME"
-    echo -e "\n\${GREEN}您的 Argo VLESS 訂閱連結為:\${NC}"
-    echo -e "\${GREEN}$FINAL_LINK\${NC}\n"
-else
-    echo -e "\${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...\${NC}"
-    systemctl stop cloudflared-argo &> /dev/null
-    
-    # 寫入 systemd 臨時隧道服務
-    cat <<EOF > /etc/systemd/system/cloudflared-argo.service
-[Unit]
-Description=Cloudflare Argo Temporary Tunnel for VLESS
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/cloudflared tunnel --url http://127.0.0.1:$VLESS_PORT
-Restart=always
-RestartSec=5
-StandardOutput=file:/var/log/cloudflared-argo.log
-StandardError=file:/var/log/cloudflared-argo.log
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    touch /var/log/cloudflared-argo.log
-    systemctl daemon-reload
-    systemctl enable cloudflared-argo
-    systemctl start cloudflared-argo
-    
-    echo "正在等待 Cloudflare 分配臨時域名 (約需 10-15 秒)..."
-    TEMP_DOMAIN=""
-    for i in {1..15}; do
-        sleep 1
-        TEMP_DOMAIN=$(grep -oE 'https://[a-zA-Z0-9-]+\\.trycloudflare\\.com' /var/log/cloudflared-argo.log | head -n 1 | sed 's/https:\\/\\///')
-        if [ -n "$TEMP_DOMAIN" ]; then
-            break
-        fi
-    done
-    
-    if [ -n "$TEMP_DOMAIN" ]; then
-        echo -e "\${GREEN}獲取域名成功: \$TEMP_DOMAIN\${NC}"
-        FINAL_LINK="vless://$VLESS_UUID@\$TEMP_DOMAIN:443?encryption=none&security=tls&type=$VLESS_TYPE&host=\$TEMP_DOMAIN"
-        if [ "$VLESS_TYPE" = "ws" ]; then
-            FINAL_LINK="$FINAL_LINK&path=$(echo -n "$VLESS_PATH" | jq -s -R -r @uri 2>/dev/null || echo -n "$VLESS_PATH")"
-        fi
-        FINAL_LINK="$FINAL_LINK#Argo-Temp-$NODE_NAME"
-        
-        echo -e "\n\${GREEN}=== 部署成功 ===\${NC}"
-        echo -e "原節點名稱: $NODE_NAME"
-        echo -e "轉發連接埠: $VLESS_PORT"
-        echo -e "您的臨時 Argo 節點 VLESS 連結為 (注意：VPS 重啟或重開服務後域名會刷新):"
-        echo -e "\${GREEN}\$FINAL_LINK\${NC}\n"
-    else
-        echo -e "\${RED}錯誤: 獲取臨時域名超時！請執行 'cat /var/log/cloudflared-argo.log' 檢查日誌。\${NC}"
-    fi
-fi
-`;
-}
-
-async function main() {
-  console.log('==============================================');
-  console.log('      VLESS -> Cloudflare Argo 轉換工具');
-  console.log('==============================================');
-
-  const input = await question('請輸入訂閱地址、多個 VLESS 節點、或儲存配置的訂閱網址:\n> ');
-  if (!input.trim()) {
-    console.log('輸入不能為空。');
-    rl.close();
-    return;
-  }
-
-  const nodes = await fetchAndParse(input);
-  if (nodes.length === 0) {
-    console.log('未找到任何有效的 VLESS 節點。');
-    rl.close();
-    return;
-  }
-
-  console.log(`\n成功解析出 ${nodes.length} 個 VLESS 節點:`);
-  nodes.forEach((node, i) => {
-    console.log(`  [${i + 1}] ${node.name} (${node.server}:${node.port}, 傳輸協定: ${node.type})`);
-  });
-
-  const select = await question('\n請選擇要複製並轉換的節點 (輸入數字並用逗號隔開，例如: 1,3 ；或輸入 all 代表全部):\n> ');
-  let selectedNodes: VlessNode[] = [];
-  if (select.trim().toLowerCase() === 'all') {
-    selectedNodes = nodes;
-  } else {
-    const indices = select.split(',').map(s => parseInt(s.trim()) - 1);
-    selectedNodes = indices.map(idx => nodes[idx]).filter(Boolean);
-  }
-
-  if (selectedNodes.length === 0) {
-    console.log('選擇無效，程式結束。');
-    rl.close();
-    return;
-  }
-
-  console.log(`\n已選擇 ${selectedNodes.length} 個節點進行轉換...`);
-
-  // 本地連接埠設定
-  const port = await question('\n1. 請輸入該 VLESS 節點在 VPS 上監聽的本地連接埠 (預設 8080，請與 mack-a 配置一致):\n> ') || '8080';
-
-  // Argo Tunnel 授權設定
-  console.log('\n2. 隧道設定（直接斷行即代表隨機生成臨時隧道）：');
-  const token = await question('   請貼上您的 Cloudflare Tunnel Token (選填):\n   > ');
-
-  let domain = '';
-  if (token.trim()) {
-    domain = await question('   請輸入該隧道綁定的自訂域名 (例如: vless.domain.com):\n   > ');
-    if (!domain.trim()) {
-      console.log('   錯誤: 固定隧道模式必須提供自訂域名。');
-      rl.close();
-      return;
-    }
-  }
-
-  // 建立腳本存放目錄
-  const outputDir = path.join(process.cwd(), 'argo_outputs');
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir);
-  }
-
-  const generatedNodes: string[] = [];
-
-  for (const node of selectedNodes) {
-    // 保留原本節點
-    generatedNodes.push(node.originalLink);
-
-    // 生成並寫入一鍵 VPS 腳本
-    const vpsScript = generateVpsScript(node, port, token, domain);
-    const safeNodeName = node.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
-    const scriptPath = path.join(outputDir, `argo-install-${safeNodeName}.sh`);
-    
-    fs.writeFileSync(scriptPath, vpsScript, { encoding: 'utf8', mode: 0o755 });
-    console.log(`\n[✓] 成功生成 VPS 安裝腳本: ${scriptPath}`);
-
-    // 如果是固定隧道，可以直接在本地計算出新的 Argo 節點
-    if (token.trim() && domain.trim()) {
-      const argoLink = `vless://${node.uuid}@${domain.trim()}:443?encryption=none&security=tls&type=${node.type}&host=${domain.trim()}${node.type === 'ws' ? `&path=${encodeURIComponent(node.path)}` : ''}#Argo-${node.name}`;
-      generatedNodes.push(argoLink);
-      console.log(`    └─ 同步生成 Argo 節點連結: ${argoLink}`);
-    } else {
-      console.log(`    └─ 臨時隧道模式：節點連結需在 VPS 上執行腳本後動態輸出。`);
-    }
-  }
-
-  // 如果有生成固定隧道的節點，將新舊節點整合寫入訂閱文件
-  if (generatedNodes.length > selectedNodes.length) {
-    const subPath = path.join(outputDir, 'argo_subscription.txt');
-    fs.writeFileSync(subPath, generatedNodes.join('\n'), 'utf8');
-    const base64Sub = Buffer.from(generatedNodes.join('\n')).toString('base64');
-    fs.writeFileSync(path.join(outputDir, 'argo_subscription_base64.txt'), base64Sub, 'utf8');
-    
-    console.log(`\n[✓] 整合訂閱已生成（含原節點 + 新 Argo 節點）:`);
-    console.log(`    - 明文列表: ${path.join(outputDir, 'argo_subscription.txt')}`);
-    console.log(`    - Base64 格式: ${path.join(outputDir, 'argo_subscription_base64.txt')}`);
-  }
-
-  console.log('\n==============================================');
-  console.log('部署說明：');
-  console.log('1. 請將 argo_outputs 目錄內對應的 .sh 腳本上傳至您的 VPS。');
-  console.log('2. 執行命令賦予執行權限並啟動：');
-  console.log('   chmod +x argo-install-*.sh && ./argo-install-*.sh');
-  console.log('==============================================');
-
-  rl.close();
-}
-
-main();
+[vars]
+# 💥 私密管理密碼（選填）：設定後將保護「已儲存的配置」管理區域，避免他人檢視或竄改
+# PAGE_PASSWORD = "your_secret_password"
 
 ````
 
@@ -783,6 +356,3762 @@ rules:
   # 8. 國外網站兜底：全走代理
   - MATCH,🐟 漏網之魚
 
+````
+
+## File: argo.sh
+````sh
+#!/bin/bash
+# Cloudflare Argo Tunnel 一鍵部署腳本 (增強版 2.0)
+# 專案網址: https://github.com/sammy0101/cf-sub-converter
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+NODE_TYPE="{{NODE_TYPE}}"
+VLESS_UUID="{{VLESS_UUID}}"
+VLESS_PATH="{{VLESS_PATH}}"
+VLESS_TYPE="{{VLESS_TYPE}}"
+VLESS_PORT="{{VLESS_PORT}}"
+NODE_NAME="{{NODE_NAME}}"
+TUNNEL_TOKEN="{{TUNNEL_TOKEN}}"
+CUSTOM_DOMAIN="{{CUSTOM_DOMAIN}}"
+VLESS_TLS="{{VLESS_TLS}}"
+ORIGIN_HOST="{{ORIGIN_HOST}}"
+
+echo -e "${GREEN}=== 開始部署 Cloudflare Argo 隧道 (${NODE_NAME}) ===${NC}"
+
+if [ "$EUID" -ne 0 ]; then
+  echo -e "${RED}錯誤: 請使用 root 權限執行此腳本！${NC}"
+  exit 1
+fi
+
+# 1. 安裝 cloudflared
+if ! command -v cloudflared &> /dev/null; then
+    echo "正在下載安裝 cloudflared..."
+    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+    chmod +x /usr/local/bin/cloudflared
+else
+    echo "cloudflared 已存在，跳過安裝。"
+fi
+
+SAFE_NODE_NAME=$(echo "$NODE_NAME" | sed 's/[^a-zA-Z0-9]/_/g')
+
+# 2. 自動探測與修正連接埠
+DETECTED_PORT="$VLESS_PORT"
+if command -v ss &> /dev/null; then
+    if ! ss -tln | grep -qE ":$VLESS_PORT([[:space:]]|$)"; then
+        echo -e "${RED}警告: 本地轉發埠 $VLESS_PORT 未監聽，正在探測...${NC}"
+        if ss -tln | grep -qE ":443([[:space:]]|$)"; then
+            echo -e "${GREEN}自動修正：轉發目標為 443 埠。${NC}"
+            DETECTED_PORT="443"
+        elif ss -tln | grep -qE ":80([[:space:]]|$)"; then
+            echo -e "${GREEN}自動修正：轉發目標為 80 埠。${NC}"
+            DETECTED_PORT="80"
+        fi
+    fi
+fi
+
+# 3. 智慧探測 TLS
+DETECTED_TLS="false"
+if curl -s -k --connect-timeout 2 "https://127.0.0.1:$DETECTED_PORT" &>/dev/null; then
+    echo "偵測到本地為 HTTPS 加密埠，開啟 TLS 轉發與 SNI 對齊。"
+    DETECTED_TLS="true"
+fi
+
+LOCAL_URL="http://127.0.0.1:$DETECTED_PORT"
+EXTRA_ARGS=""
+if [ "$DETECTED_TLS" = "true" ]; then
+    LOCAL_URL="https://127.0.0.1:$DETECTED_PORT"
+    EXTRA_ARGS="--no-tls-verify"
+fi
+
+if [ -n "$ORIGIN_HOST" ]; then
+    EXTRA_ARGS="$EXTRA_ARGS --http-host-header $ORIGIN_HOST"
+    if [ "$DETECTED_TLS" = "true" ]; then
+        EXTRA_ARGS="$EXTRA_ARGS --origin-server-name $ORIGIN_HOST"
+    fi
+fi
+
+# 4. 啟動隧道
+if [ -n "$TUNNEL_TOKEN" ]; then
+    echo -e "${GREEN}【固定隧道模式】正在啟動服務...${NC}"
+    cloudflared service uninstall &> /dev/null
+    cloudflared service install "$TUNNEL_TOKEN"
+    systemctl daemon-reload
+    systemctl enable cloudflared
+    systemctl restart cloudflared
+    echo -e "${GREEN}固定域名隧道部署完成！${NC}"
+else
+    echo -e "${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...${NC}"
+    systemctl stop cloudflared-argo-${SAFE_NODE_NAME} &> /dev/null
+    
+    cat <<EOF > /etc/systemd/system/cloudflared-argo-${SAFE_NODE_NAME}.service
+[Unit]
+Description=Cloudflare Argo Tunnel for ${NODE_NAME}
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/cloudflared tunnel --url $LOCAL_URL $EXTRA_ARGS
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable cloudflared-argo-${SAFE_NODE_NAME}
+    systemctl start cloudflared-argo-${SAFE_NODE_NAME}
+    
+    echo "正在等待 Cloudflare 分配臨時域名..."
+    TEMP_DOMAIN=""
+    for i in {1..15}; do
+        sleep 1
+        TEMP_DOMAIN=$(journalctl -u cloudflared-argo-${SAFE_NODE_NAME} -n 50 --no-pager 2>/dev/null | grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' | tail -n 1 | cut -d'/' -f3)
+        if [ -n "$TEMP_DOMAIN" ]; then
+            break
+        fi
+    done
+    
+    if [ -n "$TEMP_DOMAIN" ]; then
+        echo -e "${GREEN}獲取臨時域名成功: $TEMP_DOMAIN${NC}"
+    else
+        echo -e "${RED}超時未獲取到域名，請手動檢查 journalctl -u cloudflared-argo-${SAFE_NODE_NAME}${NC}"
+    fi
+fi
+
+````
+
+## File: package.json
+````json
+{
+  "name": "cf-sub-converter",
+  "version": "3.5.7",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "start": "wrangler dev",
+    "argo": "tsx scripts/argo-converter.ts"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240208.0",
+    "@types/js-yaml": "^4.0.9",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3",
+    "wrangler": "^3.28.1"
+  }
+}
+
+````
+
+## File: scripts/argo-converter.ts
+````ts
+// scripts/argo-converter.ts
+import fs from 'fs';
+import path from 'path';
+import readline from 'readline';
+import { Buffer } from 'buffer';
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
+
+const question = (query: string): Promise<string> => {
+  return new Promise((resolve) => rl.question(query, resolve));
+};
+
+interface VlessNode {
+  originalLink: string;
+  uuid: string;
+  server: string;
+  port: string;
+  type: string;
+  path: string;
+  host: string;
+  sni: string;
+  name: string;
+}
+
+// 簡易 VLESS 連結解析器
+function parseVlessLink(link: string): VlessNode | null {
+  try {
+    const urlStr = link.replace('vless://', 'http://');
+    const url = new URL(urlStr);
+    const params = url.searchParams;
+    return {
+      originalLink: link,
+      uuid: url.username,
+      server: url.hostname,
+      port: url.port,
+      type: params.get('type') || 'ws',
+      path: params.get('path') || '/',
+      host: params.get('host') || params.get('sni') || url.hostname,
+      sni: params.get('sni') || url.hostname,
+      name: decodeURIComponent(url.hash.slice(1)) || 'VLESS Node'
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+// 獲取並解析訂閱
+async function fetchAndParse(input: string): Promise<VlessNode[]> {
+  let content = input.trim();
+  if (input.startsWith('http')) {
+    console.log('正在獲取網址內容...');
+    try {
+      const res = await fetch(input, {
+        headers: { 'User-Agent': 'v2rayNG/1.8.5' }
+      });
+      if (!res.ok) throw new Error(`HTTP 狀態碼 ${res.status}`);
+      content = await res.text();
+    } catch (e: any) {
+      console.log(`獲取訂閱失敗: ${e.message}`);
+      return [];
+    }
+  }
+
+  // 嘗試 Base64 解碼
+  let decoded = content;
+  try {
+    const cleaned = content.replace(/[\s\r\n]+/g, '');
+    decoded = Buffer.from(cleaned, 'base64').toString('utf8');
+  } catch (e) {
+    // 解碼失敗則視為純文字
+  }
+
+  const lines = decoded.split(/\r?\n/);
+  const vlessNodes: VlessNode[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('vless://')) {
+      const parsed = parseVlessLink(trimmed);
+      if (parsed) vlessNodes.push(parsed);
+    }
+  }
+  return vlessNodes;
+}
+
+// 生成 VPS 安裝腳本模板
+function generateVpsScript(node: VlessNode, port: string, token: string, domain: string): string {
+  return `#!/bin/bash
+# Cloudflare Argo Tunnel 一鍵部署腳本 (由 cf-sub-converter 自動生成)
+# 適用於已使用 mack-a v2ray-agent 部署之 Xray/Sing-box 環境
+
+GREEN='\\033[0;32m'
+RED='\\033[0;31m'
+NC='\\033[0m'
+
+echo -e "\${GREEN}=== 開始部署 Cloudflare Argo 隧道 ===\${NC}"
+
+if [ "$EUID" -ne 0 ]; then
+  echo -e "\${RED}錯誤: 請使用 root 權限執行此腳本！\${NC}"
+  exit 1
+fi
+
+# 節點參數配置
+VLESS_UUID="${node.uuid}"
+VLESS_PATH="${node.path}"
+VLESS_TYPE="${node.type}"
+VLESS_PORT="${port}"
+NODE_NAME="${node.name}"
+TUNNEL_TOKEN="${token.trim()}"
+CUSTOM_DOMAIN="${domain.trim()}"
+
+# 下載安裝 cloudflared
+if ! command -v cloudflared &> /dev/null; then
+    echo "正在下載安裝 cloudflared..."
+    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+    chmod +x /usr/local/bin/cloudflared
+    echo "cloudflared 安裝完成！"
+else
+    echo "cloudflared 已存在，跳過安裝。"
+fi
+
+# 判斷是否使用固定隧道
+if [ -n "$TUNNEL_TOKEN" ]; then
+    echo -e "\${GREEN}【固定隧道模式】正在配置服務...\${NC}"
+    cloudflared service uninstall &> /dev/null
+    cloudflared service install "$TUNNEL_TOKEN"
+    systemctl daemon-reload
+    systemctl enable cloudflared
+    systemctl restart cloudflared
+    
+    echo -e "\${GREEN}部署成功！\${NC}"
+    echo "請確保已在 Cloudflare Dashboard 中將網域 '$CUSTOM_DOMAIN' 指向本地 'http://localhost:$VLESS_PORT'"
+    
+    # 輸出用戶端連結
+    FINAL_LINK="vless://$VLESS_UUID@$CUSTOM_DOMAIN:443?encryption=none&security=tls&type=$VLESS_TYPE&host=$CUSTOM_DOMAIN"
+    if [ "$VLESS_TYPE" = "ws" ]; then
+        FINAL_LINK="$FINAL_LINK&path=$(echo -n "$VLESS_PATH" | jq -s -R -r @uri 2>/dev/null || echo -n "$VLESS_PATH")"
+    fi
+    FINAL_LINK="$FINAL_LINK#Argo-$NODE_NAME"
+    echo -e "\n\${GREEN}您的 Argo VLESS 訂閱連結為:\${NC}"
+    echo -e "\${GREEN}$FINAL_LINK\${NC}\n"
+else
+    echo -e "\${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...\${NC}"
+    systemctl stop cloudflared-argo &> /dev/null
+    
+    # 寫入 systemd 臨時隧道服務
+    cat <<EOF > /etc/systemd/system/cloudflared-argo.service
+[Unit]
+Description=Cloudflare Argo Temporary Tunnel for VLESS
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/cloudflared tunnel --url http://127.0.0.1:$VLESS_PORT
+Restart=always
+RestartSec=5
+StandardOutput=file:/var/log/cloudflared-argo.log
+StandardError=file:/var/log/cloudflared-argo.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    touch /var/log/cloudflared-argo.log
+    systemctl daemon-reload
+    systemctl enable cloudflared-argo
+    systemctl start cloudflared-argo
+    
+    echo "正在等待 Cloudflare 分配臨時域名 (約需 10-15 秒)..."
+    TEMP_DOMAIN=""
+    for i in {1..15}; do
+        sleep 1
+        TEMP_DOMAIN=$(grep -oE 'https://[a-zA-Z0-9-]+\\.trycloudflare\\.com' /var/log/cloudflared-argo.log | head -n 1 | sed 's/https:\\/\\///')
+        if [ -n "$TEMP_DOMAIN" ]; then
+            break
+        fi
+    done
+    
+    if [ -n "$TEMP_DOMAIN" ]; then
+        echo -e "\${GREEN}獲取域名成功: \$TEMP_DOMAIN\${NC}"
+        FINAL_LINK="vless://$VLESS_UUID@\$TEMP_DOMAIN:443?encryption=none&security=tls&type=$VLESS_TYPE&host=\$TEMP_DOMAIN"
+        if [ "$VLESS_TYPE" = "ws" ]; then
+            FINAL_LINK="$FINAL_LINK&path=$(echo -n "$VLESS_PATH" | jq -s -R -r @uri 2>/dev/null || echo -n "$VLESS_PATH")"
+        fi
+        FINAL_LINK="$FINAL_LINK#Argo-Temp-$NODE_NAME"
+        
+        echo -e "\n\${GREEN}=== 部署成功 ===\${NC}"
+        echo -e "原節點名稱: $NODE_NAME"
+        echo -e "轉發連接埠: $VLESS_PORT"
+        echo -e "您的臨時 Argo 節點 VLESS 連結為 (注意：VPS 重啟或重開服務後域名會刷新):"
+        echo -e "\${GREEN}\$FINAL_LINK\${NC}\n"
+    else
+        echo -e "\${RED}錯誤: 獲取臨時域名超時！請執行 'cat /var/log/cloudflared-argo.log' 檢查日誌。\${NC}"
+    fi
+fi
+`;
+}
+
+async function main() {
+  console.log('==============================================');
+  console.log('      VLESS -> Cloudflare Argo 轉換工具');
+  console.log('==============================================');
+
+  const input = await question('請輸入訂閱地址、多個 VLESS 節點、或儲存配置的訂閱網址:\n> ');
+  if (!input.trim()) {
+    console.log('輸入不能為空。');
+    rl.close();
+    return;
+  }
+
+  const nodes = await fetchAndParse(input);
+  if (nodes.length === 0) {
+    console.log('未找到任何有效的 VLESS 節點。');
+    rl.close();
+    return;
+  }
+
+  console.log(`\n成功解析出 ${nodes.length} 個 VLESS 節點:`);
+  nodes.forEach((node, i) => {
+    console.log(`  [${i + 1}] ${node.name} (${node.server}:${node.port}, 傳輸協定: ${node.type})`);
+  });
+
+  const select = await question('\n請選擇要複製並轉換的節點 (輸入數字並用逗號隔開，例如: 1,3 ；或輸入 all 代表全部):\n> ');
+  let selectedNodes: VlessNode[] = [];
+  if (select.trim().toLowerCase() === 'all') {
+    selectedNodes = nodes;
+  } else {
+    const indices = select.split(',').map(s => parseInt(s.trim()) - 1);
+    selectedNodes = indices.map(idx => nodes[idx]).filter(Boolean);
+  }
+
+  if (selectedNodes.length === 0) {
+    console.log('選擇無效，程式結束。');
+    rl.close();
+    return;
+  }
+
+  console.log(`\n已選擇 ${selectedNodes.length} 個節點進行轉換...`);
+
+  // 本地連接埠設定
+  const port = await question('\n1. 請輸入該 VLESS 節點在 VPS 上監聽的本地連接埠 (預設 8080，請與 mack-a 配置一致):\n> ') || '8080';
+
+  // Argo Tunnel 授權設定
+  console.log('\n2. 隧道設定（直接斷行即代表隨機生成臨時隧道）：');
+  const token = await question('   請貼上您的 Cloudflare Tunnel Token (選填):\n   > ');
+
+  let domain = '';
+  if (token.trim()) {
+    domain = await question('   請輸入該隧道綁定的自訂域名 (例如: vless.domain.com):\n   > ');
+    if (!domain.trim()) {
+      console.log('   錯誤: 固定隧道模式必須提供自訂域名。');
+      rl.close();
+      return;
+    }
+  }
+
+  // 建立腳本存放目錄
+  const outputDir = path.join(process.cwd(), 'argo_outputs');
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir);
+  }
+
+  const generatedNodes: string[] = [];
+
+  for (const node of selectedNodes) {
+    // 保留原本節點
+    generatedNodes.push(node.originalLink);
+
+    // 生成並寫入一鍵 VPS 腳本
+    const vpsScript = generateVpsScript(node, port, token, domain);
+    const safeNodeName = node.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
+    const scriptPath = path.join(outputDir, `argo-install-${safeNodeName}.sh`);
+    
+    fs.writeFileSync(scriptPath, vpsScript, { encoding: 'utf8', mode: 0o755 });
+    console.log(`\n[✓] 成功生成 VPS 安裝腳本: ${scriptPath}`);
+
+    // 如果是固定隧道，可以直接在本地計算出新的 Argo 節點
+    if (token.trim() && domain.trim()) {
+      const argoLink = `vless://${node.uuid}@${domain.trim()}:443?encryption=none&security=tls&type=${node.type}&host=${domain.trim()}${node.type === 'ws' ? `&path=${encodeURIComponent(node.path)}` : ''}#Argo-${node.name}`;
+      generatedNodes.push(argoLink);
+      console.log(`    └─ 同步生成 Argo 節點連結: ${argoLink}`);
+    } else {
+      console.log(`    └─ 臨時隧道模式：節點連結需在 VPS 上執行腳本後動態輸出。`);
+    }
+  }
+
+  // 如果有生成固定隧道的節點，將新舊節點整合寫入訂閱文件
+  if (generatedNodes.length > selectedNodes.length) {
+    const subPath = path.join(outputDir, 'argo_subscription.txt');
+    fs.writeFileSync(subPath, generatedNodes.join('\n'), 'utf8');
+    const base64Sub = Buffer.from(generatedNodes.join('\n')).toString('base64');
+    fs.writeFileSync(path.join(outputDir, 'argo_subscription_base64.txt'), base64Sub, 'utf8');
+    
+    console.log(`\n[✓] 整合訂閱已生成（含原節點 + 新 Argo 節點）:`);
+    console.log(`    - 明文列表: ${path.join(outputDir, 'argo_subscription.txt')}`);
+    console.log(`    - Base64 格式: ${path.join(outputDir, 'argo_subscription_base64.txt')}`);
+  }
+
+  console.log('\n==============================================');
+  console.log('部署說明：');
+  console.log('1. 請將 argo_outputs 目錄內對應的 .sh 腳本上傳至您的 VPS。');
+  console.log('2. 執行命令賦予執行權限並啟動：');
+  console.log('   chmod +x argo-install-*.sh && ./argo-install-*.sh');
+  console.log('==============================================');
+
+  rl.close();
+}
+
+main();
+
+````
+
+## File: README.md
+````md
+# ⚡ CF Sub Converter Pro
+
+基於 Cloudflare Workers 的全能 Serverless 訂閱轉換與節點中樞。擁有現代深色 UI、GitHub 遠端規則即時直讀與內嵌容災架構、自訂短代碼全字元（大小寫/符號）1:1 完整保留、私密配置管理安全鎖、智慧倍率/專線分組、國旗萬國對齊系統，以及 **Argo 隧道 2.0 自動化生成器**。支援將各類代理節點一鍵轉換為 **Sing-Box / Clash Meta (Mihomo) / Surge 5 / Quantumult X / Loon / Base64** 格式，並提供全平台專屬喚醒協議（Deep Link）與行動條碼掃描自動導入。
+
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sammy0101/cf-sub-converter)
+
+---
+
+## 🌟 核心特性
+
+### 1. 🔌 全主流與新興協議深度解析
+- **完整 Clash / Mihomo YAML 跨協議智慧解析**：
+  - 支援將任何網上下載或機場提供的完整 `.yaml` 設定檔整份貼入主輸入框。
+  - 後端解析器自動跳過頂層 `port:`、`rules:` 與策略組，精準提取 `proxies:` 陣列中的所有節點，並無縫轉換為 Sing-Box、Surge、Base64 等任何目標格式。
+- **Cloudflare WARP MASQUE 萬能解析與高階調優**：
+  - **多元來源識別**：支援貼入單一 JSON 物件、多組連續 JSON 物件、標準 JSON 陣列 `[ { ... } ]`、單行 `masque://` URI，或包含 MASQUE 的 Clash YAML 設定檔。
+  - **Mihomo 專屬全規格補齊**：自動注入 `uri: https://cloudflareaccess.com`、`sni: www.microsoft.com`（防封鎖偽裝）、`congestion-controller: bbr`，以及 `dns: [1.1.1.1, 8.8.8.8]`。
+  - **客戶端 IP 遮罩規範化**：針對 Clash 自動剝離子網掩碼（純 IP：`172.16.0.2`），避免舊版或部分核心解析異常；針對 Sing-Box 精準保留標準 CIDR（`172.16.0.2/32`）。
+  - **Shadowrocket（小火箭）自動點亮 BBR**：在 Base64 明文 URI 中注入多別名 `cca=bbr`、`cc=bbr` 與 `congestion_control=bbr`，小火箭掃碼導入後**「擁塞控制」自動精確設定為 `bbr`**。
+  - **Sing-Box 戰未來支援**：輸出結構完整對齊現代規範與社群擴展分支（如 `sing-box-lx`、`sing-box-extended`），內嵌 `congestion_control: "bbr"` 與 `tls` 物件。
+- **WireGuard 官方 `.conf` 深度支援（支援多組批次貼入）**：
+  - 直接貼入多組 Proton VPN、Mullvad 或 WARP 的 `[Interface] ... [Peer] ...` 設定檔，自動批次辨識並分割為獨立節點。
+  - 自動提取 Proton 專屬 NetShield 內部 DNS（`10.2.0.1`），完整保留原生去廣告與極致防洩漏功能。
+  - 智慧辨識伺服器備註與國家標籤（例如 `# JP-FREE#23` 自動轉換為 `🇯🇵 JP-FREE#23`）。
+- **VLESS**：支援最新 `xhttp` / `splithttp`、`Reality`、`Vision`、`WebSocket (含 ?ed=2560 Early Data 淨化)`、`gRPC`。
+- **ECH (Encrypted Client Hello)**：自動解析 `&ech=` 參數，在 Sing-Box 與 Clash 中開啟 ECH 加密問候，徹底繞過 GFW 針對 SNI 網域的阻斷。
+- **WebSocket ALPN 智慧鎖定**：自動為 WS+TLS 節點指定 `alpn: ["http/1.1"]`，解決 Cloudflare 邊緣節點錯誤協商 HTTP/2 導致的斷流問題。
+- **Shadowsocks-2022**：完整支援 `2022-blake3-*` 多端口與服務端密鑰。
+- **其他協議**：Trojan、VMess、Hysteria 2 (`hy2`)、TUIC、AnyTLS。
+
+### 2. 📱 全生態客戶端適配與一鍵喚醒 (Deep Link)
+- **自適應識別 (Adaptive)**：自動依據請求客戶端的 `User-Agent` 回傳對應格式。
+- **Clash Meta (Mihomo)**：YAML 格式，內建 Fake-IP、DoH 分流、流量嗅探與動態策略組。
+- **Sing-Box (1.14+ 現代規範)**：
+  - 完整符合現代標準，WireGuard 自動歸入頂層現代 `endpoints` 結構，徹底消除 `unknown field "server"`、`unknown field "local_address"`、`download_detour` 等廢棄與語法錯誤。
+  - WireGuard 由策略組（`🚀 節點選擇`、`⚡ 自動選擇`）直接引用，自由切換。
+  - 國外代理流量採用 Fake-IP 封裝網域名稱，國內/內網流量自動使用 Real-IP 直連。
+- **Surge 5**：標準 `.conf` 格式，支援 Proxy、Proxy Group、分流規則與 `[WireGuard ...]` 獨立專屬區塊。
+- **Quantumult X**：支援包含 `vless=` 在內的標準 `server_remote` 節點清單。
+- **Loon**：標準 `[Proxy]` 格式。
+- **通用 Base64 / Shadowrocket (小火箭)**：
+  - 完整對齊標準 URI 結構（私鑰、公鑰、IP、DNS、MTU、CCA/BBR 與 Keepalive 參數全規格映射），解決小火箭解碼錯誤並支援原生通連。
+- **🚀 專屬喚醒二維碼與自動命名**：
+  - 點擊 QR Code 圖示自動產生符合各客戶端規範的條碼（例如 Sing-Box 官方標準 `sing-box://import-remote-profile?url=...#name`）。
+  - 手機相機或 App 掃描**全自動填入名稱與網址**，亦可點擊按鈕直接喚醒 App 一鍵導入。
+
+### 3. 🏷️ 短連結雲端儲存與全字元完整保留
+- **大小寫字母與特殊符號 1:1 完全保留**：
+  - 點選已儲存的配置時，自訂短路徑名稱完整保留原始大小寫字母（如 `HK-VIP-Pro`）、符號、Emoji 與中文，不再強制轉換為小寫。
+  - 網址生成器整合標準安全轉義（`encodeURIComponent`），確保包含特殊字元或空白時 HTTP 路由不被截斷，並能精確於 KV 還原對應配置。
+- **路徑短代碼命名同步**：
+  - 設定自訂短代碼（如 `My_Sub`），客戶端拉取時，後端自動下發標準 HTTP 標頭：
+    - `Profile-Title: My_Sub`
+    - `Subscription-Title: My_Sub`
+    - `Content-Disposition: inline; filename="My_Sub.json"`
+  - 各客戶端（Shadowrocket、Sing-Box、Surge、Clash）拉取後，訂閱清單自動顯示為指定名稱。
+
+### 4. 🔐 私密配置管理安全鎖 (PAGE_PASSWORD)
+- **公私分明**：
+  - **公開使用**：通用訂閱轉換、節點過濾、Argo 隧道生成、客戶端訂閱更新一律開放。
+  - **私密保護**：下方的「已儲存的配置」受密碼保護，需輸入管理密碼才能檢視、新增或編輯私密節點。
+- **永久記住登入狀態**：解鎖成功後瀏覽器（`localStorage`）自動保持登入，重開網頁免重複輸入，並提供隨時「🔒 鎖定」按鈕。
+- **後端安全攔截**：`/favs` 路由全面校驗 `X-Password`，未授權請求直接回傳 `401 Unauthorized`。
+
+### 5. 🛡️ 99.99% GitHub 模板即時直讀與雙重容災架構 (Zero Downtime)
+- **GitHub 遠端直讀 (零 KV 模板冗餘)**：
+  - Sing-Box 與 Clash Meta 的遠端規則模板直接向 GitHub 倉庫請求最新內容，徹底移除寫入 KV 之 `tpl:singbox` 與 `tpl:clash` 鍵值，邊緣資料庫乾淨純粹。
+  - 修改 GitHub 上的 `Sing-Box_Rules.JSON` 或 `Clash_Rules.YAML` 後，客戶端更新立即生效，無需手動清除快取。
+- **雙重容災降級保證**：
+  - 請求流程為：`GitHub 即時獲取` ➔ `內嵌應急模板兜底`。
+  - 若遇 GitHub 服務波動、網路逾時或 429 限流，系統自動無縫回退至內建純淨版預設模板，確保訂閱拉取 100% 成功。
+- **專屬純淨儲存**：KV 空間專門用於儲存用戶自訂短連結、私密收藏配置與 Argo 部署腳本。
+
+### 6. 🏎️ 智慧倍率與專線動態策略組
+- **倍率辨識**：自動識別節點名稱中的倍率特徵（如 `0.1x`、`0.5X`、`0.2倍`），並在 Sing-Box 與 Clash Meta 中動態建立「🏎️ 低倍率節點」策略組。
+- **專線辨識**：自動擷取 `IPLC`、`IEPL`、`專線`、`內網` 特徵，動態生成「⚡ 專線加速」策略組。
+
+### 7. 🌀 Argo 隧道 2.0 一鍵生成器
+- **優選 IP / 官方域名注入**：支援填入 Cloudflare Clean IP（如 `104.16.80.1`）或優選網域，自動完成連接伺服器與 SNI/Host 映射，顯著降低延遲。
+- **極簡 VPS 命令**：腳本自動上傳至 KV 快取，透過 `curl -sSL ... | bash` 極速完成部署。
+- **智慧探測與修復**：VPS 端自動探測 443 / 80 本地監聽連接埠、TLS 狀態與 Host Header 重寫。
+
+### 8. 🔍 智慧篩選、名稱替換與黃金國旗排版
+- **雙向過濾**：支援「僅保留」與「排除」規則（多組用 `|` 隔開，如 `HK|TW` 或 `5x`），內建 `x`/`X`/`×` 字符相容匹配。
+- **名稱替換**：支援 `DEL-關鍵字`（刪除）、`尋找-替換`，以及 `ALL-新名稱`（一鍵統改所有節點名稱）。
+- **黃金 22 地區國旗排序**：自動為節點補上國旗 Emoji，依亞太核心（港、台、日、星、韓）➔ 歐美主流（美、英、加、澳）順序緊密分群，並自動對重複節點編號。
+
+### 9. 📊 流量與到期日加總透傳
+- 自動從上游多個機場擷取並加總上傳、下載與總流量，計算最近的到期時間，透過標準 `subscription-userinfo` 標頭透傳，完美點亮客戶端流量資訊條。
+
+---
+
+## 🚀 部署教學
+
+### 方法一：一鍵按鈕快速部署 (最推薦、零設定自動託管)
+
+點擊本說明文件上方的 **Deploy to Cloudflare Workers** 按鈕。
+
+* **零設定自動託管**：Cloudflare 網頁部署精靈會引導您登入，並**在背景全自動為您建立並對接好所需的 KV 命名空間（`SUB_CACHE`）**。
+* **自建 CI/CD (Workers Builds)**：Cloudflare 會在您的 GitHub 下自動建立此專案的複製倉庫。未來只要在 GitHub 修改並 `git push`，Cloudflare 就會自動在端點編譯部署。
+
+---
+
+### 方法二：手動 Fork 本專案並使用 GitHub Actions 自動部署 (需設定 Secrets)
+
+如果您選擇**手動 Fork 本項目**並利用倉庫內建的 GitHub Actions 自動進行 CI/CD 部署，請依照以下步驟操作：
+
+1. **Fork 本專案**：
+   點擊本倉庫右上角的 **`Fork`** 按鈕，將專案複製一份到您的 GitHub 帳號下。
+
+2. **建立 Cloudflare KV 命名空間**：
+   - 登入 [Cloudflare Dashboard](https://dash.cloudflare.com/)。
+   - 點擊左側選單的 **`Storage & Databases` (儲存與資料庫)** ➔ **`KV`**。
+   - 點擊 **`Create a namespace`**，輸入名稱（例如 `SUB_CACHE`），建立完成後複製其 **Namespace ID**。
+
+3. **設定 GitHub Repository Secrets**：
+   前往您 Fork 出來的 GitHub 倉庫頁面，依次點擊：
+   **`Settings`** ➔ **`Secrets and variables`** ➔ **`Actions`** ➔ **`New repository secret`**，添加以下三個密鑰：
+
+   | 密鑰名稱 (Secret Name) | 說明與獲取方式 |
+   | :--- | :--- |
+   | **`CF_API_TOKEN`** | **Cloudflare API 權杖**<br>獲取方式：Cloudflare 首頁 ➔ 右上角「我的個人資料」➔「API 權杖」➔「建立權杖」➔ 選擇「編輯 Cloudflare Workers」模板（需具備 Workers 與 KV 的編輯權限）。 |
+   | **`CF_ACCOUNT_ID`** | **Cloudflare 帳戶 ID**<br>獲取方式：登入 Cloudflare ➔ 點擊任意網域或 Worker 頁面，在右側欄位即可找到「帳戶 ID (Account ID)」。 |
+   | **`CF_KV_ID`** | **KV 命名空間 ID**<br>獲取方式：填入步驟 2 中建立的 `SUB_CACHE` 命名空間 ID。 |
+
+4. **觸發自動部署**：
+   - 前往 GitHub 倉庫的 **`Actions`** 標籤頁。
+   - 點擊左側的 **`Deploy to Cloudflare Workers`** 工作流，點擊 **`Run workflow`** 手動執行部署。
+   - 後續只要您對 `main` 或 `master` 分支推送（Push）任何代碼變更，GitHub Actions 就會全自動為您編譯並發布至 Cloudflare Workers。
+
+---
+
+### 方法三：本地手動編譯部署 (Wrangler CLI)
+
+1. **克隆專案並安裝依賴**：
+   ```bash
+   git clone https://github.com/sammy0101/cf-sub-converter.git
+   cd cf-sub-converter
+   npm install
+   ```
+
+2. **建立 KV 命名空間**：
+   ```bash
+   wrangler kv:namespace create SUB_CACHE
+   ```
+   *將終端機回傳的 `id` 替換至 `wrangler.toml` 中的 `KV_ID_PLACEHOLDER`。*
+
+3. **發布至 Cloudflare**：
+   ```bash
+   npm run deploy
+   ```
+
+---
+
+## 🔐 設定私密管理密碼（PAGE_PASSWORD）
+
+若要啟用「已儲存的配置」安全密碼鎖，推薦直接在 Cloudflare Dashboard 中設定為 **Secret（加密機密）**，無論重新部署多少次都**永遠不會丟失**：
+
+1. 登入 [Cloudflare Dashboard](https://dash.cloudflare.com/) ➔ 點進您的 Worker。
+2. 點擊頂部的 **`Settings` (設定)** ➔ **`Variables and Secrets` (變數與機密)**。
+3. 點擊 **`Add variable`** 或 **`Add secret`**：
+   - **名稱**：`PAGE_PASSWORD`
+   - **值**：輸入您的管理密碼（例如 `MyPass888`）
+   - 點擊欄位旁的 **`Encrypt` (加密)** 按鈕鎖定。
+4. 點擊 **`Save and deploy` (儲存並部署)** 即可立即生效！
+
+---
+
+## 📖 使用指南
+
+### 1. 視覺化 Web 面板
+訪問您部署完成的 Workers 網址：
+- **資料來源設定**：
+  - 貼上完整 **Clash Meta (.yaml) 設定檔**、機場訂閱連結、WireGuard `.conf` 設定檔（支援多組 `[Interface]...[Peer]` 連續貼入）、Cloudflare WARP MASQUE JSON（支援陣列或多個物件），或各類代理節點。
+- **過濾與替換**：設定保留/排除關鍵字或名稱替換規則。
+- **短連結雲端儲存**：設定自訂短代碼（如 `My_Sub`），規則將自動打包存入 KV，大小寫與字元原樣保留。
+- **多平台訂閱面板**：
+  - 複製對應客戶端的訂閱連結。
+  - 點擊 QR Code 圖示彈出專屬喚醒視窗，手機相機或 App 掃描自動填入，或點擊「🚀 一鍵打開並導入」直接喚醒 App。
+- **配置收藏管理**：輸入管理密碼解鎖後，可自由新增、編輯、刪除或一鍵套用常用的私密配置，瀏覽器會自動記住登入狀態。
+
+---
+
+### 2. 多元輸入範例
+
+#### (1) 直接貼入完整 Clash YAML 設定檔（自動提取 proxies）
+```yaml
+mixed-port: 7890
+mode: rule
+proxies:
+  - name: "WARP-MASQUE-01"
+    type: masque
+    server: 162.159.198.2
+    port: 443
+    private-key: <REDACTED_PRIVATE_KEY>
+    public-key: <REDACTED_PUBLIC_KEY>
+    ip: 172.16.0.2
+    ipv6: 2606:4700:110:8f56:aae5:fd77:ac85:2622
+    uri: https://cloudflareaccess.com
+    mtu: 1280
+    udp: true
+    remote-dns-resolve: true
+    congestion-controller: bbr
+    dns: [ 1.1.1.1, 8.8.8.8 ]
+    sni: www.microsoft.com
+```
+
+#### (2) 多組 WireGuard (.conf) 連續貼入
+```ini
+[Interface]
+PrivateKey = <REDACTED_PRIVATE_KEY_1>
+Address = 10.2.0.2/32
+DNS = 10.2.0.1
+
+[Peer]
+# JP-FREE#01
+PublicKey = <REDACTED_PUBLIC_KEY_1>
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = 198.51.100.1:51820
+PersistentKeepalive = 25
+
+[Interface]
+PrivateKey = <REDACTED_PRIVATE_KEY_2>
+Address = 10.2.0.2/32
+DNS = 10.2.0.1
+
+[Peer]
+# US-FREE#02
+PublicKey = <REDACTED_PUBLIC_KEY_2>
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = 198.51.100.2:51820
+PersistentKeepalive = 25
+```
+
+#### (3) 多組 Cloudflare WARP MASQUE JSON 貼入
+```json
+[
+  {
+    "name": "WARP-HK",
+    "private_key": "<REDACTED_PRIVATE_KEY_1>",
+    "endpoint_v4": "162.159.198.2",
+    "endpoint_pub_key": "<REDACTED_PUBLIC_KEY_1>",
+    "ipv4": "172.16.0.2/32"
+  },
+  {
+    "name": "WARP-JP",
+    "private_key": "<REDACTED_PRIVATE_KEY_2>",
+    "endpoint_v4": "162.159.198.3",
+    "endpoint_pub_key": "<REDACTED_PUBLIC_KEY_2>",
+    "ipv4": "172.16.0.2/32"
+  }
+]
+```
+
+---
+
+### 3. Argo 隧道 2.0 部署步驟
+
+1. 在網頁主輸入框貼入您的 VLESS / VMess 節點內容。
+2. 點擊 **「第一步：解析並載入目前輸入的 VLESS / VMess 節點」**。
+3. 勾選欲轉換之節點，系統會自動匹配原埠號。
+4. （選填）填入 **Cloudflare 優選 IP**（例如 `104.16.80.1`）以加速連線。
+5. （選填）填入固定 Tunnel Token 與自訂綁定域名（若留空則為臨時隨機隧道）。
+6. 點擊 **「第二步：生成 Argo 一鍵部署指令與節點」**。
+7. 將產生的 `curl -sSL ... | bash` 指令複製至 VPS（以 root 權限執行）。
+8. 部署成功後：
+   - **固定域名模式**：下方文字框直接複製已轉換好的 `_Argo_優選` 節點。
+   - **臨時隨機模式**：VPS 終端機將動態輸出最終分配的節點連結。
+
+---
+
+### 4. API 調用與外部前端對接
+
+#### 當作標準 SubConverter 後端使用
+本專案內建標準 `/sub` 與 `/version` 端點，可直接填入任何開源 `sub-web` 前端的「後端地址 (Backend URL)」：
+```text
+https://your-worker.workers.dev
+```
+
+#### URL 參數手動轉換
+
+| 參數 | 說明 | 範例 |
+| :--- | :--- | :--- |
+| `url` | 原始訂閱連結、YAML 或節點內容（需 URL 編碼） | `https://example.com/sub` |
+| `target` | 目標格式：`clash` / `singbox` / `surge` / `quanx` / `loon` / `base64` | `target=clash` |
+| `include` | 僅保留符合正則之節點 | `include=HK\|TW` |
+| `exclude` | 排除符合正則之節點（自動相容乘號 `×`） | `exclude=5x\|官網` |
+| `rename` | 名稱替換（刪除：`DEL-字串`、替換：`A-B`、統改：`ALL-名稱`） | `rename=DEL-[69云]\|ALL-JP` |
+| `name` | 自訂客戶端訂閱名稱（覆蓋預設檔名） | `name=my-vip-sub` |
+| `force` / `nocache` | 兼容保留參數（模板已全面改為 GitHub 即時獲取） | `force=1` |
+
+**完整調用範例**：
+```http
+# 轉換原始訂閱為 Clash Meta 格式，僅保留香港，並刪除廣告名稱
+https://your-worker.workers.dev/sub?url=<URL編碼>&target=clash&include=HK&rename=DEL-[廣告]
+
+# 讀取已存於雲端 KV 的短連結配置
+https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox
+```
+
+---
+
+## 🛡️ 內建分流群組 (Sing-Box / Clash Meta)
+
+| 圖示 | 策略組名稱 | 路由邏輯 |
+| :--- | :--- | :--- |
+| 🏎️ | 低倍率節點 | 自動彙整倍率 `< 1.0x` 的節點（省流專用） |
+| ⚡ | 專線加速 | 自動彙整包含 `IPLC` / `IEPL` / `專線` 的低延遲節點 |
+| 🚀 | 節點選擇 | 手動指定出站節點 |
+| ⚡ | 自動選擇 | URL Test 自動測速切換最低延遲節點 |
+| 💬 | HK AI 服務 | 針對 OpenAI / Claude / AI Studio 專屬分流 |
+| 🍎 | 蘋果服務 | Apple 相關服務直連或代理 |
+| Ⓜ️ | 微軟服務 | Microsoft 服務直連或代理 |
+| 🎮 | 遊戲平台 | Steam / Epic / EA / Ubisoft / Blizzard |
+| 🌐 | 非中國 | 全球主流網站（Google、Telegram、YouTube 等） |
+| 🇨🇳 | 國內服務 | 中國大陸 IP 與網域自動精準直連 |
+| 🏠 | 私有網絡 | 區域網路 (LAN) 直連 |
+| 🛑 | 廣告攔截 | 阻擋常見廣告與追蹤器 (AdBlock) |
+| 🐟 | 漏網之魚 | Final Match 未命中規則之預設路由 |
+
+---
+
+## ❓ 常見問題排錯 (FAQ)
+
+### 1. 為什麼官方原版 Sing-Box 無法使用 MASQUE 節點？如何在 Sing-Box 使用 WARP？
+- **原因說明**：
+  - **MASQUE 協議現狀**：官方 `SagerNet/sing-box` 主線尚未合併 MASQUE 模組（若強行載入會報 `unknown outbound type: masque`）。目前僅社群擴展分支（如 `sing-box-lx`、`sing-box-extended`）支援 MASQUE。
+  - **協議不可互轉**：MASQUE（ECDSA P-256 / HTTP/3）與 WireGuard（Curve25519 / UDP）是兩套完全獨立的密碼學體系，轉換器**無法直接將 MASQUE 金鑰轉換成 WireGuard 節點**。
+- **解法（官方 Sing-Box 如何使用 WARP）**：
+  - 若需在官方原版 Sing-Box 使用 WARP，請直接獲取 **WARP 的 WireGuard 設定檔**（例如使用 `wgcf` 工具產生內含 `[Interface]...[Peer]` 的 `.conf` 檔）。
+  - 將該 WireGuard `.conf` 貼入本轉換器，即可轉出符合官方規範的頂層現代 `endpoints` 結構，流暢連通。
+
+### 2. WireGuard 節點在小火箭（Shadowrocket）測速顯示超時/紅燈（TCP 無延遲），但打開開關能正常上網？
+- **原因**：WireGuard 是工作在第 3 層（網路層）的虛擬網卡 TUN 隧道協議。小火箭首頁的「連通性測試」預設發送的是 **TCP/HTTP Ping**；在開關未開啟前，TUN 路由尚未真正建立，因此向私有 DNS（如 Proton 的 `10.2.0.1`）發起的 TCP 域名解析必定超時。
+- **說明**：這是所有包含內部私有 DNS 的 WireGuard / WARP 節點在小火箭中的**正常現象**。只要上方連線開關開啟後能順暢瀏覽網頁、查 IP 正確，即代表握手與代理功能完全正常。若需測出延遲數值，可在小火箭「設定」➔「測試方法」中切換為 **ICMP** 測速。
+
+### 3. Windows 上運行 WireGuard 節點報錯 `listen udp6: An invalid argument was supplied`？
+- **原因**：Windows 電腦未開啟 IPv6 協議元件，導致 Sing-Box 核心在嘗試雙棧 UDP 監聽時被 Windows Winsock 攔截。
+- **解法**：在 Windows 按 `Win + R` ➔ 輸入 `ncpa.cpl` ➔ 在連線的網卡（乙太網路或 Wi-Fi）點右鍵「內容」➔ **將「網際網路通訊協定第 6 版 (TCP/IPv6)」打勾啟用** 即可正常握手連通。若電腦完全無法開啟 IPv6，建議使用 **Clash Meta** 格式訂閱。
+
+### 4. Cloudflare EdgeTunnel 節點在手機端連線逾時？
+- **原因**：部分 Cloudflare 節點啟用了 ECH（加密問候）或自訂 WebSocket Early Data。
+- **解法**：本工具已全面自動淨化路徑中的 `?ed=2560`，並鎖定 `alpn: ["http/1.1"]`，只要透過本轉換器更新至最新訂閱，即可完美相容。
+
+---
+
+## 📁 專案架構
+
+```text
+cf-sub-converter/
+├── src/
+│   ├── index.ts          # Worker 核心路由、並發請求控制、安全鑒權與 API 接口
+│   ├── constants.ts      # 響應式深色 UI 模板、QR Code 生成器與內嵌緊急降級規則
+│   ├── parser.ts         # 萬能節點解析器 (Clash YAML proxies 提取, WireGuard .conf, MASQUE, VLESS 等)
+│   ├── generator.ts      # 多平台格式生成器 (直連 GitHub 遠端模板 + 內嵌兜底、Sing-Box, Clash, Surge 等)
+│   ├── utils.ts          # 倍率與專線特徵提取、Base64 安全編碼、萬國國旗對齊演算法
+│   └── types.ts          # 嚴格 TypeScript 類型定義
+├── argo.sh               # VPS Argo 隧道 2.0 一鍵安裝與自我修復通用腳本
+├── Sing-Box_Rules.JSON   # GitHub 遠端 Sing-Box 混合 TUN 規則模板 (1.14+ 現代無警告規範)
+├── Clash_Rules.YAML      # GitHub 遠端 Clash Meta (Mihomo) 規則模板
+├── wrangler.toml         # Cloudflare Workers 配置檔
+└── .github/workflows/
+    └── deploy.yml        # GitHub Actions 自動化部署工作流
+```
+
+---
+
+## ⚠️ 免責聲明
+
+本專案僅供網路安全、分散式架構學習與技術交流使用，不提供任何代理伺服器或節點服務。請使用者自覺遵守當地法律法規，切勿用於任何非法用途。
+
+````
+
+## File: src/index.ts
+````ts
+// src/index.ts
+// @ts-ignore
+import packageJson from '../package.json';
+import { Env, ProxyNode } from './types';
+import { HTML_PAGE } from './constants';
+import { parseContent } from './parser';
+import {
+  toSingBoxWithTemplate,
+  toClashWithTemplate,
+  toBase64,
+  toSurge,
+  toQuantumultX,
+  toLoon
+} from './generator';
+import { deduplicateNodeNames, groupNodesByFlag } from './utils';
+
+const version = packageJson.version || '3.5.0';
+
+// 密碼鑒權校驗
+function checkAuth(request: Request, env: Env): boolean {
+  if (!env.PAGE_PASSWORD || env.PAGE_PASSWORD.trim() === '') {
+    return true;
+  }
+  const clientPwd = request.headers.get('X-Password') || '';
+  return clientPwd === env.PAGE_PASSWORD.trim();
+}
+
+// 輔助載入與解析節點
+async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
+  const allNodes: ProxyNode[] = [];
+  const trimmed = urlParam.trim();
+  if (!trimmed) return allNodes;
+
+  // 1. 優先完整辨識多行 WireGuard
+  if (/\[Interface\]/i.test(trimmed) && /\[Peer\]/i.test(trimmed)) {
+    try {
+      const parsed = await parseContent(trimmed);
+      allNodes.push(...parsed);
+    } catch {}
+    return allNodes;
+  }
+
+  // 2. 優先完整辨識多組或單組 MASQUE JSON (物件或陣列)
+  if (/["']private_key["']/i.test(trimmed) && (trimmed.includes('{') || trimmed.includes('['))) {
+    try {
+      const parsed = await parseContent(trimmed);
+      allNodes.push(...parsed);
+    } catch {}
+    return allNodes;
+  }
+
+  // 3. 優先完整辨識多行 Clash YAML 配置 (含 proxies:)
+  if (/(^|\n)\s*proxies\s*:/i.test(trimmed)) {
+    try {
+      const parsed = await parseContent(trimmed);
+      allNodes.push(...parsed);
+    } catch {}
+    return allNodes;
+  }
+
+  const inputs = urlParam.split(/[\n\r|]+/); 
+  for (const input of inputs) {
+    const t = input.trim(); 
+    if (!t) continue;
+    
+    if (t.startsWith('http')) { 
+      try { 
+        const separator = t.includes('?') ? '&' : '?';
+        const fetchUrl = `${t}${separator}t=${Date.now()}`;
+        
+        const resp = await fetch(fetchUrl, { 
+          headers: { 
+            'User-Agent': 'v2rayNG/1.8.5',
+            'Accept': '*/*'
+          } 
+        }); 
+        
+        if (resp.ok) { 
+          const text = await resp.text(); 
+          if (!text.trim().startsWith('<')) {
+            try {
+              const parsed = await parseContent(text);
+              allNodes.push(...parsed);
+            } catch {}
+          }
+        }
+      } catch {} 
+    } else { 
+      try {
+        const parsed = await parseContent(t);
+        allNodes.push(...parsed); 
+      } catch {}
+    }
+  }
+  return allNodes;
+}
+
+function safeBtoa(str: string): string {
+  try {
+    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => {
+      return String.fromCharCode(parseInt(p1, 16));
+    }));
+  } catch {
+    return btoa(str);
+  }
+}
+
+async function getArgoScriptFromGithub(node: ProxyNode, port: string, token: string, domain: string): Promise<string> {
+  const GITHUB_TEMPLATE_URL = `https://raw.githubusercontent.com/sammy0101/cf-sub-converter/main/argo.sh?t=${Date.now()}`;
+  let template = "";
+  
+  try {
+    const res = await fetch(GITHUB_TEMPLATE_URL, { headers: { 'User-Agent': 'v2rayNG/1.8.5' } });
+    if (res.ok) {
+      template = await res.text();
+    } else {
+      throw new Error("GitHub Fetch Failed");
+    }
+  } catch {
+    template = `#!/bin/bash
+if ! command -v cloudflared &> /dev/null; then
+  curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+  chmod +x /usr/local/bin/cloudflared
+fi
+cloudflared tunnel --url http://127.0.0.1:{{VLESS_PORT}}
+`;
+  }
+
+  const vlessType = node.network || 'ws';
+  const vlessPath = node.wsPath || '/';
+  const argoNodeName = `${node.name}_Argo`;
+  const isTls = node.tls ? "true" : "false";
+  const realHost = node.wsHeaders?.Host || node.sni || node.server; 
+
+  return template
+    .replace("{{NODE_TYPE}}", node.type)
+    .replace("{{VLESS_UUID}}", node.uuid || '')
+    .replace("{{VLESS_PATH}}", vlessPath)
+    .replace("{{VLESS_TYPE}}", vlessType)
+    .replace("{{VLESS_PORT}}", port)
+    .replace("{{NODE_NAME}}", argoNodeName)
+    .replace("{{TUNNEL_TOKEN}}", token.trim())
+    .replace("{{CUSTOM_DOMAIN}}", domain.trim())
+    .replace("{{VLESS_TLS}}", isTls)
+    .replace("{{ORIGIN_HOST}}", realHost);
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, X-Password',
+        }
+      });
+    }
+
+    // GET /argo/sh/:id
+    if (request.method === 'GET' && url.pathname.startsWith('/argo/sh/')) {
+      const scriptId = url.pathname.split('/').pop();
+      if (env.SUB_CACHE && scriptId) {
+        const script = await env.SUB_CACHE.get(`script:${scriptId}`);
+        if (script) {
+          return new Response(script, {
+            headers: { 
+              'Content-Type': 'text/plain; charset=utf-8', 
+              'Access-Control-Allow-Origin': '*' 
+            }
+          });
+        }
+      }
+      return new Response('# 錯誤: 該腳本不存在或已過期，請重新在網頁上生成。\nexit 1\n', { 
+        status: 404,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+
+    // POST /api/parse-argo
+    if (request.method === 'POST' && (url.pathname === '/api/parse-vless' || url.pathname === '/api/parse-argo')) {
+      try {
+        const body = (await request.json()) as { url?: string };
+        const rawUrl = body.url || '';
+        if (!rawUrl.trim()) {
+          return new Response(JSON.stringify({ error: '請輸入有效的節點內容' }), { 
+            status: 400, 
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } 
+          });
+        }
+
+        const allNodes = await loadNodes(rawUrl);
+        const argoCompatibleNodes = allNodes.filter(n => n.type === 'vless' || n.type === 'vmess').map((n, idx) => ({
+          index: idx,
+          name: n.name,
+          server: n.server,
+          port: n.port,
+          type: n.type,
+          host: n.wsHeaders?.Host || n.sni || n.server
+        }));
+
+        return new Response(JSON.stringify(argoCompatibleNodes), {
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return new Response(JSON.stringify({ error: msg }), { 
+          status: 500, 
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } 
+        });
+      }
+    }
+
+    // POST /api/argo-generate
+    if (request.method === 'POST' && url.pathname === '/api/argo-generate') {
+      try {
+        const body = (await request.json()) as {
+          url?: string;
+          indices?: number[];
+          port?: string;
+          cleanIp?: string;
+          token?: string;
+          domain?: string;
+        };
+
+        const rawUrl = body.url || '';
+        const selectedIndices = body.indices || [];
+        const port = body.port || '8080';
+        const cleanIp = (body.cleanIp || '').trim();
+        const token = body.token || '';
+        const domain = body.domain || '';
+
+        if (!rawUrl.trim() || selectedIndices.length === 0) {
+          return new Response(JSON.stringify({ error: '無效的參數或未選擇節點' }), { 
+            status: 400, 
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } 
+          });
+        }
+
+        const allNodes = await loadNodes(rawUrl);
+        const compatibleNodes = allNodes.filter(n => n.type === 'vless' || n.type === 'vmess');
+        const selectedObjects = selectedIndices.map(idx => compatibleNodes[idx]).filter(Boolean);
+
+        let scripts = '';
+        const generatedNodesData: Array<{ originalIndex: number; link: string }> = [];
+
+        for (let i = 0; i < selectedObjects.length; i++) {
+          const node = selectedObjects[i];
+          const originalIndex = selectedIndices[i];
+          
+          scripts += await getArgoScriptFromGithub(node, port, token, domain) + '\n\n';
+
+          const targetDomain = (token.trim() && domain.trim()) ? domain.trim() : "請在VPS執行一鍵安裝腳本獲取臨時域名.trycloudflare.com";
+          const connectionServer = cleanIp || targetDomain;
+          const argoNodeName = `${node.name}_Argo${cleanIp ? '_優選' : ''}`;
+
+          let argoLink = '';
+          if (node.type === 'vless') {
+            argoLink = `vless://${node.uuid}@${connectionServer}:443?encryption=none&security=tls&type=${node.network || 'ws'}&host=${targetDomain}&sni=${targetDomain}&path=${node.wsPath || '/'}#${encodeURIComponent(argoNodeName)}`;
+          } else {
+            const vmessObj = {
+              v: "2", ps: argoNodeName, add: connectionServer, port: 443, id: node.uuid,
+              aid: 0, scy: "auto", net: node.network || 'ws', type: "none",
+              host: targetDomain, path: node.wsPath || '/', tls: "tls", sni: targetDomain
+            };
+            argoLink = 'vmess://' + safeBtoa(JSON.stringify(vmessObj));
+          }
+
+          generatedNodesData.push({ originalIndex, link: argoLink });
+        }
+
+        let scriptId = '';
+        if (env.SUB_CACHE) {
+          scriptId = crypto.randomUUID();
+          await env.SUB_CACHE.put('script:' + scriptId, scripts, { expirationTtl: 3600 });
+        }
+
+        return new Response(JSON.stringify({ 
+          scriptId, 
+          argoNodes: generatedNodesData 
+        }), {
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return new Response(JSON.stringify({ error: msg }), { 
+          status: 500, 
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } 
+        });
+      }
+    }
+
+    // GET /version
+    if (request.method === 'GET' && url.pathname === '/version') {
+      return new Response(`subconverter v${version} ${url.host} backend\n`, {
+        headers: { 
+          'Content-Type': 'text/plain; charset=utf-8', 
+          'Access-Control-Allow-Origin': '*'
+        } 
+      });
+    }
+
+    // POST /save 
+    if (request.method === 'POST' && url.pathname === '/save') {
+      try {
+        const body = (await request.json()) as { path?: string; content?: string; include?: string; exclude?: string; rename?: string };
+        if (!body.path || !body.content) return new Response('Missing path or content', { status: 400 });
+        
+        const saveData = {
+          content: body.content,
+          include: body.include || '',
+          exclude: body.exclude || '',
+          rename: body.rename || ''
+        };
+        await env.SUB_CACHE.put(body.path, JSON.stringify(saveData));
+        
+        return new Response('OK', { status: 200 });
+      } catch {
+        return new Response('Error saving profile', { status: 500 });
+      }
+    }
+
+    // --- Favorites API ---
+    const FAVS_KEY = 'favorites';
+    const getFavs = async (): Promise<Array<Record<string, string>>> => {
+      const data = await env.SUB_CACHE.get(FAVS_KEY);
+      return data ? JSON.parse(data) : [];
+    };
+    const saveFavs = async (favs: Array<Record<string, string>>): Promise<void> => {
+      await env.SUB_CACHE.put(FAVS_KEY, JSON.stringify(favs));
+    };
+
+    if (request.method === 'GET' && url.pathname === '/favs') {
+      if (!checkAuth(request, env)) {
+        return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+      const favs = await getFavs();
+      return new Response(JSON.stringify(favs), { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
+    }
+
+    if (request.method === 'POST' && url.pathname === '/favs') {
+      if (!checkAuth(request, env)) {
+        return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
+      }
+      try {
+        const body = (await request.json()) as Record<string, string>;
+        if (!body.name || !body.url) return new Response('Missing name or url', { status: 400 });
+        const favs = await getFavs();
+        favs.push({
+          name: body.name,
+          url: body.url,
+          include: body.include || '',
+          exclude: body.exclude || '',
+          rename: body.rename || ''
+        });
+        await saveFavs(favs);
+        return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
+      } catch {
+        return new Response('Error saving favorite', { status: 500 });
+      }
+    }
+
+    if (request.method === 'PUT' && url.pathname === '/favs') {
+      if (!checkAuth(request, env)) {
+        return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
+      }
+      try {
+        const body = (await request.json()) as { index?: number; name?: string; url?: string; include?: string; exclude?: string; rename?: string };
+        if (body.index === undefined || !body.name || !body.url) return new Response('Missing data', { status: 400 });
+        const favs = await getFavs();
+        if (body.index >= 0 && body.index < favs.length) {
+          favs[body.index] = {
+            name: body.name,
+            url: body.url,
+            include: body.include || '',
+            exclude: body.exclude || '',
+            rename: body.rename || ''
+          };
+          await saveFavs(favs);
+        }
+        return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
+      } catch {
+        return new Response('Error updating favorite', { status: 500 });
+      }
+    }
+
+    if (request.method === 'DELETE' && url.pathname === '/favs') {
+      if (!checkAuth(request, env)) {
+        return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
+      }
+      try {
+        const body = (await request.json()) as { index?: number };
+        if (body.index === undefined) return new Response('Missing index', { status: 400 });
+        const favs = await getFavs();
+        if (body.index >= 0 && body.index < favs.length) {
+          favs.splice(body.index, 1);
+          await saveFavs(favs);
+        }
+        return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
+      } catch {
+        return new Response('Error deleting favorite', { status: 500 });
+      }
+    }
+
+    // GET 訂閱路由
+    let urlParam = url.searchParams.get('url') || '';
+    let includeParam = url.searchParams.get('include') || '';
+    let excludeParam = url.searchParams.get('exclude') || '';
+    let renameParam = url.searchParams.get('rename') || '';
+    let nameParam = url.searchParams.get('name') || '';
+    const forceRefresh = url.searchParams.has('force') || url.searchParams.has('nocache');
+
+    const path = decodeURIComponent(url.pathname.slice(1)); 
+    let detectedProfileName = nameParam;
+
+    if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
+      if (!detectedProfileName) {
+        detectedProfileName = path;
+      }
+      let stored = await env.SUB_CACHE.get(path);
+      if (!stored && path !== path.toLowerCase()) {
+        stored = await env.SUB_CACHE.get(path.toLowerCase());
+      }
+
+      if (stored) { 
+        try {
+          const parsed = JSON.parse(stored);
+          if (parsed && parsed.content) {
+            urlParam = parsed.content;
+            if (!includeParam) includeParam = parsed.include || '';
+            if (!excludeParam) excludeParam = parsed.exclude || '';
+            if (!renameParam) renameParam = parsed.rename || '';
+          }
+        } catch {
+          urlParam = stored; 
+        }
+      }
+    }
+
+    if (!urlParam || urlParam.trim() === '') {
+      if (path === 'sub') {
+        return new Response('Error: Missing parameter "url"', { status: 400 });
+      }
+      const dynamicHtml = HTML_PAGE.replace('id="appVersionBadge">PRO</span>', `id="appVersionBadge">v${version}</span>`);
+      return new Response(dynamicHtml, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    }
+
+    const allNodes: ProxyNode[] = [];
+    const errors: string[] = [];
+    let totalUpload = 0;
+    let totalDownload = 0;
+    let totalTotal = 0;
+    let minExpire = 0;
+    let hasTrafficInfo = false;
+
+    const trimmedParam = urlParam.trim();
+
+    // 1. 優先完整辨識多行 WireGuard 配置
+    if (/\[Interface\]/i.test(trimmedParam) && /\[Peer\]/i.test(trimmedParam)) {
+      try {
+        const parsed = await parseContent(trimmedParam);
+        allNodes.push(...parsed);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`[WireGuard 配置] 失敗原因: ${msg}`);
+      }
+    } 
+    // 2. 優先完整辨識多組或單組 MASQUE JSON
+    else if (/["']private_key["']/i.test(trimmedParam) && (trimmedParam.includes('{') || trimmedParam.includes('['))) {
+      try {
+        const parsed = await parseContent(trimmedParam);
+        allNodes.push(...parsed);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`[MASQUE 配置] 失敗原因: ${msg}`);
+      }
+    } 
+    // 3. 優先完整辨識多行 Clash YAML 配置
+    else if (/(^|\n)\s*proxies\s*:/i.test(trimmedParam)) {
+      try {
+        const parsed = await parseContent(trimmedParam);
+        allNodes.push(...parsed);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`[Clash YAML 配置] 失敗原因: ${msg}`);
+      }
+    }
+    else {
+      const inputs = urlParam.split(/[\n\r|]+/); 
+      for (const input of inputs) {
+        const trimmed = input.trim(); 
+        if (!trimmed) continue;
+        
+        if (trimmed.startsWith('http')) { 
+          try { 
+            const separator = trimmed.includes('?') ? '&' : '?';
+            const fetchUrl = `${trimmed}${separator}t=${Date.now()}`;
+            const resp = await fetch(fetchUrl, { headers: { 'User-Agent': 'v2rayNG/1.8.5' } }); 
+            
+            if (resp.ok) { 
+              const text = await resp.text(); 
+              const userInfo = resp.headers.get('subscription-userinfo');
+              if (userInfo) {
+                hasTrafficInfo = true;
+                const uploadMatch = userInfo.match(/upload=(\d+)/i);
+                const downloadMatch = userInfo.match(/download=(\d+)/i);
+                const totalMatch = userInfo.match(/total=(\d+)/i);
+                const expireMatch = userInfo.match(/expire=(\d+)/i);
+
+                totalUpload += uploadMatch ? parseInt(uploadMatch[1], 10) : 0;
+                totalDownload += downloadMatch ? parseInt(downloadMatch[1], 10) : 0;
+                totalTotal += totalMatch ? parseInt(totalMatch[1], 10) : 0;
+                
+                const expireVal = expireMatch ? parseInt(expireMatch[1], 10) : 0;
+                if (expireVal > 0) {
+                  if (minExpire === 0 || expireVal < minExpire) minExpire = expireVal; 
+                }
+              }
+
+              if (!text.trim().startsWith('<')) {
+                try {
+                  const parsed = await parseContent(text);
+                  allNodes.push(...parsed);
+                } catch {}
+              }
+            }
+          } catch {} 
+        } else { 
+          try {
+            const parsed = await parseContent(trimmed);
+            allNodes.push(...parsed); 
+          } catch {}
+        }
+      }
+    }
+
+    if (allNodes.length === 0) {
+      const errorMsg = errors.length > 0 ? errors.join('\n') : '未解析到任何有效節點。';
+      return new Response(errorMsg, { status: 400 });
+    }
+
+    let filteredNodes = allNodes;
+
+    if (renameParam) {
+      const rules = renameParam.split('|');
+      for (const rule of rules) {
+        const trimmedRule = rule.trim();
+        if (!trimmedRule) continue;
+
+        if (trimmedRule.startsWith('DEL-')) {
+          const search = trimmedRule.substring(4); 
+          if (search) {
+            filteredNodes.forEach(node => {
+              if (node.name) node.name = node.name.split(search).join('');
+            });
+          }
+        } else if (trimmedRule.includes('-')) {
+          const idx = trimmedRule.indexOf('-');
+          const search = trimmedRule.substring(0, idx).trim();
+          const replace = trimmedRule.substring(idx + 1).trim();
+          
+          if (search && replace !== undefined) {
+            if (search.toUpperCase() === 'ALL') {
+              filteredNodes.forEach(node => { node.name = replace; });
+            } else {
+              filteredNodes.forEach(node => {
+                if (node.name) node.name = node.name.split(search).join(replace);
+              });
+            }
+          }
+        }
+      }
+    }
+
+    const buildFilterRegex = (param: string): RegExp => {
+      const parts = param.split('|').map(part => {
+        const trimmed = part.trim();
+        if (!trimmed) return '';
+        const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return escaped.replace(/[xXｘＸ×]/g, '[xXｘＸ×]');
+      }).filter(Boolean);
+      return new RegExp(parts.join('|'), 'i');
+    };
+
+    if (includeParam) {
+      const includeRegex = buildFilterRegex(includeParam);
+      filteredNodes = filteredNodes.filter(node => includeRegex.test(node.name));
+    }
+
+    if (excludeParam) {
+      const excludeRegex = buildFilterRegex(excludeParam);
+      filteredNodes = filteredNodes.filter(node => !excludeRegex.test(node.name));
+    }
+
+    const sortedNodes = groupNodesByFlag(filteredNodes);
+    const uniqueNodes = deduplicateNodeNames(sortedNodes);
+
+    let target = url.searchParams.get('target');
+
+    if (!target) {
+      const ua = (request.headers.get('User-Agent') || '').toLowerCase();
+      if (ua.includes('clash') || ua.includes('mihomo') || ua.includes('stash') || ua.includes('surfboard')) {
+        target = 'clash';
+      } else if (ua.includes('sing-box') || ua.includes('singbox') || ua.includes('hiddify')) {
+        target = 'singbox';
+      } else if (ua.includes('surge')) {
+        target = 'surge';
+      } else if (ua.includes('quantumult')) {
+        target = 'quanx';
+      } else if (ua.includes('loon')) {
+        target = 'loon';
+      } else if (ua.includes('v2ray') || ua.includes('shadowrocket')) {
+        target = 'base64';
+      }
+    }
+
+    if (!target) {
+      const host = `https://${url.host}`;
+      const encodedUrl = encodeURIComponent(urlParam);
+      let filterQuery = '';
+      if (includeParam) filterQuery += `&include=${encodeURIComponent(includeParam)}`;
+      if (excludeParam) filterQuery += `&exclude=${encodeURIComponent(excludeParam)}`;
+      if (renameParam) filterQuery += `&rename=${encodeURIComponent(renameParam)}`;
+      if (detectedProfileName) filterQuery += `&name=${encodeURIComponent(detectedProfileName)}`;
+
+      const htmlInfo = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>轉換完成</title><style>body{background:#0f172a;color:#f8fafc;font-family:sans-serif;padding:40px;text-align:center;}a{display:inline-block;margin:10px;padding:12px 24px;background:#3b82f6;color:#fff;text-decoration:none;border-radius:8px;}</style></head>
+<body>
+  <h1>⚡ 成功轉換 ${uniqueNodes.length} 個節點</h1>
+  <div>
+    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=clash">Clash Meta (YAML)</a>
+    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=singbox">Sing-Box (JSON)</a>
+    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=surge">Surge 5</a>
+    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=quanx">Quantumult X</a>
+    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=loon">Loon</a>
+    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=base64">Base64</a>
+  </div>
+</body></html>`;
+      return new Response(htmlInfo, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    }
+
+    let result = '';
+    let contentType = 'text/plain';
+    let fileExt = '.txt';
+
+    try {
+      if (target === 'clash') {
+        result = await toClashWithTemplate(uniqueNodes, env, forceRefresh);
+        contentType = 'text/yaml';
+        fileExt = '.yaml';
+      } else if (target === 'surge') {
+        result = toSurge(uniqueNodes);
+        contentType = 'text/plain';
+        fileExt = '.conf';
+      } else if (target === 'quanx' || target === 'qx') {
+        result = toQuantumultX(uniqueNodes);
+        contentType = 'text/plain';
+        fileExt = '.txt';
+      } else if (target === 'loon') {
+        result = toLoon(uniqueNodes);
+        contentType = 'text/plain';
+        fileExt = '.conf';
+      } else if (target === 'base64') {
+        result = toBase64(uniqueNodes);
+        contentType = 'text/plain';
+        fileExt = '.txt';
+      } else {
+        result = await toSingBoxWithTemplate(uniqueNodes, env, forceRefresh);
+        contentType = 'application/json';
+        fileExt = '.json';
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return new Response(`轉換配置失敗: ${msg}`, {
+        status: 500,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+
+    const finalProfileName = detectedProfileName || 'subscription';
+    const filenameAscii = `${finalProfileName.replace(/[^a-zA-Z0-9_-]/g, '_')}${fileExt}`;
+    const filenameUtf8 = encodeURIComponent(`${finalProfileName}${fileExt}`);
+
+    const responseHeaders: Record<string, string> = {
+      'Content-Type': `${contentType}; charset=utf-8`, 
+      'Access-Control-Allow-Origin': '*', 
+      'Access-Control-Expose-Headers': 'Content-Disposition, Profile-Title, Subscription-Title, Profile-Update-Interval, subscription-userinfo',
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      'Content-Disposition': `inline; filename="${filenameAscii}"; filename*=UTF-8''${filenameUtf8}`,
+      'Profile-Title': finalProfileName,
+      'Subscription-Title': finalProfileName,
+      'profile-update-interval': '3600',
+    };
+
+    if (hasTrafficInfo) {
+      let userInfoHeader = `upload=${totalUpload}; download=${totalDownload}; total=${totalTotal}`;
+      if (minExpire > 0) userInfoHeader += `; expire=${minExpire}`;
+      responseHeaders['subscription-userinfo'] = userInfoHeader;
+    }
+
+    return new Response(result, { headers: responseHeaders });
+  }
+};
+
+````
+
+## File: src/parser.ts
+````ts
+// src/parser.ts
+import yaml from "js-yaml";
+import { ProxyNode, WireGuardConfig, MasqueConfig } from "./types";
+import { safeBase64Decode, tryDecodeURIComponent } from "./utils";
+
+// --- 安全的通用代理 URI 正則解析器 ---
+interface ParsedUri {
+  protocol: string;
+  username: string;
+  password?: string;
+  hostname: string;
+  port: number;
+  params: URLSearchParams;
+  hash: string;
+}
+
+function parseProxyUri(urlStr: string, defaultPort = 443): ParsedUri | null {
+  try {
+    const trimmed = urlStr.trim();
+    const match = trimmed.match(/^([a-zA-Z0-9_-]+):\/\/(?:([^:@/?#]+)(?::([^@/?#]*))?@)?(\[[a-fA-F0-9:]+\]|[^:/?#]+)(?::([0-9]+))?(?:\?([^#]*))?(?:#(.*))?$/);
+    if (!match) return null;
+
+    const protocol = match[1].toLowerCase();
+    const username = match[2] ? decodeURIComponent(match[2]) : '';
+    const password = match[3] ? decodeURIComponent(match[3]) : undefined;
+    let hostname = match[4];
+    if (hostname.startsWith('[') && hostname.endsWith(']')) {
+      hostname = hostname.slice(1, -1);
+    }
+    const port = match[5] ? parseInt(match[5], 10) : defaultPort;
+    const query = match[6] || '';
+    const hash = match[7] ? tryDecodeURIComponent(match[7]) : '';
+
+    const params = new URLSearchParams(query);
+    return { protocol, username, password, hostname, port, params, hash };
+  } catch {
+    return null;
+  }
+}
+
+function parsePluginParams(str: string): Record<string, string> {
+  const params: Record<string, string> = {};
+  str.split(';').forEach(p => {
+    const [k, v] = p.split('=');
+    if (k && v) params[k] = v;
+  });
+  return params;
+}
+
+// 智慧解析 ECH 參數，動態提取網域與 DoH URL
+function parseEchInfo(val: string | null | undefined): { enabled: boolean; domain?: string; doh?: string } {
+  if (!val) return { enabled: false };
+  const raw = val.trim();
+  const clean = raw.toLowerCase();
+  if (['0', 'false', 'off', 'none', 'no', ''].includes(clean)) {
+    return { enabled: false };
+  }
+  // 支援格式: domain+dohURL (例如 cloudflare-ech.com+https://223.5.5.5/dns-query)
+  if (raw.includes('+')) {
+    const parts = raw.split('+');
+    const domain = parts[0]?.trim();
+    const doh = parts.slice(1).join('+').trim();
+    return { enabled: true, domain: domain || undefined, doh: doh || undefined };
+  }
+  // 若直接輸入 DoH 網址
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const u = new URL(raw);
+      return { enabled: true, domain: u.hostname, doh: raw };
+    } catch {
+      return { enabled: true, doh: raw };
+    }
+  }
+  // 若為單純網域名稱
+  if (clean !== '1' && clean !== 'true') {
+    return { enabled: true, domain: raw };
+  }
+  return { enabled: true };
+}
+
+// --- 解析 Cloudflare WARP MASQUE 配置 ---
+interface RawMasqueConfig {
+  private_key?: string;
+  'private-key'?: string;
+  endpoint_v4?: string;
+  endpoint_v6?: string;
+  endpoint_pub_key?: string;
+  'public-key'?: string;
+  public_key?: string;
+  server?: string;
+  port?: number | string;
+  ipv4?: string;
+  ipv6?: string;
+  ip?: string;
+  name?: string;
+  uri?: string;
+  sni?: string;
+  servername?: string;
+  server_name?: string;
+  congestion_controller?: string;
+  'congestion-controller'?: string;
+  congestion_control?: string;
+  cca?: string;
+  cc?: string;
+  dns?: string[] | string;
+  mtu?: number | string;
+  udp?: boolean;
+  'remote-dns-resolve'?: boolean;
+  [key: string]: unknown;
+}
+
+function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode {
+  const privateKey = (config.private_key || config['private-key'] || '').trim();
+  const rawPubKey = (config.endpoint_pub_key || config.public_key || config['public-key'] || '').trim();
+  const publicKey = rawPubKey.replace(/-----BEGIN[^-]+-----|-----END[^-]+-----|[\r\n\s]/g, '');
+  const server = (config.server || config.endpoint_v4 || '').trim();
+  const port = parseInt(String(config.port || 443), 10) || 443;
+  const rawIpv4 = (config.ip || config.ipv4 || '').trim();
+
+  if (!privateKey) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: private_key (私鑰)`);
+  if (!publicKey) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: public_key / endpoint_pub_key (公鑰)`);
+  if (!server) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: server / endpoint_v4 (伺服器端點)`);
+  if (!rawIpv4) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: ip / ipv4 (客戶端內網 IP)`);
+
+  const localIpv4 = rawIpv4.includes('/') ? rawIpv4 : `${rawIpv4}/32`;
+  
+  let localIpv6: string | undefined = undefined;
+  if (config.ipv6) {
+    const rawIpv6 = String(config.ipv6).trim();
+    localIpv6 = rawIpv6.includes('/') ? rawIpv6 : `${rawIpv6}/128`;
+  }
+
+  const name = config.name || (index > 0 ? `WARP-MASQUE-${index + 1}` : 'WARP-MASQUE');
+  const uri = (config.uri && String(config.uri).trim()) ? String(config.uri).trim() : 'https://cloudflareaccess.com';
+  const customSni = config.sni || config.servername || config.server_name;
+  const sni = (customSni && String(customSni).trim()) ? String(customSni).trim() : 'www.microsoft.com';
+
+  const rawCc = (
+    config.cca ||
+    config.cc ||
+    config.congestion_control ||
+    config.congestion_controller ||
+    config['congestion-controller']
+  );
+  const congestionController = (rawCc && String(rawCc).trim()) ? String(rawCc).trim() : 'bbr';
+  const mtu = config.mtu ? (parseInt(String(config.mtu), 10) || 1280) : 1280;
+  
+  let dnsList: string[] = [];
+  if (Array.isArray(config.dns) && config.dns.length > 0) {
+    dnsList = config.dns.map(d => String(d).trim()).filter(Boolean);
+  } else if (typeof config.dns === 'string' && config.dns.trim()) {
+    dnsList = config.dns.split(',').map(d => d.trim()).filter(Boolean);
+  } else {
+    dnsList = ['1.1.1.1', '8.8.8.8'];
+  }
+
+  const remoteDnsResolve = config['remote-dns-resolve'] !== undefined 
+    ? Boolean(config['remote-dns-resolve']) 
+    : true;
+
+  const masqueConfig: MasqueConfig = {
+    privateKey,
+    publicKey,
+    localIpv4,
+    localIpv6,
+    mtu,
+    uri,
+    sni,
+    congestion_controller: congestionController,
+    dns: dnsList
+  };
+
+  const node: ProxyNode = {
+    type: 'masque',
+    name,
+    server,
+    port,
+    udp: true,
+    sni,
+    masque: masqueConfig
+  };
+
+  node.singboxObj = {
+    type: 'masque',
+    tag: name,
+    server,
+    server_port: port,
+    private_key: privateKey,
+    public_key: publicKey,
+    ip: localIpv4,
+    ...(localIpv6 ? { ipv6: localIpv6 } : {}),
+    uri,
+    congestion_control: congestionController,
+    mtu,
+    tls: {
+      enabled: true,
+      server_name: sni
+    }
+  };
+
+  const originalClashProps = { ...config };
+  const cleanKeys = [
+    'private_key', 'private-key', 'public_key', 'public-key', 'endpoint_pub_key',
+    'endpoint_v4', 'endpoint_v6', 'endpoint_h2_v4', 'endpoint_h2_v6',
+    'ipv4', 'license', 'id', 'access_token', 'MASQUE导航'
+  ];
+  for (const k of cleanKeys) {
+    delete originalClashProps[k];
+  }
+
+  node.clashObj = {
+    ...originalClashProps,
+    name,
+    type: 'masque',
+    server,
+    port,
+    'private-key': privateKey,
+    'public-key': publicKey,
+    ip: localIpv4.split('/')[0],
+    ...(localIpv6 ? { ipv6: localIpv6.split('/')[0] } : {}),
+    uri,
+    mtu,
+    udp: config.udp !== undefined ? Boolean(config.udp) : true,
+    'remote-dns-resolve': remoteDnsResolve,
+    'congestion-controller': congestionController,
+    dns: dnsList,
+    sni
+  };
+
+  return node;
+}
+
+export function parseMasqueConfigs(text: string): ProxyNode[] {
+  const nodes: ProxyNode[] = [];
+  const trimmed = text.trim();
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      parsed.forEach((item, idx) => {
+        const n = buildMasqueNode(item, idx);
+        if (n) nodes.push(n);
+      });
+      if (nodes.length > 0) return nodes;
+    } else if (typeof parsed === 'object' && parsed !== null) {
+      const n = buildMasqueNode(parsed, 0);
+      if (n) return [n];
+    }
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message.startsWith('[MASQUE]')) {
+      throw err;
+    }
+  }
+
+  const objectMatches = trimmed.match(/\{[^{}]*["']private_key["'][^{}]*\}/g);
+  if (objectMatches) {
+    objectMatches.forEach((rawObj, idx) => {
+      const obj = JSON.parse(rawObj) as RawMasqueConfig;
+      const n = buildMasqueNode(obj, idx);
+      if (n) nodes.push(n);
+    });
+  }
+
+  return nodes;
+}
+
+// --- 解析 masque:// URI 格式 ---
+function parseMasqueUri(urlStr: string): ProxyNode {
+  const parsed = parseProxyUri(urlStr, 443);
+  if (!parsed) throw new Error('[MASQUE] URI 格式無效，無法解析');
+
+  const privateKey = parsed.username;
+  const params = parsed.params;
+  const publicKey = params.get('public_key') || params.get('pk') || '';
+  const ipv4 = params.get('ip') || '';
+  const ipv6 = params.get('ipv6') || undefined;
+  const mtu = parseInt(params.get('mtu') || '1280', 10);
+  const name = parsed.hash || 'WARP-MASQUE';
+  
+  if (!privateKey) throw new Error('[MASQUE] 缺少必要欄位: private_key (私鑰)');
+  if (!publicKey) throw new Error('[MASQUE] 缺少必要欄位: public_key (公鑰)');
+  if (!parsed.hostname) throw new Error('[MASQUE] 缺少必要欄位: server (伺服器地址)');
+  if (!ipv4) throw new Error('[MASQUE] 缺少必要欄位: ip (客戶端內網 IP)');
+
+  const uri = (params.get('uri') && params.get('uri')!.trim()) ? params.get('uri')!.trim() : 'https://cloudflareaccess.com';
+  const sni = (params.get('sni') && params.get('sni')!.trim()) ? params.get('sni')!.trim() : 'www.microsoft.com';
+  
+  const rawCc = params.get('cca') || params.get('cc') || params.get('congestion_control') || params.get('congestion_controller') || params.get('congestion-controller');
+  const congestionController = (rawCc && rawCc.trim()) ? rawCc.trim() : 'bbr';
+  
+  const dnsParam = params.get('dns');
+  const dnsList = dnsParam ? dnsParam.split(',').map(d => d.trim()).filter(Boolean) : ['1.1.1.1', '8.8.8.8'];
+
+  const masqueConfig: MasqueConfig = {
+    privateKey,
+    publicKey,
+    localIpv4: ipv4.includes('/') ? ipv4 : `${ipv4}/32`,
+    localIpv6: ipv6 ? (ipv6.includes('/') ? ipv6 : `${ipv6}/128`) : undefined,
+    mtu,
+    uri,
+    sni,
+    congestion_controller: congestionController,
+    dns: dnsList
+  };
+
+  const node: ProxyNode = {
+    type: 'masque',
+    name,
+    server: parsed.hostname,
+    port: parsed.port,
+    udp: true,
+    sni,
+    masque: masqueConfig
+  };
+
+  node.singboxObj = {
+    type: 'masque',
+    tag: name,
+    server: parsed.hostname,
+    server_port: parsed.port,
+    private_key: privateKey,
+    public_key: publicKey,
+    ip: masqueConfig.localIpv4,
+    ...(masqueConfig.localIpv6 ? { ipv6: masqueConfig.localIpv6 } : {}),
+    uri,
+    congestion_control: congestionController,
+    mtu,
+    tls: {
+      enabled: true,
+      server_name: sni
+    }
+  };
+
+  node.clashObj = {
+    name,
+    type: 'masque',
+    server: parsed.hostname,
+    port: parsed.port,
+    'private-key': privateKey,
+    'public-key': publicKey,
+    ip: ipv4.split('/')[0],
+    ...(ipv6 ? { ipv6: ipv6.split('/')[0] } : {}),
+    uri,
+    mtu,
+    udp: true,
+    'remote-dns-resolve': true,
+    'congestion-controller': congestionController,
+    dns: dnsList,
+    sni
+  };
+
+  return node;
+}
+
+// --- 解析 Shadowrocket 行格式 WireGuard ---
+function parseShadowrocketWireGuard(line: string): ProxyNode {
+  const eqIdx = line.indexOf('=');
+  if (eqIdx === -1) throw new Error('[WireGuard] Shadowrocket 行格式錯誤');
+
+  const name = line.substring(0, eqIdx).trim();
+  const rightPart = line.substring(eqIdx + 1).trim();
+  const parts = rightPart.split(',').map(s => s.trim());
+
+  if (parts[0]?.toLowerCase() !== 'wireguard') throw new Error('[WireGuard] 非 WireGuard 行格式');
+
+  const server = parts[1];
+  const port = parseInt(parts[2], 10) || 51820;
+
+  let privateKey = '';
+  let publicKey = '';
+  let presharedKey: string | undefined = undefined;
+  let ip = '';
+  let dns = '';
+  let mtu = 1420;
+  let reserved: number[] | undefined = undefined;
+
+  for (let i = 3; i < parts.length; i++) {
+    const p = parts[i];
+    const kvIdx = p.indexOf('=');
+    if (kvIdx === -1) continue;
+    const k = p.substring(0, kvIdx).trim().toLowerCase();
+    const v = p.substring(kvIdx + 1).trim().replace(/^["']|["']$/g, '');
+
+    if (k === 'private-key' || k === 'privatekey') privateKey = v;
+    else if (k === 'public-key' || k === 'publickey') publicKey = v;
+    else if (k === 'preshared-key' || k === 'presharedkey') presharedKey = v;
+    else if (k === 'ip') ip = v;
+    else if (k === 'dns') dns = v;
+    else if (k === 'mtu') mtu = parseInt(v, 10) || 1420;
+    else if (k === 'reserved') reserved = v.split(',').map(n => parseInt(n.trim(), 10));
+  }
+
+  if (!server) throw new Error(`[WireGuard] 節點 [${name}] 缺少伺服器地址`);
+  if (!privateKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 private-key (私鑰)`);
+  if (!publicKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 public-key (公鑰)`);
+  if (!ip) throw new Error(`[WireGuard] 節點 [${name}] 缺少 ip (內網 IP)`);
+  if (!dns) throw new Error(`[WireGuard] 節點 [${name}] 缺少 dns 設定（例如 dns=10.2.0.1）`);
+
+  const localAddress = ip.includes('/') ? [ip] : [`${ip}/32`];
+  const dnsArray = dns.split(',').map(d => d.trim()).filter(Boolean);
+
+  const wgConfig: WireGuardConfig = {
+    privateKey,
+    localAddress,
+    publicKey,
+    presharedKey,
+    mtu,
+    dns,
+    reserved
+  };
+
+  const node: ProxyNode = {
+    type: 'wireguard',
+    name,
+    server,
+    port,
+    udp: true,
+    wireguard: wgConfig
+  };
+
+  node.singboxObj = {
+    type: 'wireguard',
+    tag: name,
+    address: localAddress,
+    private_key: privateKey,
+    peers: [
+      {
+        address: server,
+        port,
+        public_key: publicKey,
+        allowed_ips: ['0.0.0.0/0', '::/0']
+      }
+    ],
+    mtu
+  };
+
+  node.clashObj = {
+    name,
+    type: 'wireguard',
+    server: node.server,
+    port: node.port,
+    ip: localAddress[0]?.split('/')[0],
+    ipv6: localAddress[1]?.split('/')[0],
+    'public-key': publicKey,
+    'private-key': privateKey,
+    'preshared-key': presharedKey,
+    mtu,
+    udp: true,
+    'remote-dns-resolve': true,
+    dns: dnsArray
+  };
+
+  return node;
+}
+
+// --- 解析 WireGuard 官方 .conf 格式 ---
+function parseWireGuardConf(text: string): ProxyNode[] {
+  const nodes: ProxyNode[] = [];
+  const sections = text.split(/(?=\[Interface\])/i).filter(s => s.trim().length > 0);
+
+  for (let idx = 0; idx < sections.length; idx++) {
+    const sec = sections[idx];
+    if (!/\[Interface\]/i.test(sec)) continue;
+
+    const getVal = (key: string): string => {
+      const match = sec.match(new RegExp(`^[ \\t]*${key}[ \\t]*=[ \\t]*(.*?)[ \\t]*(?:#.*)?$`, 'mi'));
+      return match ? match[1].trim() : '';
+    };
+
+    let name = '';
+    const peerPart = sec.split(/\[Peer\]/i)[1] || '';
+    const peerComments = peerPart.match(/^[ \t]*#[ \t]*(.*?)$/gm);
+    if (peerComments) {
+      for (const c of peerComments) {
+        const clean = c.replace(/^[ \t]*#[ \t]*/, '').trim();
+        if (clean && !clean.includes('=') && !clean.toLowerCase().startsWith('key for')) {
+          name = clean;
+          break;
+        }
+      }
+    }
+
+    if (!name) {
+      const comments = sec.match(/^[ \t]*#[ \t]*(.*?)$/gm);
+      if (comments) {
+        for (const c of comments) {
+          const clean = c.replace(/^[ \t]*#[ \t]*/, '').trim();
+          if (clean && !clean.includes('=') && !clean.toLowerCase().startsWith('key for')) {
+            name = clean;
+            break;
+          }
+        }
+      }
+    }
+
+    const privateKey = getVal('PrivateKey');
+    const addressStr = getVal('Address');
+    const rawDns = getVal('DNS');
+    const publicKey = getVal('PublicKey');
+    const presharedKey = getVal('PresharedKey') || undefined;
+    const endpoint = getVal('Endpoint');
+    const mtuStr = getVal('MTU');
+    const mtu = mtuStr ? parseInt(mtuStr, 10) : 1420;
+
+    if (!privateKey) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: PrivateKey (私鑰)`);
+    if (!addressStr) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: Address (客戶端內網 IP)`);
+    if (!rawDns) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: DNS。請在 [Interface] 中填入 DNS = ...（例如 DNS = 10.2.0.1）`);
+    if (!/\[Peer\]/i.test(sec)) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少 [Peer] 節點區塊`);
+    if (!publicKey) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: PublicKey (節點公鑰)`);
+    if (!endpoint) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: Endpoint (伺服器端點 IP:Port)`);
+
+    let server = endpoint;
+    let port = 51820;
+    const lastColon = endpoint.lastIndexOf(':');
+    if (lastColon !== -1) {
+      server = endpoint.slice(0, lastColon).trim();
+      if (server.startsWith('[') && server.endsWith(']')) {
+        server = server.slice(1, -1);
+      }
+      port = parseInt(endpoint.slice(lastColon + 1).trim(), 10) || 51820;
+    }
+
+    if (!name) name = `WireGuard-${server}`;
+
+    const localAddress = addressStr.split(',').map(s => s.trim()).filter(Boolean);
+    const dnsArray = rawDns.split(',').map(s => s.trim()).filter(Boolean);
+
+    const wgConfig: WireGuardConfig = {
+      privateKey,
+      localAddress,
+      publicKey,
+      presharedKey,
+      mtu,
+      dns: rawDns
+    };
+
+    const node: ProxyNode = {
+      type: 'wireguard',
+      name,
+      server,
+      port,
+      udp: true,
+      wireguard: wgConfig
+    };
+
+    node.singboxObj = {
+      type: 'wireguard',
+      tag: name,
+      address: localAddress,
+      private_key: privateKey,
+      peers: [
+        {
+          address: server,
+          port,
+          public_key: publicKey,
+          allowed_ips: ['0.0.0.0/0', '::/0']
+        }
+      ],
+      mtu
+    };
+
+    node.clashObj = {
+      name,
+      type: 'wireguard',
+      server: node.server,
+      port: node.port,
+      ip: localAddress[0]?.split('/')[0],
+      ipv6: localAddress[1]?.split('/')[0],
+      'public-key': publicKey,
+      'private-key': privateKey,
+      'preshared-key': presharedKey,
+      mtu,
+      udp: true,
+      'remote-dns-resolve': true,
+      dns: dnsArray
+    };
+
+    nodes.push(node);
+  }
+
+  return nodes;
+}
+
+// --- 解析 Shadowsocks ---
+function parseShadowsocks(urlStr: string): ProxyNode {
+  const getParam = (str: string, key: string): string => {
+    const regex = new RegExp(`[?&]${key}=([^&#]*)`, 'i');
+    const match = str.match(regex);
+    return match ? tryDecodeURIComponent(match[1]) : '';
+  };
+
+  let raw = urlStr.replace('ss://', '');
+  const hashIndex = raw.indexOf('#');
+  let name = 'Shadowsocks';
+  if (hashIndex !== -1) {
+    name = tryDecodeURIComponent(raw.substring(hashIndex + 1));
+    raw = raw.substring(0, hashIndex);
+  }
+  if (raw.includes('?')) { raw = raw.split('?')[0]; }
+
+  let method = '';
+  let password = '';
+  let server = '';
+  let portStr = '';
+  
+  if (raw.includes('@')) {
+    const parts = raw.split('@');
+    const serverPart = parts[parts.length - 1];
+    const userPart = parts.slice(0, parts.length - 1).join('@');
+    const lastColonIndex = serverPart.lastIndexOf(':');
+    if (lastColonIndex === -1) throw new Error('[Shadowsocks] 連接埠格式無效');
+    server = serverPart.substring(0, lastColonIndex);
+    portStr = serverPart.substring(lastColonIndex + 1);
+    if (server.startsWith('[') && server.endsWith(']')) server = server.slice(1, -1);
+    try {
+      const decoded = safeBase64Decode(userPart);
+      if (decoded && decoded.includes(':')) { 
+        const up = decoded.split(':');
+        method = up[0];
+        password = up.slice(1).join(':');
+      } else {
+        const up = userPart.split(':');
+        method = up[0];
+        password = up.slice(1).join(':');
+      }
+    } catch {
+      const up = userPart.split(':');
+      method = up[0];
+      password = up.slice(1).join(':');
+    }
+  } else {
+    const decoded = safeBase64Decode(raw);
+    if (!decoded) throw new Error('[Shadowsocks] Base64 解碼失敗');
+    const atIndex = decoded.lastIndexOf('@');
+    if (atIndex === -1) throw new Error('[Shadowsocks] 缺少 @ 分隔符號');
+    const userPart = decoded.substring(0, atIndex);
+    const serverPart = decoded.substring(atIndex + 1);
+    const lastColonIndex = serverPart.lastIndexOf(':');
+    if (lastColonIndex === -1) throw new Error('[Shadowsocks] 缺少連接埠');
+    server = serverPart.substring(0, lastColonIndex);
+    portStr = serverPart.substring(lastColonIndex + 1);
+    if (server.startsWith('[') && server.endsWith(']')) server = server.slice(1, -1);
+    const firstColonIndex = userPart.indexOf(':');
+    if (firstColonIndex === -1) throw new Error('[Shadowsocks] 缺少加密方式');
+    method = userPart.substring(0, firstColonIndex);
+    password = userPart.substring(firstColonIndex + 1);
+  }
+
+  if (!server) throw new Error('[Shadowsocks] 缺少伺服器地址');
+  if (!portStr) throw new Error('[Shadowsocks] 缺少連接埠');
+  if (!method) throw new Error('[Shadowsocks] 缺少 cipher (加密方式)');
+  if (!password) throw new Error('[Shadowsocks] 缺少 password (密碼)');
+  const port = parseInt(portStr, 10);
+  if (isNaN(port)) throw new Error('[Shadowsocks] 連接埠非有效數字');
+
+  const pluginStr = getParam(urlStr, 'plugin');
+  const security = getParam(urlStr, 'security');
+  const sni = getParam(urlStr, 'sni') || getParam(urlStr, 'host') || server;
+  const alpnStr = getParam(urlStr, 'alpn');
+  const fp = getParam(urlStr, 'fp') || 'chrome';
+  const echInfo = parseEchInfo(getParam(urlStr, 'ech'));
+
+  const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0) || echInfo.enabled;
+  const alpn = alpnStr ? alpnStr.split(',') : undefined;
+  const isSs2022 = method.toLowerCase().includes('2022');
+
+  const node: ProxyNode = {
+    type: 'shadowsocks', name, server, port, cipher: method, password, udp: true,
+    tls: isTls, sni, alpn, fingerprint: fp,
+    ech: echInfo.enabled, echQueryServerName: echInfo.domain, echDoh: echInfo.doh
+  };
+
+  const sb: Record<string, unknown> = {
+    tag: name,
+    type: 'shadowsocks',
+    server: node.server,
+    server_port: node.port,
+    method: node.cipher,
+    password: node.password
+  };
+  if (isSs2022) {
+    sb.udp_over_tcp = true;
+  }
+  node.singboxObj = sb;
+
+  const cl: Record<string, unknown> = {
+    name,
+    type: 'ss',
+    server: node.server,
+    port: node.port,
+    cipher: node.cipher,
+    password: node.password,
+    udp: true,
+    plugin: pluginStr ? pluginStr.split(';')[0] : undefined,
+    'plugin-opts': pluginStr ? parsePluginParams(pluginStr.split(';').slice(1).join(';')) : undefined
+  };
+  if (isTls) {
+    cl.smux = { enabled: true };
+  }
+  if (node.ech) {
+    cl['ech-opts'] = { enable: true };
+  }
+  node.clashObj = cl;
+
+  return node;
+}
+
+// --- 解析 VLESS ---
+function parseVless(urlStr: string): ProxyNode {
+  const parsed = parseProxyUri(urlStr, 443);
+  if (!parsed) throw new Error('[VLESS] URI 格式無效，無法解析');
+
+  const params = parsed.params;
+  const name = parsed.hash || 'VLESS';
+  
+  if (!parsed.username) throw new Error(`[VLESS] 節點 [${name}] 缺少必要欄位: uuid`);
+  if (!parsed.hostname) throw new Error(`[VLESS] 節點 [${name}] 缺少必要欄位: server (伺服器地址)`);
+
+  let rawPath = params.get('path') || '';
+  const explicitNet = (params.get('type') || params.get('net') || params.get('network') || params.get('transport') || '').toLowerCase();
+  let netType = explicitNet;
+  if (!netType) {
+    if (rawPath || params.has('ed') || params.has('host')) {
+      netType = 'ws';
+    } else {
+      netType = 'tcp';
+    }
+  }
+
+  if (netType === 'ws' && !rawPath) rawPath = '/';
+  if (rawPath && !rawPath.startsWith('/')) rawPath = '/' + rawPath;
+
+  let earlyDataLength: number | undefined = undefined;
+  const edMatch = rawPath.match(/[?&]ed=([0-9]+)/) || (params.get('ed') ? [null, params.get('ed')] : null);
+  if (edMatch && edMatch[1]) {
+    earlyDataLength = parseInt(edMatch[1], 10);
+  }
+
+  const cleanPath = rawPath ? (rawPath.replace(/[?&]ed=[0-9]+/g, '').replace(/\?$/, '') || '/') : '/';
+  const isXhttp = netType === 'xhttp' || netType === 'splithttp';
+  const isGrpc = netType === 'grpc';
+  const echInfo = parseEchInfo(params.get('ech'));
+
+  const security = params.get('security') || (params.get('tls') === '1' || params.get('tls') === 'tls' || echInfo.enabled ? 'tls' : (parsed.port === 443 ? 'tls' : 'none'));
+  const isTls = security === 'tls' || security === 'reality' || echInfo.enabled;
+  const hostHeader = params.get('host') || params.get('sni') || parsed.hostname;
+  const sniHost = params.get('sni') || params.get('host') || parsed.hostname;
+  const customAlpn = params.get('alpn') ? params.get('alpn')!.split(',') : undefined;
+
+  const node: ProxyNode = {
+    type: 'vless',
+    name,
+    server: parsed.hostname,
+    port: parsed.port,
+    uuid: parsed.username,
+    tls: isTls,
+    flow: params.get('flow') || undefined,
+    network: netType,
+    sni: sniHost,
+    alpn: customAlpn,
+    fingerprint: params.get('fp') || 'chrome',
+    skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1',
+    ech: echInfo.enabled,
+    echQueryServerName: echInfo.domain,
+    echDoh: echInfo.doh
+  };
+
+  if (security === 'reality') {
+    node.reality = {
+      publicKey: params.get('pbk') || '',
+      shortId: params.get('sid') || ''
+    };
+    if (!node.reality.publicKey) throw new Error(`[VLESS] Reality 節點 [${name}] 缺少 pbk (公鑰)`);
+    if (!node.sni) node.sni = node.server;
+  }
+
+  if (node.network === 'ws') {
+    node.wsPath = cleanPath;
+    node.wsHeaders = { Host: hostHeader };
+  }
+
+  if (isXhttp) {
+    node.xhttpPath = cleanPath;
+    node.xhttpHost = hostHeader;
+    node.xhttpMode = params.get('mode') || 'auto';
+  }
+  
+  const sb: Record<string, unknown> = {
+    tag: name,
+    type: 'vless',
+    server: node.server,
+    server_port: node.port,
+    uuid: node.uuid,
+    packet_encoding: 'xudp'
+  };
+
+  if (node.tls) {
+    const tlsObj: Record<string, unknown> = {
+      enabled: true,
+      server_name: node.sni || node.server,
+      insecure: node.skipCertVerify,
+      utls: { enabled: true, fingerprint: node.fingerprint }
+    };
+    if (node.alpn) tlsObj.alpn = node.alpn;
+    if (node.ech) tlsObj.ech = { enabled: true };
+    if (node.reality) {
+      tlsObj.reality = { enabled: true, public_key: node.reality.publicKey, short_id: node.reality.shortId };
+    }
+    sb.tls = tlsObj;
+  }
+
+  if (node.flow) sb.flow = node.flow;
+
+  if (node.network === 'ws') {
+    const wsTransport: Record<string, unknown> = {
+      type: 'ws',
+      path: cleanPath,
+      headers: node.wsHeaders
+    };
+    if (earlyDataLength) {
+      wsTransport.max_early_data = earlyDataLength;
+      wsTransport.early_data_header_name = 'Sec-WebSocket-Protocol';
+    }
+    sb.transport = wsTransport;
+  } else if (isXhttp) {
+    sb.transport = {
+      type: 'splithttp',
+      path: cleanPath,
+      headers: { Host: node.xhttpHost },
+      mode: node.xhttpMode
+    };
+  } else if (isGrpc) {
+    sb.transport = {
+      type: 'grpc',
+      service_name: params.get('serviceName') || ''
+    };
+  }
+  node.singboxObj = sb;
+  
+  const cl: Record<string, unknown> = {
+    name,
+    type: 'vless',
+    server: node.server,
+    port: node.port,
+    uuid: node.uuid,
+    udp: true,
+    tls: node.tls,
+    servername: node.sni || node.server,
+    'skip-cert-verify': node.skipCertVerify,
+    'client-fingerprint': node.fingerprint
+  };
+
+  if (node.alpn) cl.alpn = node.alpn;
+  if (node.ech) cl['ech-opts'] = { enable: true };
+  if (node.flow) cl.flow = node.flow; 
+  if (node.reality) {
+    cl.reality = true;
+    cl['reality-opts'] = { 'public-key': node.reality.publicKey, 'short-id': node.reality.shortId };
+  }
+
+  if (node.network === 'ws') {
+    cl.network = 'ws';
+    cl['ws-opts'] = {
+      path: cleanPath,
+      headers: node.wsHeaders,
+      'max-early-data': earlyDataLength,
+      'early-data-header-name': earlyDataLength ? 'Sec-WebSocket-Protocol' : undefined
+    };
+  } else if (isXhttp) {
+    cl.network = 'xhttp';
+    cl['xhttp-opts'] = { path: cleanPath, host: node.xhttpHost, mode: node.xhttpMode };
+  } else if (isGrpc) {
+    cl.network = 'grpc';
+    cl['grpc-opts'] = { 'grpc-service-name': params.get('serviceName') || '' };
+  }
+  node.clashObj = cl;
+
+  return node;
+}
+
+// --- 解析 WireGuard (URI 格式) ---
+function parseWireGuard(urlStr: string): ProxyNode {
+  const parsed = parseProxyUri(urlStr, 51820);
+  if (!parsed) throw new Error('[WireGuard] URI 格式無效');
+
+  const params = parsed.params;
+  const name = parsed.hash || 'WireGuard';
+  const privateKey = parsed.username;
+  const rawIp = params.get('address') || params.get('ip') || '';
+  const publicKey = params.get('publickey') || params.get('public_key') || params.get('pk') || '';
+  const presharedKey = params.get('presharedkey') || params.get('preshared_key') || params.get('psk') || undefined;
+  const mtu = parseInt(params.get('mtu') || '1420', 10);
+  const rawDns = params.get('dns') || '';
+  const reserved = params.get('reserved') ? params.get('reserved')!.split(',').map(n => parseInt(n.trim(), 10)) : undefined;
+
+  if (!privateKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 privatekey (私鑰)`);
+  if (!publicKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 publickey (公鑰)`);
+  if (!parsed.hostname) throw new Error(`[WireGuard] 節點 [${name}] 缺少伺服器地址`);
+  if (!rawIp) throw new Error(`[WireGuard] 節點 [${name}] 缺少 address / ip (內網 IP)`);
+  if (!rawDns) throw new Error(`[WireGuard] 節點 [${name}] 缺少 dns 設定`);
+
+  const localIps = rawIp.split(',').map(s => s.trim().includes('/') ? s.trim() : `${s.trim()}/32`);
+  const dnsList = rawDns.split(',').map(d => d.trim()).filter(Boolean);
+
+  const wgConfig: WireGuardConfig = {
+    privateKey,
+    localAddress: localIps,
+    publicKey,
+    presharedKey,
+    mtu,
+    reserved,
+    dns: rawDns
+  };
+
+  const node: ProxyNode = {
+    type: 'wireguard',
+    name,
+    server: parsed.hostname,
+    port: parsed.port,
+    udp: true,
+    wireguard: wgConfig
+  };
+
+  node.singboxObj = {
+    type: 'wireguard',
+    tag: name,
+    address: localIps,
+    private_key: privateKey,
+    peers: [
+      {
+        address: parsed.hostname,
+        port: parsed.port,
+        public_key: publicKey,
+        allowed_ips: ['0.0.0.0/0', '::/0']
+      }
+    ],
+    mtu
+  };
+
+  node.clashObj = {
+    name,
+    type: 'wireguard',
+    server: node.server,
+    port: node.port,
+    ip: localIps[0]?.split('/')[0],
+    ipv6: localIps[1]?.split('/')[0],
+    'public-key': publicKey,
+    'private-key': privateKey,
+    'preshared-key': presharedKey,
+    mtu,
+    udp: true,
+    'remote-dns-resolve': true,
+    dns: dnsList
+  };
+
+  return node;
+}
+
+// --- 解析 Hysteria2 ---
+function parseHysteria2(urlStr: string): ProxyNode {
+  const parsed = parseProxyUri(urlStr, 443);
+  if (!parsed) throw new Error('[Hysteria2] URI 格式無效');
+
+  const params = parsed.params;
+  const name = parsed.hash || 'Hy2';
+  
+  if (!parsed.username) throw new Error(`[Hysteria2] 節點 [${name}] 缺少密碼 (auth)`);
+  if (!parsed.hostname) throw new Error(`[Hysteria2] 節點 [${name}] 缺少伺服器地址`);
+
+  const node: ProxyNode = {
+    type: 'hysteria2',
+    name,
+    server: parsed.hostname,
+    port: parsed.port,
+    password: parsed.username,
+    tls: true,
+    sni: params.get('sni') || parsed.hostname,
+    skipCertVerify: params.get('insecure') === '1' || params.get('allowInsecure') === '1',
+    obfs: params.get('obfs') || undefined,
+    obfsPassword: params.get('obfs-password') || undefined
+  };
+
+  const sb: Record<string, unknown> = {
+    tag: name,
+    type: 'hysteria2',
+    server: node.server,
+    server_port: node.port,
+    password: node.password,
+    tls: { enabled: true, server_name: node.sni, insecure: node.skipCertVerify }
+  };
+  if (node.obfs) {
+    sb.obfs = { type: node.obfs, password: node.obfsPassword };
+  }
+  node.singboxObj = sb;
+
+  const cl: Record<string, unknown> = {
+    name,
+    type: 'hysteria2',
+    server: node.server,
+    port: node.port,
+    password: node.password,
+    sni: node.sni,
+    'skip-cert-verify': node.skipCertVerify
+  };
+  if (node.obfs) {
+    cl.obfs = node.obfs;
+    cl['obfs-password'] = node.obfsPassword;
+  }
+  node.clashObj = cl;
+
+  return node;
+}
+
+// --- 解析 TUIC ---
+function parseTuic(urlStr: string): ProxyNode {
+  const parsed = parseProxyUri(urlStr, 443);
+  if (!parsed) throw new Error('[TUIC] URI 格式無效');
+
+  const params = parsed.params;
+  const name = parsed.hash || 'TUIC';
+  
+  if (!parsed.username) throw new Error(`[TUIC] 節點 [${name}] 缺少 uuid`);
+  if (!parsed.hostname) throw new Error(`[TUIC] 節點 [${name}] 缺少伺服器地址`);
+
+  const congestion_control = params.get('congestion_control') || params.get('cca') || params.get('cc') || 'bbr';
+  const udp_relay_mode = params.get('udp_relay_mode') || 'native';
+  const alpnStr = params.get('alpn');
+  const skipCertVerify = params.get('allow_insecure') === '1' || params.get('insecure') === '1';
+
+  const node: ProxyNode = {
+    type: 'tuic',
+    name,
+    server: parsed.hostname,
+    port: parsed.port,
+    uuid: parsed.username,
+    password: parsed.password || '',
+    tls: true,
+    sni: params.get('sni') || parsed.hostname,
+    alpn: alpnStr ? alpnStr.split(',') : ['h3'],
+    skipCertVerify,
+    congestion_control,
+    udp_relay_mode
+  };
+
+  node.singboxObj = {
+    tag: name,
+    type: 'tuic',
+    server: node.server,
+    server_port: node.port,
+    uuid: node.uuid,
+    password: node.password,
+    congestion_control: node.congestion_control,
+    udp_relay_mode: node.udp_relay_mode,
+    tls: { enabled: true, server_name: node.sni, alpn: node.alpn, insecure: node.skipCertVerify }
+  };
+
+  node.clashObj = {
+    name,
+    type: 'tuic',
+    server: node.server,
+    port: node.port,
+    uuid: node.uuid,
+    password: node.password,
+    sni: node.sni,
+    alpn: node.alpn,
+    'skip-cert-verify': node.skipCertVerify,
+    'congestion-controller': node.congestion_control,
+    'udp-relay-mode': node.udp_relay_mode
+  };
+
+  return node;
+}
+
+// --- 解析 AnyTLS ---
+function parseAnytls(urlStr: string): ProxyNode {
+  const parsed = parseProxyUri(urlStr, 443);
+  if (!parsed) throw new Error('[AnyTLS] URI 格式無效');
+
+  const params = parsed.params;
+  const name = parsed.hash || 'AnyTLS';
+  const uuid = parsed.username;
+  if (!uuid) throw new Error(`[AnyTLS] 節點 [${name}] 缺少密碼 / UUID`);
+  if (!parsed.hostname) throw new Error(`[AnyTLS] 節點 [${name}] 缺少伺服器地址`);
+
+  const skipCertVerify = params.get('allowInsecure') === '1' || params.get('insecure') === '1';
+  const alpnStr = params.get('alpn');
+
+  const node: ProxyNode = {
+    type: 'anytls',
+    name,
+    server: parsed.hostname,
+    port: parsed.port,
+    uuid,
+    password: uuid,
+    tls: true,
+    sni: params.get('sni') || parsed.hostname,
+    fingerprint: params.get('fp') || 'chrome',
+    skipCertVerify,
+    alpn: alpnStr ? alpnStr.split(',') : undefined
+  };
+
+  node.singboxObj = { 
+    tag: name, 
+    type: 'anytls', 
+    server: node.server, 
+    server_port: node.port, 
+    password: node.password, 
+    tls: { 
+      enabled: true, 
+      server_name: node.sni, 
+      insecure: node.skipCertVerify, 
+      utls: { enabled: true, fingerprint: node.fingerprint } 
+    } 
+  };
+  if (node.alpn) (node.singboxObj.tls as Record<string, unknown>).alpn = node.alpn;
+
+  node.clashObj = {
+    name,
+    type: 'anytls',
+    server: node.server,
+    port: node.port,
+    password: node.password,
+    sni: node.sni,
+    'skip-cert-verify': node.skipCertVerify,
+    'client-fingerprint': node.fingerprint,
+    udp: true
+  };
+  if (node.alpn) node.clashObj.alpn = node.alpn;
+
+  return node;
+}
+
+// --- 解析 VMess ---
+function parseVmess(vmessUrl: string): ProxyNode {
+  const b64 = vmessUrl.replace('vmess://', '');
+  const jsonStr = safeBase64Decode(b64);
+  if (!jsonStr) throw new Error('[VMess] Base64 解碼失敗');
+  
+  const config = JSON.parse(jsonStr);
+  const name = config.ps || 'VMess';
+  if (!config.add) throw new Error(`[VMess] 節點 [${name}] 缺少伺服器地址 (add)`);
+  if (!config.id) throw new Error(`[VMess] 節點 [${name}] 缺少 UUID (id)`);
+
+  let rawPath = config.path || '';
+  const explicitNet = (config.net || '').toLowerCase();
+  let netType = explicitNet;
+  if (!netType) {
+    netType = rawPath ? 'ws' : 'tcp';
+  }
+
+  if (netType === 'ws' && !rawPath) rawPath = '/';
+  if (rawPath && !rawPath.startsWith('/')) rawPath = '/' + rawPath;
+
+  let earlyDataLength: number | undefined = undefined;
+  const edMatch = rawPath.match(/[?&]ed=([0-9]+)/);
+  if (edMatch && edMatch[1]) {
+    earlyDataLength = parseInt(edMatch[1], 10);
+  }
+  const cleanPath = rawPath ? (rawPath.replace(/[?&]ed=[0-9]+/g, '').replace(/\?$/, '') || '/') : '/';
+
+  const isTls = config.tls === 'tls';
+
+  const node: ProxyNode = {
+    type: 'vmess',
+    name,
+    server: config.add,
+    port: parseInt(config.port, 10) || (isTls ? 443 : 80),
+    uuid: config.id,
+    cipher: 'auto',
+    tls: isTls,
+    sni: config.sni || config.host,
+    network: netType,
+    wsPath: cleanPath,
+    wsHeaders: config.host ? { Host: config.host } : undefined,
+    skipCertVerify: true
+  };
+  
+  const sb: Record<string, unknown> = {
+    tag: name,
+    type: 'vmess',
+    server: node.server,
+    server_port: node.port,
+    uuid: node.uuid,
+    security: 'auto',
+    packet_encoding: 'xudp'
+  };
+
+  if (node.tls) {
+    sb.tls = {
+      enabled: true,
+      server_name: node.sni || node.server,
+      insecure: true
+    };
+  }
+  if (node.network === 'ws') {
+    const wsTransport: Record<string, unknown> = { type: 'ws', path: cleanPath, headers: node.wsHeaders };
+    if (earlyDataLength) {
+      wsTransport.max_early_data = earlyDataLength;
+      wsTransport.early_data_header_name = 'Sec-WebSocket-Protocol';
+    }
+    sb.transport = wsTransport;
+  }
+  node.singboxObj = sb;
+  
+  const cl: Record<string, unknown> = {
+    name,
+    type: 'vmess',
+    server: node.server,
+    port: node.port,
+    uuid: node.uuid,
+    alterId: parseInt(config.aid, 10) || 0,
+    cipher: config.scy || 'auto',
+    udp: true,
+    tls: node.tls,
+    servername: node.sni || config.host || node.server,
+    network: node.network
+  };
+  if (node.network === 'ws') {
+    cl['ws-opts'] = {
+      path: cleanPath,
+      headers: node.wsHeaders,
+      'max-early-data': earlyDataLength,
+      'early-data-header-name': earlyDataLength ? 'Sec-WebSocket-Protocol' : undefined
+    };
+  }
+  node.clashObj = cl;
+
+  return node;
+}
+
+// --- 解析 Trojan ---
+function parseTrojan(urlStr: string): ProxyNode {
+  const parsed = parseProxyUri(urlStr, 443);
+  if (!parsed) throw new Error('[Trojan] URI 格式無效');
+
+  const params = parsed.params;
+  const name = parsed.hash || 'Trojan';
+  if (!parsed.username) throw new Error(`[Trojan] 節點 [${name}] 缺少密碼`);
+  if (!parsed.hostname) throw new Error(`[Trojan] 節點 [${name}] 缺少伺服器地址`);
+
+  const echInfo = parseEchInfo(params.get('ech'));
+
+  const node: ProxyNode = {
+    type: 'trojan',
+    name,
+    server: parsed.hostname,
+    port: parsed.port,
+    password: parsed.username,
+    tls: true,
+    sni: params.get('sni') || params.get('peer') || parsed.hostname,
+    skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1',
+    ech: echInfo.enabled,
+    echQueryServerName: echInfo.domain,
+    echDoh: echInfo.doh
+  };
+
+  const tlsObj: Record<string, unknown> = {
+    enabled: true,
+    server_name: node.sni,
+    insecure: node.skipCertVerify
+  };
+  if (node.ech) {
+    tlsObj.ech = { enabled: true };
+  }
+
+  node.singboxObj = {
+    tag: name,
+    type: 'trojan',
+    server: node.server,
+    server_port: node.port,
+    password: node.password,
+    tls: tlsObj
+  };
+
+  const cl: Record<string, unknown> = {
+    name,
+    type: 'trojan',
+    server: node.server,
+    port: node.port,
+    password: node.password,
+    sni: node.sni,
+    'skip-cert-verify': node.skipCertVerify,
+    udp: true
+  };
+  if (node.ech) {
+    cl['ech-opts'] = { enable: true };
+  }
+  node.clashObj = cl;
+
+  return node;
+}
+
+// --- 解析 Clash YAML 格式的單一 Proxy 項目 ---
+function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNode {
+  const type = String(p.type || '').toLowerCase();
+  const name = String(p.name || `Node-${index + 1}`).trim();
+  const server = String(p.server || '').trim();
+  const port = parseInt(String(p.port || 443), 10) || 443;
+
+  if (type === 'masque') {
+    return buildMasqueNode(p as RawMasqueConfig, index);
+  }
+
+  if (!server) throw new Error(`[Clash YAML] 第 ${index + 1} 個節點缺少 server (伺服器地址)`);
+
+  // 1. VLESS
+  if (type === 'vless') {
+    const uuid = String(p.uuid || '').trim();
+    if (!uuid) throw new Error(`[Clash YAML] VLESS 節點 [${name}] 缺少 uuid`);
+    
+    const tls = Boolean(p.tls);
+    const sni = p.servername ? String(p.servername).trim() : (p.sni ? String(p.sni) : server);
+    const flow = p.flow ? String(p.flow).trim() : undefined;
+    const network = p.network ? String(p.network).toLowerCase() : (p['ws-opts'] ? 'ws' : (p['xhttp-opts'] ? 'xhttp' : (p['grpc-opts'] ? 'grpc' : 'tcp')));
+    
+    const wsOpts = p['ws-opts'] as Record<string, unknown> | undefined;
+    const wsPath = wsOpts?.path ? String(wsOpts.path) : undefined;
+    const wsHeaders = wsOpts?.headers as Record<string, string> | undefined;
+
+    const realityOpts = p['reality-opts'] as Record<string, unknown> | undefined;
+    const reality = (p.reality || realityOpts) ? {
+      publicKey: String(realityOpts?.['public-key'] || ''),
+      shortId: String(realityOpts?.['short-id'] || '')
+    } : undefined;
+
+    const echOpts = p['ech-opts'] as Record<string, unknown> | undefined;
+    let echEnabled = false;
+    let echDomain: string | undefined = undefined;
+    let echDoh: string | undefined = undefined;
+
+    if (p.ech) {
+      const info = parseEchInfo(String(p.ech));
+      echEnabled = info.enabled;
+      echDomain = info.domain;
+      echDoh = info.doh;
+    } else if (echOpts && echOpts.enable === true) {
+      echEnabled = true;
+      if (echOpts['query-server-name']) echDomain = String(echOpts['query-server-name']);
+      if (echOpts['doh-server']) echDoh = String(echOpts['doh-server']);
+      else if (echOpts.doh) echDoh = String(echOpts.doh);
+    }
+
+    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
+    const fingerprint = p['client-fingerprint'] ? String(p['client-fingerprint']).trim() : 'chrome';
+    const alpn = Array.isArray(p.alpn) ? p.alpn.map(String) : undefined;
+
+    let earlyDataLength: number | undefined = undefined;
+    if (wsOpts?.['max-early-data']) {
+      earlyDataLength = parseInt(String(wsOpts['max-early-data']), 10);
+    } else if (wsPath) {
+      const edMatch = wsPath.match(/[?&]ed=([0-9]+)/);
+      if (edMatch && edMatch[1]) {
+        earlyDataLength = parseInt(edMatch[1], 10);
+      }
+    }
+
+    const clashObjCopy: Record<string, unknown> = { ...p };
+    clashObjCopy.network = network;
+    if (!alpn) {
+      delete clashObjCopy.alpn;
+    }
+
+    const node: ProxyNode = {
+      type: 'vless', name, server, port, uuid, tls, sni, network, flow,
+      wsPath, wsHeaders, reality,
+      udp: p.udp !== undefined ? Boolean(p.udp) : true,
+      skipCertVerify,
+      fingerprint,
+      alpn,
+      ech: echEnabled,
+      echQueryServerName: echDomain,
+      echDoh: echDoh,
+      clashObj: clashObjCopy
+    };
+
+    const sb: Record<string, unknown> = {
+      tag: name, type: 'vless', server, server_port: port, uuid, packet_encoding: 'xudp'
+    };
+    if (tls) {
+      const tlsObj: Record<string, unknown> = {
+        enabled: true,
+        server_name: sni,
+        insecure: skipCertVerify,
+        utls: { enabled: true, fingerprint }
+      };
+      if (alpn) tlsObj.alpn = alpn;
+      if (echEnabled) tlsObj.ech = { enabled: true };
+      if (reality) {
+        tlsObj.reality = { enabled: true, public_key: reality.publicKey, short_id: reality.shortId };
+      }
+      sb.tls = tlsObj;
+    }
+    if (flow) sb.flow = flow;
+    if (network === 'ws') {
+      const wsTransport: Record<string, unknown> = {
+        type: 'ws',
+        path: wsPath || '/',
+        headers: wsHeaders
+      };
+      if (earlyDataLength) {
+        wsTransport.max_early_data = earlyDataLength;
+        wsTransport.early_data_header_name = 'Sec-WebSocket-Protocol';
+      }
+      sb.transport = wsTransport;
+    }
+    node.singboxObj = sb;
+    return node;
+  }
+
+  // 2. Shadowsocks
+  if (type === 'ss' || type === 'shadowsocks') {
+    const cipher = String(p.cipher || '');
+    const password = String(p.password || '');
+    if (!cipher) throw new Error(`[Clash YAML] Shadowsocks 節點 [${name}] 缺少 cipher (加密方法)`);
+    if (!password) throw new Error(`[Clash YAML] Shadowsocks 節點 [${name}] 缺少 password (密碼)`);
+    const udp = p.udp !== false;
+
+    const node: ProxyNode = {
+      type: 'shadowsocks', name, server, port, cipher, password, udp,
+      clashObj: { ...p }
+    };
+    node.singboxObj = {
+      tag: name, type: 'shadowsocks', server, server_port: port, method: cipher, password
+    };
+    return node;
+  }
+
+  // 3. VMess
+  if (type === 'vmess') {
+    const uuid = String(p.uuid || '');
+    if (!uuid) throw new Error(`[Clash YAML] VMess 節點 [${name}] 缺少 uuid`);
+    const tls = Boolean(p.tls);
+    const sni = p.servername ? String(p.servername) : (p.sni ? String(p.sni) : server);
+    const network = p.network ? String(p.network).toLowerCase() : (p['ws-opts'] ? 'ws' : 'tcp');
+    const wsOpts = p['ws-opts'] as Record<string, unknown> | undefined;
+    const wsPath = wsOpts?.path ? String(wsOpts.path) : undefined;
+    const wsHeaders = wsOpts?.headers as Record<string, string> | undefined;
+
+    const node: ProxyNode = {
+      type: 'vmess', name, server, port, uuid, tls, sni, network, wsPath, wsHeaders,
+      udp: p.udp !== undefined ? Boolean(p.udp) : true,
+      clashObj: { ...p, network }
+    };
+    const sb: Record<string, unknown> = {
+      tag: name, type: 'vmess', server, server_port: port, uuid, security: 'auto', packet_encoding: 'xudp'
+    };
+    if (tls) {
+      sb.tls = { enabled: true, server_name: sni, insecure: p['skip-cert-verify'] ? Boolean(p['skip-cert-verify']) : false };
+    }
+    if (network === 'ws') {
+      sb.transport = { type: 'ws', path: wsPath || '/', headers: wsHeaders };
+    }
+    node.singboxObj = sb;
+    return node;
+  }
+
+  // 4. Trojan
+  if (type === 'trojan') {
+    const password = String(p.password || '');
+    if (!password) throw new Error(`[Clash YAML] Trojan 節點 [${name}] 缺少 password (密碼)`);
+    const sni = p.sni ? String(p.sni) : (p.servername ? String(p.servername) : server);
+    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
+
+    const node: ProxyNode = {
+      type: 'trojan', name, server, port, password, tls: true, sni, skipCertVerify,
+      udp: p.udp !== undefined ? Boolean(p.udp) : true,
+      clashObj: { ...p }
+    };
+    node.singboxObj = {
+      tag: name, type: 'trojan', server, server_port: port, password,
+      tls: { enabled: true, server_name: sni, insecure: skipCertVerify }
+    };
+    return node;
+  }
+
+  // 5. Hysteria 2
+  if (type === 'hysteria2' || type === 'hy2') {
+    const password = String(p.password || p.auth || '');
+    if (!password) throw new Error(`[Clash YAML] Hysteria2 節點 [${name}] 缺少 password / auth`);
+    const sni = p.sni ? String(p.sni) : (p.servername ? String(p.servername) : server);
+    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
+
+    const node: ProxyNode = {
+      type: 'hysteria2', name, server, port, password, tls: true, sni, skipCertVerify,
+      udp: p.udp !== undefined ? Boolean(p.udp) : true,
+      obfs: p.obfs ? String(p.obfs) : undefined,
+      obfsPassword: p['obfs-password'] ? String(p['obfs-password']) : undefined,
+      clashObj: { ...p }
+    };
+    const sb: Record<string, unknown> = {
+      tag: name, type: 'hysteria2', server, server_port: port, password,
+      tls: { enabled: true, server_name: sni, insecure: skipCertVerify }
+    };
+    if (node.obfs) {
+      sb.obfs = { type: node.obfs, password: node.obfsPassword };
+    }
+    node.singboxObj = sb;
+    return node;
+  }
+
+  // 6. TUIC
+  if (type === 'tuic') {
+    const uuid = String(p.uuid || '');
+    const password = String(p.password || '');
+    if (!uuid) throw new Error(`[Clash YAML] TUIC 節點 [${name}] 缺少 uuid`);
+    const sni = p.sni ? String(p.sni) : (p.servername ? String(p.servername) : server);
+    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
+    const congestion_control = p['congestion-controller'] ? String(p['congestion-controller']) : 'bbr';
+    const udp_relay_mode = p['udp-relay-mode'] ? String(p['udp-relay-mode']) : 'native';
+    const alpn = Array.isArray(p.alpn) ? p.alpn.map(String) : ['h3'];
+
+    const node: ProxyNode = {
+      type: 'tuic', name, server, port, uuid, password, tls: true, sni, skipCertVerify,
+      congestion_control, udp_relay_mode, alpn,
+      udp: p.udp !== undefined ? Boolean(p.udp) : true,
+      clashObj: { ...p }
+    };
+    node.singboxObj = {
+      tag: name, type: 'tuic', server, server_port: port, uuid, password,
+      congestion_control, udp_relay_mode,
+      tls: { enabled: true, server_name: sni, alpn, insecure: skipCertVerify }
+    };
+    return node;
+  }
+
+  // 7. WireGuard
+  if (type === 'wireguard') {
+    const privateKey = String(p['private-key'] || '');
+    const publicKey = String(p['public-key'] || '');
+    if (!privateKey) throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 private-key (私鑰)`);
+    if (!publicKey) throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 public-key (公鑰)`);
+    if (!p.ip) throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 ip (內網 IP)`);
+    
+    const ip = String(p.ip);
+    const ipv6 = p.ipv6 ? String(p.ipv6) : undefined;
+    const localAddress = [ip.includes('/') ? ip : `${ip}/32`];
+    if (ipv6) localAddress.push(ipv6.includes('/') ? ipv6 : `${ipv6}/128`);
+    const presharedKey = p['preshared-key'] ? String(p['preshared-key']) : undefined;
+    const mtu = parseInt(String(p.mtu || 1420), 10) || 1420;
+    const reserved = Array.isArray(p.reserved) ? p.reserved.map(Number) : undefined;
+    
+    let dnsList: string[] = [];
+    if (p.dns) {
+      dnsList = Array.isArray(p.dns) ? p.dns.map(String) : [String(p.dns)];
+    } else {
+      throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 dns 設定（例如 dns: [10.2.0.1]）`);
+    }
+
+    const wgConfig: WireGuardConfig = {
+      privateKey, localAddress, publicKey, presharedKey, mtu, reserved, dns: dnsList[0]
+    };
+    const node: ProxyNode = {
+      type: 'wireguard', name, server, port, udp: true, wireguard: wgConfig,
+      clashObj: { ...p, dns: dnsList }
+    };
+    node.singboxObj = {
+      type: 'wireguard', tag: name, address: localAddress, private_key: privateKey,
+      peers: [{ address: server, port, public_key: publicKey, allowed_ips: ['0.0.0.0/0', '::/0'] }],
+      mtu
+    };
+    return node;
+  }
+
+  // 8. 兜底通用節點
+  return {
+    type, name, server, port, udp: true,
+    clashObj: { ...p }
+  };
+}
+
+// --- 解析完整 Clash YAML 配置中的 proxies 陣列 ---
+export function parseClashYaml(content: string): ProxyNode[] {
+  const nodes: ProxyNode[] = [];
+  if (!/(^|\n)\s*proxies\s*:/i.test(content)) {
+    return [];
+  }
+  const parsed = yaml.load(content);
+  if (!parsed || typeof parsed !== 'object') return [];
+  
+  const rawProxies = (parsed as Record<string, unknown>).proxies;
+  if (!Array.isArray(rawProxies)) return [];
+
+  for (let i = 0; i < rawProxies.length; i++) {
+    const p = rawProxies[i];
+    if (!p || typeof p !== 'object') continue;
+    const node = parseClashProxyItem(p as Record<string, unknown>, i);
+    if (node) nodes.push(node);
+  }
+  return nodes;
+}
+
+// --- 主解析入口 ---
+export async function parseContent(content: string): Promise<ProxyNode[]> {
+  let plainText = content.replace(/^\uFEFF/, '').trim(); 
+
+  if (/\[Interface\]/i.test(plainText) && /\[Peer\]/i.test(plainText)) {
+    const wgNodes = parseWireGuardConf(plainText);
+    if (wgNodes.length > 0) return wgNodes;
+  }
+
+  if (/["']private_key["']/i.test(plainText) && (plainText.includes('{') || plainText.includes('['))) {
+    const masqueNodes = parseMasqueConfigs(plainText);
+    if (masqueNodes.length > 0) return masqueNodes;
+  }
+
+  if (/(^|\n)\s*proxies\s*:/i.test(plainText)) {
+    const clashNodes = parseClashYaml(plainText);
+    if (clashNodes.length > 0) return clashNodes;
+  }
+  
+  const protocols = ['ss://', 'vmess://', 'vless://', 'trojan://', 'tuic://', 'hysteria2://', 'hy2://', 'anytls://', 'wireguard://', 'warp://', 'masque://'];
+  const firstLine = plainText.split(/\r?\n/)[0].trim();
+  const isPlainText = protocols.some(p => firstLine.startsWith(p)) || (firstLine.includes('=') && firstLine.includes('wireguard'));
+  
+  if (!isPlainText) { 
+    try {
+      let b64 = plainText.replace(/[\s\r\n]+/g, '').replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4 > 0) b64 += '=';
+      
+      const binaryStr = atob(b64);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      const decoded = new TextDecoder('utf-8').decode(bytes);
+
+      if (/\[Interface\]/i.test(decoded) && /\[Peer\]/i.test(decoded)) {
+        const wgNodes = parseWireGuardConf(decoded);
+        if (wgNodes.length > 0) return wgNodes;
+      }
+
+      if (/["']private_key["']/i.test(decoded) && (decoded.includes('{') || decoded.includes('['))) {
+        const masqueNodes = parseMasqueConfigs(decoded);
+        if (masqueNodes.length > 0) return masqueNodes;
+      }
+
+      if (/(^|\n)\s*proxies\s*:/i.test(decoded)) {
+        const clashNodes = parseClashYaml(decoded);
+        if (clashNodes.length > 0) return clashNodes;
+      }
+      
+      if (decoded && (protocols.some(p => decoded.includes(p)) || decoded.includes('wireguard'))) {
+        plainText = decoded.replace(/^\uFEFF/, '').trim(); 
+      } else {
+        throw new Error("Base64 解碼成功，但內容並非有效的代理節點。");
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Base64 暴力解碼失敗: ${msg}`);
+    }
+  }
+  
+  const lines = plainText.split(/\r?\n/); 
+  const nodes: ProxyNode[] = [];
+  
+  for (const line of lines) { 
+    const l = line.replace(/^[\s\uFEFF\xA0\u200B\u200C\u200D\u200E\u200F]+|[\s\uFEFF\xA0\u200B\u200C\u200D\u200E\u200F]+$/g, ''); 
+    if (!l) continue;
+    
+    if (l.startsWith('ss://')) { nodes.push(parseShadowsocks(l)); } 
+    else if (l.startsWith('vless://')) { nodes.push(parseVless(l)); } 
+    else if (l.startsWith('hysteria2://') || l.startsWith('hy2://')) { nodes.push(parseHysteria2(l)); } 
+    else if (l.startsWith('vmess://')) { nodes.push(parseVmess(l)); } 
+    else if (l.startsWith('tuic://')) { nodes.push(parseTuic(l)); } 
+    else if (l.startsWith('anytls://')) { nodes.push(parseAnytls(l)); } 
+    else if (l.startsWith('trojan://')) { nodes.push(parseTrojan(l)); } 
+    else if (l.startsWith('wireguard://') || l.startsWith('warp://')) { nodes.push(parseWireGuard(l)); } 
+    else if (l.startsWith('masque://')) { nodes.push(parseMasqueUri(l)); } 
+    else if (l.includes('=') && l.includes('wireguard')) {
+      nodes.push(parseShadowrocketWireGuard(l));
+    }
+  } 
+  
+  if (nodes.length === 0) {
+    throw new Error("資料獲取成功，但未能成功配對到任何支援的節點格式。");
+  }
+  
+  return nodes;
+}
+
+````
+
+## File: src/generator.ts
+````ts
+// src/generator.ts
+import yaml from 'js-yaml';
+import { Env, ProxyNode } from './types';
+import { REMOTE_CONFIG, FALLBACK_SINGBOX_RULES, FALLBACK_CLASH_RULES } from './constants';
+import { utf8ToBase64 } from './utils';
+
+// --- 明文 URI / 節點行格式導出 ---
+export function toRawLinks(nodes: ProxyNode[]): string {
+  const links = nodes.map(node => {
+    try {
+      if (node.type === 'vless') {
+        const params = new URLSearchParams();
+        params.set('security', node.reality ? 'reality' : (node.tls ? 'tls' : 'none'));
+        params.set('type', node.network || 'tcp');
+        if (node.flow) params.set('flow', node.flow);
+        if (node.sni) params.set('sni', node.sni);
+        if (node.fingerprint) params.set('fp', node.fingerprint);
+        if (node.ech) params.set('ech', `${node.echQueryServerName || 'cloudflare-ech.com'}+https://223.5.5.5/dns-query`);
+        if (node.reality) { params.set('pbk', node.reality.publicKey); params.set('sid', node.reality.shortId); }
+        if (node.network === 'ws') { if (node.wsPath) params.set('path', node.wsPath); if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host); }
+        if (node.network === 'xhttp' || node.network === 'splithttp') {
+          if (node.xhttpPath) params.set('path', node.xhttpPath);
+          if (node.xhttpHost) params.set('host', node.xhttpHost);
+          if (node.xhttpMode) params.set('mode', node.xhttpMode);
+        }
+        return `vless://${node.uuid}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+      }
+      if (node.type === 'hysteria2') {
+        const params = new URLSearchParams();
+        if (node.sni) params.set('sni', node.sni);
+        if (node.obfs) { params.set('obfs', node.obfs); if (node.obfsPassword) params.set('obfs-password', node.obfsPassword); }
+        if (node.skipCertVerify) params.set('insecure', '1');
+        return `hysteria2://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+      }
+      if (node.type === 'vmess') {
+        const vmessObj = {
+          v: "2", ps: node.name, add: node.server, port: node.port, id: node.uuid,
+          aid: (node.clashObj as Record<string, unknown>)?.alterId || 0, scy: "auto", net: node.network, type: "none",
+          host: node.wsHeaders?.Host || "", path: node.wsPath || "",
+          tls: node.tls ? "tls" : "", sni: node.sni || ""
+        };
+        return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
+      }
+      if (node.type === 'shadowsocks') {
+        const method = encodeURIComponent(node.cipher || '');
+        const pass = encodeURIComponent(node.password || '');
+        const params = new URLSearchParams();
+        if (node.tls) {
+          params.set('security', 'tls');
+          if (node.sni) params.set('sni', node.sni);
+          if (node.alpn) params.set('alpn', node.alpn.join(','));
+          if (node.fingerprint) params.set('fp', node.fingerprint);
+          if (node.ech) params.set('ech', `${node.echQueryServerName || 'cloudflare-ech.com'}+https://223.5.5.5/dns-query`);
+          params.set('type', node.network || 'tcp');
+        }
+        const clashPlugin = (node.clashObj as Record<string, unknown>)?.plugin as string | undefined;
+        if (clashPlugin && !node.tls) {
+          const pluginOpts = (node.clashObj as Record<string, unknown>)?.['plugin-opts'] as Record<string, string> | undefined;
+          const optStr = pluginOpts ? ';' + new URLSearchParams(pluginOpts).toString().replace(/&/g, ';') : '';
+          params.set('plugin', clashPlugin + optStr);
+        }
+        const query = params.toString();
+        return `ss://${method}:${pass}@${node.server}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
+      }
+      if (node.type === 'tuic') {
+        const params = new URLSearchParams();
+        if (node.sni) params.set('sni', node.sni);
+        if (node.congestion_control) params.set('congestion_control', node.congestion_control);
+        if (node.udp_relay_mode) params.set('udp_relay_mode', node.udp_relay_mode);
+        if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
+        if (node.skipCertVerify) params.set('allow_insecure', '1');
+        return `tuic://${node.uuid || ''}:${node.password || ''}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+      }
+      if (node.type === 'anytls') {
+        const params = new URLSearchParams();
+        params.set('security', 'tls');
+        if (node.sni) params.set('sni', node.sni);
+        params.set('insecure', node.skipCertVerify ? '1' : '0');
+        if (node.fingerprint) params.set('fp', node.fingerprint);
+        if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
+        params.set('type', 'tcp'); 
+        return `anytls://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+      }
+      if (node.type === 'trojan') {
+        const params = new URLSearchParams();
+        if (node.sni) params.set('sni', node.sni);
+        if (node.skipCertVerify) params.set('allowInsecure', '1');
+        if (node.ech) params.set('ech', `${node.echQueryServerName || 'cloudflare-ech.com'}+https://223.5.5.5/dns-query`);
+        return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+      }
+      
+      // WireGuard 標準格式
+      if (node.type === 'wireguard' && node.wireguard) {
+        const wg = node.wireguard;
+        const cleanIp = wg.localAddress[0]?.split('/')[0] || '10.2.0.2';
+        const params = new URLSearchParams();
+        params.set('publickey', wg.publicKey || '');
+        params.set('privatekey', wg.privateKey || '');
+        params.set('ip', cleanIp);
+        params.set('address', cleanIp);
+        if (wg.dns) params.set('dns', wg.dns);
+        if (wg.presharedKey) params.set('presharedkey', wg.presharedKey);
+        params.set('mtu', String(wg.mtu || 1420));
+        params.set('keepalive', '25');
+        return `wireguard://${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+      }
+
+      // MASQUE 標準格式
+      if (node.type === 'masque' && node.masque) {
+        const m = node.masque;
+        const params = new URLSearchParams();
+        params.set('public_key', m.publicKey);
+        if (m.localIpv4) params.set('ip', m.localIpv4.split('/')[0]);
+        if (m.localIpv6) params.set('ipv6', m.localIpv6.split('/')[0]);
+        if (m.mtu) params.set('mtu', String(m.mtu));
+        if (m.uri) params.set('uri', m.uri);
+        if (m.sni) params.set('sni', m.sni);
+        
+        const cc = m.congestion_controller || 'bbr';
+        params.set('cca', cc);
+        params.set('cc', cc);
+        params.set('congestion_control', cc);
+        params.set('congestion_controller', cc);
+        params.set('congestion-controller', cc);
+        
+        if (m.dns && m.dns.length > 0) params.set('dns', m.dns.join(','));
+        return `masque://${encodeURIComponent(m.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }).filter((l): l is string => Boolean(l));
+
+  return links.join('\n');
+}
+
+// 導出 Base64 訂閱
+export function toBase64(nodes: ProxyNode[]): string {
+  const rawLinks = toRawLinks(nodes);
+  return utf8ToBase64(rawLinks);
+}
+
+// --- 直接自 GitHub 讀取遠端模板 (無 KV 快取，失敗時由內建降級規則兜底) ---
+async function fetchTemplateDirect(
+  url: string,
+  fallbackStr: string
+): Promise<string> {
+  try {
+    const resp = await fetch(`${url}?t=${Date.now()}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+    });
+    if (resp.ok) {
+      return await resp.text();
+    }
+  } catch {}
+
+  return fallbackStr;
+}
+
+// --- Sing-Box 配置生成 ---
+export async function toSingBoxWithTemplate(nodes: ProxyNode[], _env?: Env, _forceRefresh = false): Promise<string> {
+  const text = await fetchTemplateDirect(REMOTE_CONFIG.singbox, FALLBACK_SINGBOX_RULES);
+  const config = JSON.parse(text);
+  
+  if (!config.http_clients || !Array.isArray(config.http_clients) || config.http_clients.length === 0) {
+    config.http_clients = [{ tag: 'default' }];
+  } else {
+    config.http_clients.forEach((hc: Record<string, unknown>) => {
+      if (hc.detour === 'direct' || hc.detour === 'DIRECT') {
+        delete hc.detour;
+      }
+    });
+  }
+
+  if (config.dns) {
+    config.dns.final = 'remote-dns';
+    if (Array.isArray(config.dns.servers)) {
+      config.dns.servers = config.dns.servers.filter((s: Record<string, unknown>) => s.type !== 'rcode');
+      config.dns.servers.forEach((s: Record<string, unknown>) => {
+        if (s.detour === 'direct' || s.detour === 'DIRECT') delete s.detour;
+      });
+    }
+    if (Array.isArray(config.dns.rules)) {
+      config.dns.rules = config.dns.rules.filter((r: Record<string, unknown>) => !('outbound' in r));
+    }
+
+    const echDomains = Array.from(new Set(
+      nodes.filter(n => n.ech).map(n => n.echQueryServerName || 'cloudflare-ech.com')
+    ));
+
+    if (echDomains.length > 0) {
+      if (!config.dns.servers.some((s: Record<string, unknown>) => s.tag === 'direct-ali-doh')) {
+        config.dns.servers.push({
+          tag: 'direct-ali-doh',
+          type: 'https',
+          server: '223.5.5.5'
+        });
+      }
+      config.dns.rules.unshift({
+        domain: echDomains,
+        domain_suffix: echDomains,
+        server: 'direct-ali-doh'
+      });
+    }
+  }
+
+  if (!config.route) config.route = {};
+  config.route.default_domain_resolver = 'system-dns';
+  config.route.default_http_client = 'default';
+  
+  if (Array.isArray(config.route.rule_set)) {
+    config.route.rule_set.forEach((rs: Record<string, unknown>) => {
+      delete rs.download_detour;
+    });
+  }
+
+  if (Array.isArray(config.inbounds)) {
+    config.inbounds.forEach((ib: Record<string, unknown>) => {
+      delete ib.sniff;
+      delete ib.sniff_override_destination;
+      delete ib.domain_strategy;
+    });
+  }
+
+  const outbounds: Record<string, unknown>[] = [];
+  const endpoints: Record<string, unknown>[] = [];
+  const allNodeTags: string[] = [];
+
+  nodes.forEach(n => {
+    allNodeTags.push(n.name);
+    
+    if (n.type === 'wireguard' && n.wireguard) {
+      const wg = n.wireguard;
+      const peerObj: Record<string, unknown> = {
+        address: n.server,
+        port: n.port,
+        public_key: wg.publicKey,
+        allowed_ips: ["0.0.0.0/0", "::/0"]
+      };
+      if (wg.presharedKey) peerObj.pre_shared_key = wg.presharedKey;
+      if (wg.reserved && wg.reserved.length > 0) peerObj.reserved = wg.reserved;
+
+      endpoints.push({
+        type: 'wireguard',
+        tag: n.name,
+        address: wg.localAddress,
+        private_key: wg.privateKey,
+        peers: [peerObj],
+        mtu: wg.mtu || 1420
+      });
+    } else {
+      const obj = JSON.parse(JSON.stringify(n.singboxObj));
+      if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {
+        obj.tls.alpn = ['http/1.1'];
+      }
+      outbounds.push(obj);
+    }
+  });
+
+  if (endpoints.length > 0) {
+    if (!config.endpoints || !Array.isArray(config.endpoints)) {
+      config.endpoints = [];
+    }
+    config.endpoints.push(...endpoints);
+  }
+
+  if (!Array.isArray(config.outbounds)) config.outbounds = [];
+  config.outbounds.push(...outbounds);
+
+  const lowRateTags = nodes.filter(n => n.multiplier !== undefined && n.multiplier < 1.0).map(n => n.name);
+  const iplcTags = nodes.filter(n => n.isIplc).map(n => n.name);
+
+  if (lowRateTags.length > 0) {
+    config.outbounds.unshift({
+      type: 'selector',
+      tag: '🏎️ 低倍率節點',
+      outbounds: lowRateTags
+    });
+  }
+
+  if (iplcTags.length > 0) {
+    config.outbounds.unshift({
+      type: 'selector',
+      tag: '⚡ 專線加速',
+      outbounds: iplcTags
+    });
+  }
+
+  config.outbounds.forEach((out: Record<string, unknown>) => {
+    if (out.type === 'selector' || out.type === 'urltest') {
+      if (!Array.isArray(out.outbounds)) out.outbounds = [];
+      const arr = out.outbounds as string[];
+      allNodeTags.forEach(tag => {
+        if (!arr.includes(tag)) arr.push(tag);
+      });
+    }
+  });
+
+  return JSON.stringify(config, null, 2);
+}
+
+// --- Clash Meta 配置生成 ---
+export async function toClashWithTemplate(nodes: ProxyNode[], _env?: Env, _forceRefresh = false): Promise<string> {
+  const text = await fetchTemplateDirect(REMOTE_CONFIG.clash, FALLBACK_CLASH_RULES);
+  const config = yaml.load(text) as Record<string, unknown>;
+  
+  const proxies = nodes.map(n => {
+    const obj = JSON.parse(JSON.stringify(n.clashObj));
+    Object.keys(obj).forEach(key => obj[key] === undefined && delete obj[key]);
+    return obj;
+  });
+  const proxyNames = proxies.map((p: Record<string, unknown>) => p.name as string);
+
+  if (!Array.isArray(config.proxies)) config.proxies = [];
+  config.proxies.push(...proxies);
+
+  const lowRateNames = nodes.filter(n => n.multiplier !== undefined && n.multiplier < 1.0).map(n => n.name);
+  const iplcNames = nodes.filter(n => n.isIplc).map(n => n.name);
+
+  if (Array.isArray(config['proxy-groups'])) {
+    const groups = config['proxy-groups'] as Array<Record<string, unknown>>;
+
+    if (lowRateNames.length > 0) {
+      groups.unshift({
+        name: '🏎️ 低倍率節點',
+        type: 'select',
+        proxies: lowRateNames
+      });
+    }
+
+    if (iplcNames.length > 0) {
+      groups.unshift({
+        name: '⚡ 專線加速',
+        type: 'select',
+        proxies: iplcNames
+      });
+    }
+
+    groups.forEach(group => {
+      if (!Array.isArray(group.proxies)) group.proxies = [];
+      const arr = group.proxies as string[];
+      proxyNames.forEach(name => {
+        if (!arr.includes(name)) arr.push(name);
+      });
+    });
+  }
+
+  const echDomains = Array.from(new Set(
+    nodes.filter(n => n.ech).map(n => n.echQueryServerName || 'cloudflare-ech.com')
+  ));
+
+  if (echDomains.length > 0 && config.dns && typeof config.dns === 'object') {
+    const dnsObj = config.dns as Record<string, unknown>;
+    if (!dnsObj['nameserver-policy'] || typeof dnsObj['nameserver-policy'] !== 'object') {
+      dnsObj['nameserver-policy'] = {};
+    }
+    const policy = dnsObj['nameserver-policy'] as Record<string, string[]>;
+    for (const domain of echDomains) {
+      policy[domain] = [
+        'https://223.5.5.5/dns-query'
+      ];
+    }
+  }
+
+  return yaml.dump(config, { indent: 2, noRefs: true });
+}
+
+// --- Surge 5 配置生成 ---
+export function toSurge(nodes: ProxyNode[]): string {
+  const lines: string[] = ['[Proxy]'];
+  const nodeNames: string[] = [];
+  const wgSections: string[] = [];
+
+  for (const node of nodes) {
+    let line = '';
+    const name = node.name.replace(/[,=]/g, '').trim();
+
+    if (node.type === 'shadowsocks') {
+      line = `${name} = ss, ${node.server}, ${node.port}, encrypt-method=${node.cipher}, password=${node.password}, udp-relay=true`;
+      if (node.sni) line += `, sni=${node.sni}`;
+    } else if (node.type === 'trojan') {
+      line = `${name} = trojan, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
+      if (node.network === 'ws') {
+        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
+        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
+      }
+    } else if (node.type === 'vmess') {
+      line = `${name} = vmess, ${node.server}, ${node.port}, username=${node.uuid}, tls=${node.tls ? 'true' : 'false'}, udp-relay=true`;
+      if (node.sni) line += `, sni=${node.sni}`;
+      if (node.network === 'ws') {
+        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
+        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
+      }
+    } else if (node.type === 'vless') {
+      line = `${name} = vless, ${node.server}, ${node.port}, username=${node.uuid}, tls=${node.tls ? 'true' : 'false'}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
+      if (node.network === 'ws') {
+        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
+        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
+      }
+    } else if (node.type === 'hysteria2') {
+      line = `${name} = hysteria2, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
+    } else if (node.type === 'tuic') {
+      line = `${name} = tuic, ${node.server}, ${node.port}, token=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}`;
+    } else if (node.type === 'wireguard' && node.wireguard) {
+      const wg = node.wireguard;
+      const safeSecName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
+      line = `${name} = wireguard, section-name=${safeSecName}`;
+      
+      let wgSec = `\n[WireGuard ${safeSecName}]\n`;
+      wgSec += `private-key = ${wg.privateKey}\n`;
+      wgSec += `self-ip = ${wg.localAddress[0]?.split('/')[0] || '10.2.0.2'}\n`;
+      if (wg.localAddress[1]) {
+        wgSec += `self-ip-v6 = ${wg.localAddress[1]?.split('/')[0]}\n`;
+      }
+      if (wg.dns) {
+        wgSec += `dns-server = ${wg.dns}\n`;
+      }
+      wgSec += `peer = (public-key = ${wg.publicKey || ''}, allowed-ips = "0.0.0.0/0, ::/0", endpoint = ${node.server}:${node.port}, keepalive = 25)\n`;
+      wgSections.push(wgSec);
+    }
+
+    if (line) {
+      lines.push(line);
+      nodeNames.push(name);
+    }
+  }
+
+  lines.push('\n[Proxy Group]');
+  if (nodeNames.length > 0) {
+    lines.push(`🚀 節點選擇 = select, ⚡ 自動選擇, DIRECT, ${nodeNames.join(', ')}`);
+    lines.push(`⚡ 自動選擇 = url-test, ${nodeNames.join(', ')}, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50`);
+  } else {
+    lines.push(`🚀 節點選擇 = select, DIRECT`);
+    lines.push(`⚡ 自動選擇 = select, DIRECT`);
+  }
+  lines.push(`🐟 漏網之魚 = select, 🚀 節點選擇, DIRECT`);
+
+  lines.push('\n[Rule]');
+  lines.push('GEOIP,CN,DIRECT');
+  lines.push('FINAL,🐟 漏網之魚\n');
+
+  if (wgSections.length > 0) {
+    lines.push(wgSections.join('\n'));
+  }
+
+  return lines.join('\n');
+}
+
+// --- Quantumult X (server_remote) ---
+export function toQuantumultX(nodes: ProxyNode[]): string {
+  const lines: string[] = [];
+
+  for (const node of nodes) {
+    const name = node.name.replace(/[,=]/g, '').trim();
+
+    if (node.type === 'shadowsocks') {
+      lines.push(`shadowsocks=${node.server}:${node.port}, method=${node.cipher}, password=${node.password}, fast-open=false, udp-relay=true, tag=${name}`);
+    } else if (node.type === 'trojan') {
+      lines.push(`trojan=${node.server}:${node.port}, password=${node.password}, over-tls=true, tls-host=${node.sni || node.server}, fast-open=false, udp-relay=true, tag=${name}`);
+    } else if (node.type === 'vmess') {
+      let vmessLine = `vmess=${node.server}:${node.port}, method=none, password=${node.uuid}, fast-open=false, udp-relay=true, tag=${name}`;
+      if (node.tls) vmessLine += `, over-tls=true, tls-host=${node.sni || node.server}`;
+      if (node.network === 'ws') vmessLine += `, obfs=ws, obfs-uri=${node.wsPath || '/'}`;
+      lines.push(vmessLine);
+    } else if (node.type === 'vless') {
+      let vlessLine = `vless=${node.server}:${node.port}, method=none, password=${node.uuid}, fast-open=false, udp-relay=true, tag=${name}`;
+      if (node.tls) vlessLine += `, over-tls=true, tls-host=${node.sni || node.server}`;
+      if (node.network === 'ws') {
+        vlessLine += `, obfs=ws, obfs-uri=${node.wsPath || '/'}`;
+        if (node.wsHeaders?.Host) vlessLine += `, obfs-host=${node.wsHeaders.Host}`;
+      }
+      lines.push(vlessLine);
+    } else if (node.type === 'hysteria2') {
+      lines.push(`hysteria2=${node.server}:${node.port}, password=${node.password}, tls-host=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, tag=${name}`);
+    }
+  }
+
+  if (lines.length === 0) {
+    return '# 未在該訂閱中找到相容的節點';
+  }
+
+  return lines.join('\n');
+}
+
+// --- Loon 格式生成 ---
+export function toLoon(nodes: ProxyNode[]): string {
+  const lines: string[] = ['[Proxy]'];
+
+  for (const node of nodes) {
+    const name = node.name.replace(/,/g, '');
+    if (node.type === 'shadowsocks') {
+      lines.push(`${name} = Shadowsocks,${node.server},${node.port},${node.cipher},"${node.password}",fast-open=false,udp=true`);
+    } else if (node.type === 'trojan') {
+      lines.push(`${name} = Trojan,${node.server},${node.port},"${node.password}",sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`);
+    } else if (node.type === 'vless') {
+      let l = `${name} = Vless,${node.server},${node.port},"${node.uuid}",tls=${node.tls ? 'true' : 'false'},sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`;
+      if (node.network === 'ws') l += `,transport=ws,path=${node.wsPath || '/'}`;
+      lines.push(l);
+    } else if (node.type === 'vmess') {
+      let v = `${name} = vmess,${node.server},${node.port},auto,"${node.uuid}",fast-open=false,udp=true`;
+      if (node.tls) v += `,over-tls=true,tls-name=${node.sni || node.server}`;
+      if (node.network === 'ws') v += `,transport=ws,path=${node.wsPath || '/'}`;
+      lines.push(v);
+    } else if (node.type === 'hysteria2') {
+      lines.push(`${name} = Hysteria2,${node.server},${node.port},password=${node.password},sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`);
+    }
+  }
+
+  return lines.join('\n');
+}
 ````
 
 ## File: src/constants.ts
@@ -1848,1679 +5177,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
 
 ````
 
-## File: src/parser.ts
-````ts
-// src/parser.ts
-import yaml from "js-yaml";
-import { ProxyNode, WireGuardConfig, MasqueConfig } from "./types";
-import { safeBase64Decode, tryDecodeURIComponent } from "./utils";
-
-// --- 安全的通用代理 URI 正則解析器 ---
-interface ParsedUri {
-  protocol: string;
-  username: string;
-  password?: string;
-  hostname: string;
-  port: number;
-  params: URLSearchParams;
-  hash: string;
-}
-
-function parseProxyUri(urlStr: string, defaultPort = 443): ParsedUri | null {
-  try {
-    const trimmed = urlStr.trim();
-    const match = trimmed.match(/^([a-zA-Z0-9_-]+):\/\/(?:([^:@/?#]+)(?::([^@/?#]*))?@)?(\[[a-fA-F0-9:]+\]|[^:/?#]+)(?::([0-9]+))?(?:\?([^#]*))?(?:#(.*))?$/);
-    if (!match) return null;
-
-    const protocol = match[1].toLowerCase();
-    const username = match[2] ? decodeURIComponent(match[2]) : '';
-    const password = match[3] ? decodeURIComponent(match[3]) : undefined;
-    let hostname = match[4];
-    if (hostname.startsWith('[') && hostname.endsWith(']')) {
-      hostname = hostname.slice(1, -1);
-    }
-    const port = match[5] ? parseInt(match[5], 10) : defaultPort;
-    const query = match[6] || '';
-    const hash = match[7] ? tryDecodeURIComponent(match[7]) : '';
-
-    const params = new URLSearchParams(query);
-    return { protocol, username, password, hostname, port, params, hash };
-  } catch {
-    return null;
-  }
-}
-
-function parsePluginParams(str: string): Record<string, string> {
-  const params: Record<string, string> = {};
-  str.split(';').forEach(p => {
-    const [k, v] = p.split('=');
-    if (k && v) params[k] = v;
-  });
-  return params;
-}
-
-// 嚴格解析 ECH 參數，只有明確開啟時才為 true
-function parseEchParam(val: string | null | undefined): boolean {
-  if (!val) return false;
-  const clean = val.trim().toLowerCase();
-  if (['0', 'false', 'off', 'none', 'no', ''].includes(clean)) {
-    return false;
-  }
-  return true;
-}
-
-// --- 解析 Cloudflare WARP MASQUE 配置 ---
-interface RawMasqueConfig {
-  private_key?: string;
-  'private-key'?: string;
-  endpoint_v4?: string;
-  endpoint_v6?: string;
-  endpoint_pub_key?: string;
-  'public-key'?: string;
-  public_key?: string;
-  server?: string;
-  port?: number | string;
-  ipv4?: string;
-  ipv6?: string;
-  ip?: string;
-  name?: string;
-  uri?: string;
-  sni?: string;
-  servername?: string;
-  server_name?: string;
-  congestion_controller?: string;
-  'congestion-controller'?: string;
-  congestion_control?: string;
-  cca?: string;
-  cc?: string;
-  dns?: string[] | string;
-  mtu?: number | string;
-  udp?: boolean;
-  'remote-dns-resolve'?: boolean;
-  [key: string]: unknown;
-}
-
-function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode {
-  const privateKey = (config.private_key || config['private-key'] || '').trim();
-  const rawPubKey = (config.endpoint_pub_key || config.public_key || config['public-key'] || '').trim();
-  const publicKey = rawPubKey.replace(/-----BEGIN[^-]+-----|-----END[^-]+-----|[\r\n\s]/g, '');
-  const server = (config.server || config.endpoint_v4 || '').trim();
-  const port = parseInt(String(config.port || 443), 10) || 443;
-  const rawIpv4 = (config.ip || config.ipv4 || '').trim();
-
-  // 缺失欄位嚴格報錯
-  if (!privateKey) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: private_key (私鑰)`);
-  if (!publicKey) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: public_key / endpoint_pub_key (公鑰)`);
-  if (!server) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: server / endpoint_v4 (伺服器端點)`);
-  if (!rawIpv4) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: ip / ipv4 (客戶端內網 IP)`);
-
-  const localIpv4 = rawIpv4.includes('/') ? rawIpv4 : `${rawIpv4}/32`;
-  
-  let localIpv6: string | undefined = undefined;
-  if (config.ipv6) {
-    const rawIpv6 = String(config.ipv6).trim();
-    localIpv6 = rawIpv6.includes('/') ? rawIpv6 : `${rawIpv6}/128`;
-  }
-
-  const name = config.name || (index > 0 ? `WARP-MASQUE-${index + 1}` : 'WARP-MASQUE');
-
-  // 100% 優先使用使用者貼上的值
-  const uri = (config.uri && String(config.uri).trim()) ? String(config.uri).trim() : 'https://cloudflareaccess.com';
-  const customSni = config.sni || config.servername || config.server_name;
-  const sni = (customSni && String(customSni).trim()) ? String(customSni).trim() : 'www.microsoft.com';
-
-  const rawCc = (
-    config.cca ||
-    config.cc ||
-    config.congestion_control ||
-    config.congestion_controller ||
-    config['congestion-controller']
-  );
-  const congestionController = (rawCc && String(rawCc).trim()) ? String(rawCc).trim() : 'bbr';
-  const mtu = config.mtu ? (parseInt(String(config.mtu), 10) || 1280) : 1280;
-  
-  // DNS 嚴格依據貼上內容解析
-  let dnsList: string[] = [];
-  if (Array.isArray(config.dns) && config.dns.length > 0) {
-    dnsList = config.dns.map(d => String(d).trim()).filter(Boolean);
-  } else if (typeof config.dns === 'string' && config.dns.trim()) {
-    dnsList = config.dns.split(',').map(d => d.trim()).filter(Boolean);
-  } else {
-    dnsList = ['1.1.1.1', '8.8.8.8'];
-  }
-
-  const remoteDnsResolve = config['remote-dns-resolve'] !== undefined 
-    ? Boolean(config['remote-dns-resolve']) 
-    : true;
-
-  const masqueConfig: MasqueConfig = {
-    privateKey,
-    publicKey,
-    localIpv4,
-    localIpv6,
-    mtu,
-    uri,
-    sni,
-    congestion_controller: congestionController,
-    dns: dnsList
-  };
-
-  const node: ProxyNode = {
-    type: 'masque',
-    name,
-    server,
-    port,
-    udp: true,
-    sni,
-    masque: masqueConfig
-  };
-
-  node.singboxObj = {
-    type: 'masque',
-    tag: name,
-    server,
-    server_port: port,
-    private_key: privateKey,
-    public_key: publicKey,
-    ip: localIpv4,
-    ...(localIpv6 ? { ipv6: localIpv6 } : {}),
-    uri,
-    congestion_control: congestionController,
-    mtu,
-    tls: {
-      enabled: true,
-      server_name: sni
-    }
-  };
-
-  const originalClashProps = { ...config };
-  const cleanKeys = [
-    'private_key', 'private-key', 'public_key', 'public-key', 'endpoint_pub_key',
-    'endpoint_v4', 'endpoint_v6', 'endpoint_h2_v4', 'endpoint_h2_v6',
-    'ipv4', 'license', 'id', 'access_token', 'MASQUE导航'
-  ];
-  for (const k of cleanKeys) {
-    delete originalClashProps[k];
-  }
-
-  node.clashObj = {
-    ...originalClashProps,
-    name,
-    type: 'masque',
-    server,
-    port,
-    'private-key': privateKey,
-    'public-key': publicKey,
-    ip: localIpv4.split('/')[0],
-    ...(localIpv6 ? { ipv6: localIpv6.split('/')[0] } : {}),
-    uri,
-    mtu,
-    udp: config.udp !== undefined ? Boolean(config.udp) : true,
-    'remote-dns-resolve': remoteDnsResolve,
-    'congestion-controller': congestionController,
-    dns: dnsList,
-    sni
-  };
-
-  return node;
-}
-
-export function parseMasqueConfigs(text: string): ProxyNode[] {
-  const nodes: ProxyNode[] = [];
-  const trimmed = text.trim();
-
-  try {
-    const parsed = JSON.parse(trimmed);
-    if (Array.isArray(parsed)) {
-      parsed.forEach((item, idx) => {
-        const n = buildMasqueNode(item, idx);
-        if (n) nodes.push(n);
-      });
-      if (nodes.length > 0) return nodes;
-    } else if (typeof parsed === 'object' && parsed !== null) {
-      const n = buildMasqueNode(parsed, 0);
-      if (n) return [n];
-    }
-  } catch (err: unknown) {
-    if (err instanceof Error && err.message.startsWith('[MASQUE]')) {
-      throw err;
-    }
-  }
-
-  const objectMatches = trimmed.match(/\{[^{}]*["']private_key["'][^{}]*\}/g);
-  if (objectMatches) {
-    objectMatches.forEach((rawObj, idx) => {
-      const obj = JSON.parse(rawObj) as RawMasqueConfig;
-      const n = buildMasqueNode(obj, idx);
-      if (n) nodes.push(n);
-    });
-  }
-
-  return nodes;
-}
-
-// --- 解析 masque:// URI 格式 ---
-function parseMasqueUri(urlStr: string): ProxyNode {
-  const parsed = parseProxyUri(urlStr, 443);
-  if (!parsed) throw new Error('[MASQUE] URI 格式無效，無法解析');
-
-  const privateKey = parsed.username;
-  const params = parsed.params;
-  const publicKey = params.get('public_key') || params.get('pk') || '';
-  const ipv4 = params.get('ip') || '';
-  const ipv6 = params.get('ipv6') || undefined;
-  const mtu = parseInt(params.get('mtu') || '1280', 10);
-  const name = parsed.hash || 'WARP-MASQUE';
-  
-  if (!privateKey) throw new Error('[MASQUE] 缺少必要欄位: private_key (私鑰)');
-  if (!publicKey) throw new Error('[MASQUE] 缺少必要欄位: public_key (公鑰)');
-  if (!parsed.hostname) throw new Error('[MASQUE] 缺少必要欄位: server (伺服器地址)');
-  if (!ipv4) throw new Error('[MASQUE] 缺少必要欄位: ip (客戶端內網 IP)');
-
-  const uri = (params.get('uri') && params.get('uri')!.trim()) ? params.get('uri')!.trim() : 'https://cloudflareaccess.com';
-  const sni = (params.get('sni') && params.get('sni')!.trim()) ? params.get('sni')!.trim() : 'www.microsoft.com';
-  
-  const rawCc = params.get('cca') || params.get('cc') || params.get('congestion_control') || params.get('congestion_controller') || params.get('congestion-controller');
-  const congestionController = (rawCc && rawCc.trim()) ? rawCc.trim() : 'bbr';
-  
-  const dnsParam = params.get('dns');
-  const dnsList = dnsParam ? dnsParam.split(',').map(d => d.trim()).filter(Boolean) : ['1.1.1.1', '8.8.8.8'];
-
-  const masqueConfig: MasqueConfig = {
-    privateKey,
-    publicKey,
-    localIpv4: ipv4.includes('/') ? ipv4 : `${ipv4}/32`,
-    localIpv6: ipv6 ? (ipv6.includes('/') ? ipv6 : `${ipv6}/128`) : undefined,
-    mtu,
-    uri,
-    sni,
-    congestion_controller: congestionController,
-    dns: dnsList
-  };
-
-  const node: ProxyNode = {
-    type: 'masque',
-    name,
-    server: parsed.hostname,
-    port: parsed.port,
-    udp: true,
-    sni,
-    masque: masqueConfig
-  };
-
-  node.singboxObj = {
-    type: 'masque',
-    tag: name,
-    server: parsed.hostname,
-    server_port: parsed.port,
-    private_key: privateKey,
-    public_key: publicKey,
-    ip: masqueConfig.localIpv4,
-    ...(masqueConfig.localIpv6 ? { ipv6: masqueConfig.localIpv6 } : {}),
-    uri,
-    congestion_control: congestionController,
-    mtu,
-    tls: {
-      enabled: true,
-      server_name: sni
-    }
-  };
-
-  node.clashObj = {
-    name,
-    type: 'masque',
-    server: parsed.hostname,
-    port: parsed.port,
-    'private-key': privateKey,
-    'public-key': publicKey,
-    ip: ipv4.split('/')[0],
-    ...(ipv6 ? { ipv6: ipv6.split('/')[0] } : {}),
-    uri,
-    mtu,
-    udp: true,
-    'remote-dns-resolve': true,
-    'congestion-controller': congestionController,
-    dns: dnsList,
-    sni
-  };
-
-  return node;
-}
-
-// --- 解析 Shadowrocket 行格式 WireGuard ---
-function parseShadowrocketWireGuard(line: string): ProxyNode {
-  const eqIdx = line.indexOf('=');
-  if (eqIdx === -1) throw new Error('[WireGuard] Shadowrocket 行格式錯誤');
-
-  const name = line.substring(0, eqIdx).trim();
-  const rightPart = line.substring(eqIdx + 1).trim();
-  const parts = rightPart.split(',').map(s => s.trim());
-
-  if (parts[0]?.toLowerCase() !== 'wireguard') throw new Error('[WireGuard] 非 WireGuard 行格式');
-
-  const server = parts[1];
-  const port = parseInt(parts[2], 10) || 51820;
-
-  let privateKey = '';
-  let publicKey = '';
-  let presharedKey: string | undefined = undefined;
-  let ip = '';
-  let dns = '';
-  let mtu = 1420;
-  let reserved: number[] | undefined = undefined;
-
-  for (let i = 3; i < parts.length; i++) {
-    const p = parts[i];
-    const kvIdx = p.indexOf('=');
-    if (kvIdx === -1) continue;
-    const k = p.substring(0, kvIdx).trim().toLowerCase();
-    const v = p.substring(kvIdx + 1).trim().replace(/^["']|["']$/g, '');
-
-    if (k === 'private-key' || k === 'privatekey') privateKey = v;
-    else if (k === 'public-key' || k === 'publickey') publicKey = v;
-    else if (k === 'preshared-key' || k === 'presharedkey') presharedKey = v;
-    else if (k === 'ip') ip = v;
-    else if (k === 'dns') dns = v;
-    else if (k === 'mtu') mtu = parseInt(v, 10) || 1420;
-    else if (k === 'reserved') reserved = v.split(',').map(n => parseInt(n.trim(), 10));
-  }
-
-  // 嚴格校驗缺失欄位
-  if (!server) throw new Error(`[WireGuard] 節點 [${name}] 缺少伺服器地址`);
-  if (!privateKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 private-key (私鑰)`);
-  if (!publicKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 public-key (公鑰)`);
-  if (!ip) throw new Error(`[WireGuard] 節點 [${name}] 缺少 ip (內網 IP)`);
-  if (!dns) throw new Error(`[WireGuard] 節點 [${name}] 缺少 dns 設定（例如 dns=10.2.0.1）`);
-
-  const localAddress = ip.includes('/') ? [ip] : [`${ip}/32`];
-  const dnsArray = dns.split(',').map(d => d.trim()).filter(Boolean);
-
-  const wgConfig: WireGuardConfig = {
-    privateKey,
-    localAddress,
-    publicKey,
-    presharedKey,
-    mtu,
-    dns,
-    reserved
-  };
-
-  const node: ProxyNode = {
-    type: 'wireguard',
-    name,
-    server,
-    port,
-    udp: true,
-    wireguard: wgConfig
-  };
-
-  node.singboxObj = {
-    type: 'wireguard',
-    tag: name,
-    address: localAddress,
-    private_key: privateKey,
-    peers: [
-      {
-        address: server,
-        port,
-        public_key: publicKey,
-        allowed_ips: ['0.0.0.0/0', '::/0']
-      }
-    ],
-    mtu
-  };
-
-  node.clashObj = {
-    name,
-    type: 'wireguard',
-    server: node.server,
-    port: node.port,
-    ip: localAddress[0]?.split('/')[0],
-    ipv6: localAddress[1]?.split('/')[0],
-    'public-key': publicKey,
-    'private-key': privateKey,
-    'preshared-key': presharedKey,
-    mtu,
-    udp: true,
-    'remote-dns-resolve': true,
-    dns: dnsArray
-  };
-
-  return node;
-}
-
-// --- 解析 WireGuard 官方 .conf 格式 (嚴格校驗與 100% 依據貼上內容提取) ---
-function parseWireGuardConf(text: string): ProxyNode[] {
-  const nodes: ProxyNode[] = [];
-  const sections = text.split(/(?=\[Interface\])/i).filter(s => s.trim().length > 0);
-
-  for (let idx = 0; idx < sections.length; idx++) {
-    const sec = sections[idx];
-    if (!/\[Interface\]/i.test(sec)) continue;
-
-    const getVal = (key: string): string => {
-      const match = sec.match(new RegExp(`^[ \\t]*${key}[ \\t]*=[ \\t]*(.*?)[ \\t]*(?:#.*)?$`, 'mi'));
-      return match ? match[1].trim() : '';
-    };
-
-    let name = '';
-    const peerPart = sec.split(/\[Peer\]/i)[1] || '';
-    const peerComments = peerPart.match(/^[ \t]*#[ \t]*(.*?)$/gm);
-    if (peerComments) {
-      for (const c of peerComments) {
-        const clean = c.replace(/^[ \t]*#[ \t]*/, '').trim();
-        if (clean && !clean.includes('=') && !clean.toLowerCase().startsWith('key for')) {
-          name = clean;
-          break;
-        }
-      }
-    }
-
-    if (!name) {
-      const comments = sec.match(/^[ \t]*#[ \t]*(.*?)$/gm);
-      if (comments) {
-        for (const c of comments) {
-          const clean = c.replace(/^[ \t]*#[ \t]*/, '').trim();
-          if (clean && !clean.includes('=') && !clean.toLowerCase().startsWith('key for')) {
-            name = clean;
-            break;
-          }
-        }
-      }
-    }
-
-    const privateKey = getVal('PrivateKey');
-    const addressStr = getVal('Address');
-    const rawDns = getVal('DNS');
-    const publicKey = getVal('PublicKey');
-    const presharedKey = getVal('PresharedKey') || undefined;
-    const endpoint = getVal('Endpoint');
-    const mtuStr = getVal('MTU');
-    const mtu = mtuStr ? parseInt(mtuStr, 10) : 1420;
-
-    // 💥 缺失欄位嚴格報錯並指明缺漏項
-    if (!privateKey) {
-      throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: PrivateKey (私鑰)`);
-    }
-    if (!addressStr) {
-      throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: Address (客戶端內網 IP)`);
-    }
-    if (!rawDns) {
-      throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: DNS。請在 [Interface] 中填入 DNS = ...（例如 DNS = 10.2.0.1），否則隧道無法解析域名`);
-    }
-    if (!/\[Peer\]/i.test(sec)) {
-      throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少 [Peer] 節點區塊`);
-    }
-    if (!publicKey) {
-      throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: PublicKey (節點公鑰)`);
-    }
-    if (!endpoint) {
-      throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: Endpoint (伺服器端點 IP:Port)`);
-    }
-
-    let server = endpoint;
-    let port = 51820;
-    const lastColon = endpoint.lastIndexOf(':');
-    if (lastColon !== -1) {
-      server = endpoint.slice(0, lastColon).trim();
-      if (server.startsWith('[') && server.endsWith(']')) {
-        server = server.slice(1, -1);
-      }
-      port = parseInt(endpoint.slice(lastColon + 1).trim(), 10) || 51820;
-    }
-
-    if (!name) {
-      name = `WireGuard-${server}`;
-    }
-
-    const localAddress = addressStr.split(',').map(s => s.trim()).filter(Boolean);
-    // 💥 100% 依據貼上內容提取 DNS 陣列，不寫死任何特定 IP
-    const dnsArray = rawDns.split(',').map(s => s.trim()).filter(Boolean);
-
-    const wgConfig: WireGuardConfig = {
-      privateKey,
-      localAddress,
-      publicKey,
-      presharedKey,
-      mtu,
-      dns: rawDns
-    };
-
-    const node: ProxyNode = {
-      type: 'wireguard',
-      name,
-      server,
-      port,
-      udp: true,
-      wireguard: wgConfig
-    };
-
-    node.singboxObj = {
-      type: 'wireguard',
-      tag: name,
-      address: localAddress,
-      private_key: privateKey,
-      peers: [
-        {
-          address: server,
-          port,
-          public_key: publicKey,
-          allowed_ips: ['0.0.0.0/0', '::/0']
-        }
-      ],
-      mtu
-    };
-
-    node.clashObj = {
-      name,
-      type: 'wireguard',
-      server: node.server,
-      port: node.port,
-      ip: localAddress[0]?.split('/')[0],
-      ipv6: localAddress[1]?.split('/')[0],
-      'public-key': publicKey,
-      'private-key': privateKey,
-      'preshared-key': presharedKey,
-      mtu,
-      udp: true,
-      'remote-dns-resolve': true,
-      dns: dnsArray // 100% 傳遞使用者貼上的 DNS 陣列
-    };
-
-    nodes.push(node);
-  }
-
-  return nodes;
-}
-
-// --- 解析 Shadowsocks ---
-function parseShadowsocks(urlStr: string): ProxyNode {
-  const getParam = (str: string, key: string): string => {
-    const regex = new RegExp(`[?&]${key}=([^&#]*)`, 'i');
-    const match = str.match(regex);
-    return match ? tryDecodeURIComponent(match[1]) : '';
-  };
-
-  let raw = urlStr.replace('ss://', '');
-  const hashIndex = raw.indexOf('#');
-  let name = 'Shadowsocks';
-  if (hashIndex !== -1) {
-    name = tryDecodeURIComponent(raw.substring(hashIndex + 1));
-    raw = raw.substring(0, hashIndex);
-  }
-  if (raw.includes('?')) { raw = raw.split('?')[0]; }
-
-  let method = '';
-  let password = '';
-  let server = '';
-  let portStr = '';
-  
-  if (raw.includes('@')) {
-    const parts = raw.split('@');
-    const serverPart = parts[parts.length - 1];
-    const userPart = parts.slice(0, parts.length - 1).join('@');
-    const lastColonIndex = serverPart.lastIndexOf(':');
-    if (lastColonIndex === -1) throw new Error('[Shadowsocks] 連接埠格式無效');
-    server = serverPart.substring(0, lastColonIndex);
-    portStr = serverPart.substring(lastColonIndex + 1);
-    if (server.startsWith('[') && server.endsWith(']')) server = server.slice(1, -1);
-    try {
-      const decoded = safeBase64Decode(userPart);
-      if (decoded && decoded.includes(':')) { 
-        const up = decoded.split(':');
-        method = up[0];
-        password = up.slice(1).join(':');
-      } else {
-        const up = userPart.split(':');
-        method = up[0];
-        password = up.slice(1).join(':');
-      }
-    } catch {
-      const up = userPart.split(':');
-      method = up[0];
-      password = up.slice(1).join(':');
-    }
-  } else {
-    const decoded = safeBase64Decode(raw);
-    if (!decoded) throw new Error('[Shadowsocks] Base64 解碼失敗');
-    const atIndex = decoded.lastIndexOf('@');
-    if (atIndex === -1) throw new Error('[Shadowsocks] 缺少 @ 分隔符號');
-    const userPart = decoded.substring(0, atIndex);
-    const serverPart = decoded.substring(atIndex + 1);
-    const lastColonIndex = serverPart.lastIndexOf(':');
-    if (lastColonIndex === -1) throw new Error('[Shadowsocks] 缺少連接埠');
-    server = serverPart.substring(0, lastColonIndex);
-    portStr = serverPart.substring(lastColonIndex + 1);
-    if (server.startsWith('[') && server.endsWith(']')) server = server.slice(1, -1);
-    const firstColonIndex = userPart.indexOf(':');
-    if (firstColonIndex === -1) throw new Error('[Shadowsocks] 缺少加密方式');
-    method = userPart.substring(0, firstColonIndex);
-    password = userPart.substring(firstColonIndex + 1);
-  }
-
-  if (!server) throw new Error('[Shadowsocks] 缺少伺服器地址');
-  if (!portStr) throw new Error('[Shadowsocks] 缺少連接埠');
-  if (!method) throw new Error('[Shadowsocks] 缺少 cipher (加密方式)');
-  if (!password) throw new Error('[Shadowsocks] 缺少 password (密碼)');
-  const port = parseInt(portStr, 10);
-  if (isNaN(port)) throw new Error('[Shadowsocks] 連接埠非有效數字');
-
-  const pluginStr = getParam(urlStr, 'plugin');
-  const security = getParam(urlStr, 'security');
-  const sni = getParam(urlStr, 'sni') || getParam(urlStr, 'host') || server;
-  const alpnStr = getParam(urlStr, 'alpn');
-  const fp = getParam(urlStr, 'fp') || 'chrome';
-  const isEch = parseEchParam(getParam(urlStr, 'ech'));
-
-  const isTls = security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0) || isEch;
-  const alpn = alpnStr ? alpnStr.split(',') : undefined;
-  const isSs2022 = method.toLowerCase().includes('2022');
-
-  const node: ProxyNode = {
-    type: 'shadowsocks', name, server, port, cipher: method, password, udp: true,
-    tls: isTls, sni, alpn, fingerprint: fp, ech: isEch
-  };
-
-  const sb: Record<string, unknown> = {
-    tag: name,
-    type: 'shadowsocks',
-    server: node.server,
-    server_port: node.port,
-    method: node.cipher,
-    password: node.password
-  };
-  if (isSs2022) {
-    sb.udp_over_tcp = true;
-  }
-  node.singboxObj = sb;
-
-  const cl: Record<string, unknown> = {
-    name,
-    type: 'ss',
-    server: node.server,
-    port: node.port,
-    cipher: node.cipher,
-    password: node.password,
-    udp: true,
-    plugin: pluginStr ? pluginStr.split(';')[0] : undefined,
-    'plugin-opts': pluginStr ? parsePluginParams(pluginStr.split(';').slice(1).join(';')) : undefined
-  };
-  if (isTls) {
-    cl.smux = { enabled: true };
-  }
-  if (node.ech) {
-    cl['ech-opts'] = { enable: true };
-  }
-  node.clashObj = cl;
-
-  return node;
-}
-
-// --- 解析 VLESS ---
-function parseVless(urlStr: string): ProxyNode {
-  const parsed = parseProxyUri(urlStr, 443);
-  if (!parsed) throw new Error('[VLESS] URI 格式無效，無法解析');
-
-  const params = parsed.params;
-  const name = parsed.hash || 'VLESS';
-  
-  if (!parsed.username) throw new Error(`[VLESS] 節點 [${name}] 缺少必要欄位: uuid`);
-  if (!parsed.hostname) throw new Error(`[VLESS] 節點 [${name}] 缺少必要欄位: server (伺服器地址)`);
-
-  let rawPath = params.get('path') || '';
-  const explicitNet = (params.get('type') || params.get('net') || params.get('network') || params.get('transport') || '').toLowerCase();
-  let netType = explicitNet;
-  if (!netType) {
-    if (rawPath || params.has('ed') || params.has('host')) {
-      netType = 'ws';
-    } else {
-      netType = 'tcp';
-    }
-  }
-
-  if (netType === 'ws' && !rawPath) rawPath = '/';
-  if (rawPath && !rawPath.startsWith('/')) rawPath = '/' + rawPath;
-
-  let earlyDataLength: number | undefined = undefined;
-  const edMatch = rawPath.match(/[?&]ed=([0-9]+)/) || (params.get('ed') ? [null, params.get('ed')] : null);
-  if (edMatch && edMatch[1]) {
-    earlyDataLength = parseInt(edMatch[1], 10);
-  }
-
-  const cleanPath = rawPath ? (rawPath.replace(/[?&]ed=[0-9]+/g, '').replace(/\?$/, '') || '/') : '/';
-  const isXhttp = netType === 'xhttp' || netType === 'splithttp';
-  const isGrpc = netType === 'grpc';
-  const isEch = parseEchParam(params.get('ech'));
-
-  const security = params.get('security') || (params.get('tls') === '1' || params.get('tls') === 'tls' || isEch ? 'tls' : (parsed.port === 443 ? 'tls' : 'none'));
-  const isTls = security === 'tls' || security === 'reality' || isEch;
-  const hostHeader = params.get('host') || params.get('sni') || parsed.hostname;
-  const sniHost = params.get('sni') || params.get('host') || parsed.hostname;
-  const customAlpn = params.get('alpn') ? params.get('alpn')!.split(',') : undefined;
-
-  const node: ProxyNode = {
-    type: 'vless',
-    name,
-    server: parsed.hostname,
-    port: parsed.port,
-    uuid: parsed.username,
-    tls: isTls,
-    flow: params.get('flow') || undefined,
-    network: netType,
-    sni: sniHost,
-    alpn: customAlpn,
-    fingerprint: params.get('fp') || 'chrome',
-    skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1',
-    ech: isEch
-  };
-
-  if (security === 'reality') {
-    node.reality = {
-      publicKey: params.get('pbk') || '',
-      shortId: params.get('sid') || ''
-    };
-    if (!node.reality.publicKey) throw new Error(`[VLESS] Reality 節點 [${name}] 缺少 pbk (公鑰)`);
-    if (!node.sni) node.sni = node.server;
-  }
-
-  if (node.network === 'ws') {
-    node.wsPath = cleanPath;
-    node.wsHeaders = { Host: hostHeader };
-  }
-
-  if (isXhttp) {
-    node.xhttpPath = cleanPath;
-    node.xhttpHost = hostHeader;
-    node.xhttpMode = params.get('mode') || 'auto';
-  }
-  
-  const sb: Record<string, unknown> = {
-    tag: name,
-    type: 'vless',
-    server: node.server,
-    server_port: node.port,
-    uuid: node.uuid,
-    packet_encoding: 'xudp'
-  };
-
-  if (node.tls) {
-    const tlsObj: Record<string, unknown> = {
-      enabled: true,
-      server_name: node.sni || node.server,
-      insecure: node.skipCertVerify,
-      utls: { enabled: true, fingerprint: node.fingerprint }
-    };
-    if (node.alpn) tlsObj.alpn = node.alpn;
-    if (node.ech) tlsObj.ech = { enabled: true };
-    if (node.reality) {
-      tlsObj.reality = { enabled: true, public_key: node.reality.publicKey, short_id: node.reality.shortId };
-    }
-    sb.tls = tlsObj;
-  }
-
-  if (node.flow) sb.flow = node.flow;
-
-  if (node.network === 'ws') {
-    const wsTransport: Record<string, unknown> = {
-      type: 'ws',
-      path: cleanPath,
-      headers: node.wsHeaders
-    };
-    if (earlyDataLength) {
-      wsTransport.max_early_data = earlyDataLength;
-      wsTransport.early_data_header_name = 'Sec-WebSocket-Protocol';
-    }
-    sb.transport = wsTransport;
-  } else if (isXhttp) {
-    sb.transport = {
-      type: 'splithttp',
-      path: cleanPath,
-      headers: { Host: node.xhttpHost },
-      mode: node.xhttpMode
-    };
-  } else if (isGrpc) {
-    sb.transport = {
-      type: 'grpc',
-      service_name: params.get('serviceName') || ''
-    };
-  }
-  node.singboxObj = sb;
-  
-  const cl: Record<string, unknown> = {
-    name,
-    type: 'vless',
-    server: node.server,
-    port: node.port,
-    uuid: node.uuid,
-    udp: true,
-    tls: node.tls,
-    servername: node.sni || node.server,
-    'skip-cert-verify': node.skipCertVerify,
-    'client-fingerprint': node.fingerprint
-  };
-
-  if (node.alpn) cl.alpn = node.alpn;
-  if (node.ech) cl['ech-opts'] = { enable: true };
-  if (node.flow) cl.flow = node.flow; 
-  if (node.reality) {
-    cl.reality = true;
-    cl['reality-opts'] = { 'public-key': node.reality.publicKey, 'short-id': node.reality.shortId };
-  }
-
-  if (node.network === 'ws') {
-    cl.network = 'ws';
-    cl['ws-opts'] = {
-      path: cleanPath,
-      headers: node.wsHeaders,
-      'max-early-data': earlyDataLength,
-      'early-data-header-name': earlyDataLength ? 'Sec-WebSocket-Protocol' : undefined
-    };
-  } else if (isXhttp) {
-    cl.network = 'xhttp';
-    cl['xhttp-opts'] = { path: cleanPath, host: node.xhttpHost, mode: node.xhttpMode };
-  } else if (isGrpc) {
-    cl.network = 'grpc';
-    cl['grpc-opts'] = { 'grpc-service-name': params.get('serviceName') || '' };
-  }
-  node.clashObj = cl;
-
-  return node;
-}
-
-// --- 解析 WireGuard (URI 格式) ---
-function parseWireGuard(urlStr: string): ProxyNode {
-  const parsed = parseProxyUri(urlStr, 51820);
-  if (!parsed) throw new Error('[WireGuard] URI 格式無效');
-
-  const params = parsed.params;
-  const name = parsed.hash || 'WireGuard';
-  const privateKey = parsed.username;
-  const rawIp = params.get('address') || params.get('ip') || '';
-  const publicKey = params.get('publickey') || params.get('public_key') || params.get('pk') || '';
-  const presharedKey = params.get('presharedkey') || params.get('preshared_key') || params.get('psk') || undefined;
-  const mtu = parseInt(params.get('mtu') || '1420', 10);
-  const rawDns = params.get('dns') || '';
-  const reserved = params.get('reserved') ? params.get('reserved')!.split(',').map(n => parseInt(n.trim(), 10)) : undefined;
-
-  if (!privateKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 privatekey (私鑰)`);
-  if (!publicKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 publickey (公鑰)`);
-  if (!parsed.hostname) throw new Error(`[WireGuard] 節點 [${name}] 缺少伺服器地址`);
-  if (!rawIp) throw new Error(`[WireGuard] 節點 [${name}] 缺少 address / ip (內網 IP)`);
-  if (!rawDns) throw new Error(`[WireGuard] 節點 [${name}] 缺少 dns 設定`);
-
-  const localIps = rawIp.split(',').map(s => s.trim().includes('/') ? s.trim() : `${s.trim()}/32`);
-  const dnsList = rawDns.split(',').map(d => d.trim()).filter(Boolean);
-
-  const wgConfig: WireGuardConfig = {
-    privateKey,
-    localAddress: localIps,
-    publicKey,
-    presharedKey,
-    mtu,
-    reserved,
-    dns: rawDns
-  };
-
-  const node: ProxyNode = {
-    type: 'wireguard',
-    name,
-    server: parsed.hostname,
-    port: parsed.port,
-    udp: true,
-    wireguard: wgConfig
-  };
-
-  node.singboxObj = {
-    type: 'wireguard',
-    tag: name,
-    address: localIps,
-    private_key: privateKey,
-    peers: [
-      {
-        address: parsed.hostname,
-        port: parsed.port,
-        public_key: publicKey,
-        allowed_ips: ['0.0.0.0/0', '::/0']
-      }
-    ],
-    mtu
-  };
-
-  node.clashObj = {
-    name,
-    type: 'wireguard',
-    server: node.server,
-    port: node.port,
-    ip: localIps[0]?.split('/')[0],
-    ipv6: localIps[1]?.split('/')[0],
-    'public-key': publicKey,
-    'private-key': privateKey,
-    'preshared-key': presharedKey,
-    mtu,
-    udp: true,
-    'remote-dns-resolve': true,
-    dns: dnsList
-  };
-
-  return node;
-}
-
-// --- 解析 Hysteria2 ---
-function parseHysteria2(urlStr: string): ProxyNode {
-  const parsed = parseProxyUri(urlStr, 443);
-  if (!parsed) throw new Error('[Hysteria2] URI 格式無效');
-
-  const params = parsed.params;
-  const name = parsed.hash || 'Hy2';
-  
-  if (!parsed.username) throw new Error(`[Hysteria2] 節點 [${name}] 缺少密碼 (auth)`);
-  if (!parsed.hostname) throw new Error(`[Hysteria2] 節點 [${name}] 缺少伺服器地址`);
-
-  const node: ProxyNode = {
-    type: 'hysteria2',
-    name,
-    server: parsed.hostname,
-    port: parsed.port,
-    password: parsed.username,
-    tls: true,
-    sni: params.get('sni') || parsed.hostname,
-    skipCertVerify: params.get('insecure') === '1' || params.get('allowInsecure') === '1',
-    obfs: params.get('obfs') || undefined,
-    obfsPassword: params.get('obfs-password') || undefined
-  };
-
-  const sb: Record<string, unknown> = {
-    tag: name,
-    type: 'hysteria2',
-    server: node.server,
-    server_port: node.port,
-    password: node.password,
-    tls: { enabled: true, server_name: node.sni, insecure: node.skipCertVerify }
-  };
-  if (node.obfs) {
-    sb.obfs = { type: node.obfs, password: node.obfsPassword };
-  }
-  node.singboxObj = sb;
-
-  const cl: Record<string, unknown> = {
-    name,
-    type: 'hysteria2',
-    server: node.server,
-    port: node.port,
-    password: node.password,
-    sni: node.sni,
-    'skip-cert-verify': node.skipCertVerify
-  };
-  if (node.obfs) {
-    cl.obfs = node.obfs;
-    cl['obfs-password'] = node.obfsPassword;
-  }
-  node.clashObj = cl;
-
-  return node;
-}
-
-// --- 解析 TUIC ---
-function parseTuic(urlStr: string): ProxyNode {
-  const parsed = parseProxyUri(urlStr, 443);
-  if (!parsed) throw new Error('[TUIC] URI 格式無效');
-
-  const params = parsed.params;
-  const name = parsed.hash || 'TUIC';
-  
-  if (!parsed.username) throw new Error(`[TUIC] 節點 [${name}] 缺少 uuid`);
-  if (!parsed.hostname) throw new Error(`[TUIC] 節點 [${name}] 缺少伺服器地址`);
-
-  const congestion_control = params.get('congestion_control') || params.get('cca') || params.get('cc') || 'bbr';
-  const udp_relay_mode = params.get('udp_relay_mode') || 'native';
-  const alpnStr = params.get('alpn');
-  const skipCertVerify = params.get('allow_insecure') === '1' || params.get('insecure') === '1';
-
-  const node: ProxyNode = {
-    type: 'tuic',
-    name,
-    server: parsed.hostname,
-    port: parsed.port,
-    uuid: parsed.username,
-    password: parsed.password || '',
-    tls: true,
-    sni: params.get('sni') || parsed.hostname,
-    alpn: alpnStr ? alpnStr.split(',') : ['h3'],
-    skipCertVerify,
-    congestion_control,
-    udp_relay_mode
-  };
-
-  node.singboxObj = {
-    tag: name,
-    type: 'tuic',
-    server: node.server,
-    server_port: node.port,
-    uuid: node.uuid,
-    password: node.password,
-    congestion_control: node.congestion_control,
-    udp_relay_mode: node.udp_relay_mode,
-    tls: { enabled: true, server_name: node.sni, alpn: node.alpn, insecure: node.skipCertVerify }
-  };
-
-  node.clashObj = {
-    name,
-    type: 'tuic',
-    server: node.server,
-    port: node.port,
-    uuid: node.uuid,
-    password: node.password,
-    sni: node.sni,
-    alpn: node.alpn,
-    'skip-cert-verify': node.skipCertVerify,
-    'congestion-controller': node.congestion_control,
-    'udp-relay-mode': node.udp_relay_mode
-  };
-
-  return node;
-}
-
-// --- 解析 AnyTLS ---
-function parseAnytls(urlStr: string): ProxyNode {
-  const parsed = parseProxyUri(urlStr, 443);
-  if (!parsed) throw new Error('[AnyTLS] URI 格式無效');
-
-  const params = parsed.params;
-  const name = parsed.hash || 'AnyTLS';
-  const uuid = parsed.username;
-  if (!uuid) throw new Error(`[AnyTLS] 節點 [${name}] 缺少密碼 / UUID`);
-  if (!parsed.hostname) throw new Error(`[AnyTLS] 節點 [${name}] 缺少伺服器地址`);
-
-  const skipCertVerify = params.get('allowInsecure') === '1' || params.get('insecure') === '1';
-  const alpnStr = params.get('alpn');
-
-  const node: ProxyNode = {
-    type: 'anytls',
-    name,
-    server: parsed.hostname,
-    port: parsed.port,
-    uuid,
-    password: uuid,
-    tls: true,
-    sni: params.get('sni') || parsed.hostname,
-    fingerprint: params.get('fp') || 'chrome',
-    skipCertVerify,
-    alpn: alpnStr ? alpnStr.split(',') : undefined
-  };
-
-  node.singboxObj = { 
-    tag: name, 
-    type: 'anytls', 
-    server: node.server, 
-    server_port: node.port, 
-    password: node.password, 
-    tls: { 
-      enabled: true, 
-      server_name: node.sni, 
-      insecure: node.skipCertVerify, 
-      utls: { enabled: true, fingerprint: node.fingerprint } 
-    } 
-  };
-  if (node.alpn) (node.singboxObj.tls as Record<string, unknown>).alpn = node.alpn;
-
-  node.clashObj = {
-    name,
-    type: 'anytls',
-    server: node.server,
-    port: node.port,
-    password: node.password,
-    sni: node.sni,
-    'skip-cert-verify': node.skipCertVerify,
-    'client-fingerprint': node.fingerprint,
-    udp: true
-  };
-  if (node.alpn) node.clashObj.alpn = node.alpn;
-
-  return node;
-}
-
-// --- 解析 VMess ---
-function parseVmess(vmessUrl: string): ProxyNode {
-  const b64 = vmessUrl.replace('vmess://', '');
-  const jsonStr = safeBase64Decode(b64);
-  if (!jsonStr) throw new Error('[VMess] Base64 解碼失敗');
-  
-  const config = JSON.parse(jsonStr);
-  const name = config.ps || 'VMess';
-  if (!config.add) throw new Error(`[VMess] 節點 [${name}] 缺少伺服器地址 (add)`);
-  if (!config.id) throw new Error(`[VMess] 節點 [${name}] 缺少 UUID (id)`);
-
-  let rawPath = config.path || '';
-  const explicitNet = (config.net || '').toLowerCase();
-  let netType = explicitNet;
-  if (!netType) {
-    netType = rawPath ? 'ws' : 'tcp';
-  }
-
-  if (netType === 'ws' && !rawPath) rawPath = '/';
-  if (rawPath && !rawPath.startsWith('/')) rawPath = '/' + rawPath;
-
-  let earlyDataLength: number | undefined = undefined;
-  const edMatch = rawPath.match(/[?&]ed=([0-9]+)/);
-  if (edMatch && edMatch[1]) {
-    earlyDataLength = parseInt(edMatch[1], 10);
-  }
-  const cleanPath = rawPath ? (rawPath.replace(/[?&]ed=[0-9]+/g, '').replace(/\?$/, '') || '/') : '/';
-
-  const isTls = config.tls === 'tls';
-
-  const node: ProxyNode = {
-    type: 'vmess',
-    name,
-    server: config.add,
-    port: parseInt(config.port, 10) || (isTls ? 443 : 80),
-    uuid: config.id,
-    cipher: 'auto',
-    tls: isTls,
-    sni: config.sni || config.host,
-    network: netType,
-    wsPath: cleanPath,
-    wsHeaders: config.host ? { Host: config.host } : undefined,
-    skipCertVerify: true
-  };
-  
-  const sb: Record<string, unknown> = {
-    tag: name,
-    type: 'vmess',
-    server: node.server,
-    server_port: node.port,
-    uuid: node.uuid,
-    security: 'auto',
-    packet_encoding: 'xudp'
-  };
-
-  if (node.tls) {
-    sb.tls = {
-      enabled: true,
-      server_name: node.sni || node.server,
-      insecure: true
-    };
-  }
-  if (node.network === 'ws') {
-    const wsTransport: Record<string, unknown> = { type: 'ws', path: cleanPath, headers: node.wsHeaders };
-    if (earlyDataLength) {
-      wsTransport.max_early_data = earlyDataLength;
-      wsTransport.early_data_header_name = 'Sec-WebSocket-Protocol';
-    }
-    sb.transport = wsTransport;
-  }
-  node.singboxObj = sb;
-  
-  const cl: Record<string, unknown> = {
-    name,
-    type: 'vmess',
-    server: node.server,
-    port: node.port,
-    uuid: node.uuid,
-    alterId: parseInt(config.aid, 10) || 0,
-    cipher: config.scy || 'auto',
-    udp: true,
-    tls: node.tls,
-    servername: node.sni || config.host || node.server,
-    network: node.network
-  };
-  if (node.network === 'ws') {
-    cl['ws-opts'] = {
-      path: cleanPath,
-      headers: node.wsHeaders,
-      'max-early-data': earlyDataLength,
-      'early-data-header-name': earlyDataLength ? 'Sec-WebSocket-Protocol' : undefined
-    };
-  }
-  node.clashObj = cl;
-
-  return node;
-}
-
-// --- 解析 Trojan ---
-function parseTrojan(urlStr: string): ProxyNode {
-  const parsed = parseProxyUri(urlStr, 443);
-  if (!parsed) throw new Error('[Trojan] URI 格式無效');
-
-  const params = parsed.params;
-  const name = parsed.hash || 'Trojan';
-  if (!parsed.username) throw new Error(`[Trojan] 節點 [${name}] 缺少密碼`);
-  if (!parsed.hostname) throw new Error(`[Trojan] 節點 [${name}] 缺少伺服器地址`);
-
-  const isEch = parseEchParam(params.get('ech'));
-
-  const node: ProxyNode = {
-    type: 'trojan',
-    name,
-    server: parsed.hostname,
-    port: parsed.port,
-    password: parsed.username,
-    tls: true,
-    sni: params.get('sni') || params.get('peer') || parsed.hostname,
-    skipCertVerify: params.get('allowInsecure') === '1' || params.get('insecure') === '1',
-    ech: isEch
-  };
-
-  const tlsObj: Record<string, unknown> = {
-    enabled: true,
-    server_name: node.sni,
-    insecure: node.skipCertVerify
-  };
-  if (node.ech) {
-    tlsObj.ech = { enabled: true };
-  }
-
-  node.singboxObj = {
-    tag: name,
-    type: 'trojan',
-    server: node.server,
-    server_port: node.port,
-    password: node.password,
-    tls: tlsObj
-  };
-
-  const cl: Record<string, unknown> = {
-    name,
-    type: 'trojan',
-    server: node.server,
-    port: node.port,
-    password: node.password,
-    sni: node.sni,
-    'skip-cert-verify': node.skipCertVerify,
-    udp: true
-  };
-  if (node.ech) {
-    cl['ech-opts'] = { enable: true };
-  }
-  node.clashObj = cl;
-
-  return node;
-}
-
-// --- 解析 Clash YAML 格式的單一 Proxy 項目 ---
-function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNode {
-  const type = String(p.type || '').toLowerCase();
-  const name = String(p.name || `Node-${index + 1}`).trim();
-  const server = String(p.server || '').trim();
-  const port = parseInt(String(p.port || 443), 10) || 443;
-
-  if (type === 'masque') {
-    return buildMasqueNode(p as RawMasqueConfig, index);
-  }
-
-  if (!server) throw new Error(`[Clash YAML] 第 ${index + 1} 個節點缺少 server (伺服器地址)`);
-
-  // 1. VLESS
-  if (type === 'vless') {
-    const uuid = String(p.uuid || '').trim();
-    if (!uuid) throw new Error(`[Clash YAML] VLESS 節點 [${name}] 缺少 uuid`);
-    
-    const tls = Boolean(p.tls);
-    const sni = p.servername ? String(p.servername).trim() : (p.sni ? String(p.sni) : server);
-    const flow = p.flow ? String(p.flow).trim() : undefined;
-    const network = p.network ? String(p.network).toLowerCase() : (p['ws-opts'] ? 'ws' : (p['xhttp-opts'] ? 'xhttp' : (p['grpc-opts'] ? 'grpc' : 'tcp')));
-    
-    const wsOpts = p['ws-opts'] as Record<string, unknown> | undefined;
-    const wsPath = wsOpts?.path ? String(wsOpts.path) : undefined;
-    const wsHeaders = wsOpts?.headers as Record<string, string> | undefined;
-
-    const realityOpts = p['reality-opts'] as Record<string, unknown> | undefined;
-    const reality = (p.reality || realityOpts) ? {
-      publicKey: String(realityOpts?.['public-key'] || ''),
-      shortId: String(realityOpts?.['short-id'] || '')
-    } : undefined;
-
-    const echOpts = p['ech-opts'] as Record<string, unknown> | undefined;
-    const isEch = Boolean(p.ech || (echOpts && echOpts.enable === true));
-
-    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
-    const fingerprint = p['client-fingerprint'] ? String(p['client-fingerprint']).trim() : 'chrome';
-    const alpn = Array.isArray(p.alpn) ? p.alpn.map(String) : undefined;
-
-    let earlyDataLength: number | undefined = undefined;
-    if (wsOpts?.['max-early-data']) {
-      earlyDataLength = parseInt(String(wsOpts['max-early-data']), 10);
-    } else if (wsPath) {
-      const edMatch = wsPath.match(/[?&]ed=([0-9]+)/);
-      if (edMatch && edMatch[1]) {
-        earlyDataLength = parseInt(edMatch[1], 10);
-      }
-    }
-
-    const clashObjCopy: Record<string, unknown> = { ...p };
-    clashObjCopy.network = network;
-    if (!alpn) {
-      delete clashObjCopy.alpn;
-    }
-
-    const node: ProxyNode = {
-      type: 'vless', name, server, port, uuid, tls, sni, network, flow,
-      wsPath, wsHeaders, reality,
-      udp: p.udp !== undefined ? Boolean(p.udp) : true,
-      skipCertVerify,
-      fingerprint,
-      alpn,
-      ech: isEch,
-      clashObj: clashObjCopy
-    };
-
-    const sb: Record<string, unknown> = {
-      tag: name, type: 'vless', server, server_port: port, uuid, packet_encoding: 'xudp'
-    };
-    if (tls) {
-      const tlsObj: Record<string, unknown> = {
-        enabled: true,
-        server_name: sni,
-        insecure: skipCertVerify,
-        utls: { enabled: true, fingerprint }
-      };
-      if (alpn) tlsObj.alpn = alpn;
-      if (isEch) tlsObj.ech = { enabled: true };
-      if (reality) {
-        tlsObj.reality = { enabled: true, public_key: reality.publicKey, short_id: reality.shortId };
-      }
-      sb.tls = tlsObj;
-    }
-    if (flow) sb.flow = flow;
-    if (network === 'ws') {
-      const wsTransport: Record<string, unknown> = {
-        type: 'ws',
-        path: wsPath || '/',
-        headers: wsHeaders
-      };
-      if (earlyDataLength) {
-        wsTransport.max_early_data = earlyDataLength;
-        wsTransport.early_data_header_name = 'Sec-WebSocket-Protocol';
-      }
-      sb.transport = wsTransport;
-    }
-    node.singboxObj = sb;
-    return node;
-  }
-
-  // 2. Shadowsocks
-  if (type === 'ss' || type === 'shadowsocks') {
-    const cipher = String(p.cipher || '');
-    const password = String(p.password || '');
-    if (!cipher) throw new Error(`[Clash YAML] Shadowsocks 節點 [${name}] 缺少 cipher (加密方法)`);
-    if (!password) throw new Error(`[Clash YAML] Shadowsocks 節點 [${name}] 缺少 password (密碼)`);
-    const udp = p.udp !== false;
-
-    const node: ProxyNode = {
-      type: 'shadowsocks', name, server, port, cipher, password, udp,
-      clashObj: { ...p }
-    };
-    node.singboxObj = {
-      tag: name, type: 'shadowsocks', server, server_port: port, method: cipher, password
-    };
-    return node;
-  }
-
-  // 3. VMess
-  if (type === 'vmess') {
-    const uuid = String(p.uuid || '');
-    if (!uuid) throw new Error(`[Clash YAML] VMess 節點 [${name}] 缺少 uuid`);
-    const tls = Boolean(p.tls);
-    const sni = p.servername ? String(p.servername) : (p.sni ? String(p.sni) : server);
-    const network = p.network ? String(p.network).toLowerCase() : (p['ws-opts'] ? 'ws' : 'tcp');
-    const wsOpts = p['ws-opts'] as Record<string, unknown> | undefined;
-    const wsPath = wsOpts?.path ? String(wsOpts.path) : undefined;
-    const wsHeaders = wsOpts?.headers as Record<string, string> | undefined;
-
-    const node: ProxyNode = {
-      type: 'vmess', name, server, port, uuid, tls, sni, network, wsPath, wsHeaders,
-      udp: p.udp !== undefined ? Boolean(p.udp) : true,
-      clashObj: { ...p, network }
-    };
-    const sb: Record<string, unknown> = {
-      tag: name, type: 'vmess', server, server_port: port, uuid, security: 'auto', packet_encoding: 'xudp'
-    };
-    if (tls) {
-      sb.tls = { enabled: true, server_name: sni, insecure: p['skip-cert-verify'] ? Boolean(p['skip-cert-verify']) : false };
-    }
-    if (network === 'ws') {
-      sb.transport = { type: 'ws', path: wsPath || '/', headers: wsHeaders };
-    }
-    node.singboxObj = sb;
-    return node;
-  }
-
-  // 4. Trojan
-  if (type === 'trojan') {
-    const password = String(p.password || '');
-    if (!password) throw new Error(`[Clash YAML] Trojan 節點 [${name}] 缺少 password (密碼)`);
-    const sni = p.sni ? String(p.sni) : (p.servername ? String(p.servername) : server);
-    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
-
-    const node: ProxyNode = {
-      type: 'trojan', name, server, port, password, tls: true, sni, skipCertVerify,
-      udp: p.udp !== undefined ? Boolean(p.udp) : true,
-      clashObj: { ...p }
-    };
-    node.singboxObj = {
-      tag: name, type: 'trojan', server, server_port: port, password,
-      tls: { enabled: true, server_name: sni, insecure: skipCertVerify }
-    };
-    return node;
-  }
-
-  // 5. Hysteria 2
-  if (type === 'hysteria2' || type === 'hy2') {
-    const password = String(p.password || p.auth || '');
-    if (!password) throw new Error(`[Clash YAML] Hysteria2 節點 [${name}] 缺少 password / auth`);
-    const sni = p.sni ? String(p.sni) : (p.servername ? String(p.servername) : server);
-    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
-
-    const node: ProxyNode = {
-      type: 'hysteria2', name, server, port, password, tls: true, sni, skipCertVerify,
-      udp: p.udp !== undefined ? Boolean(p.udp) : true,
-      obfs: p.obfs ? String(p.obfs) : undefined,
-      obfsPassword: p['obfs-password'] ? String(p['obfs-password']) : undefined,
-      clashObj: { ...p }
-    };
-    const sb: Record<string, unknown> = {
-      tag: name, type: 'hysteria2', server, server_port: port, password,
-      tls: { enabled: true, server_name: sni, insecure: skipCertVerify }
-    };
-    if (node.obfs) {
-      sb.obfs = { type: node.obfs, password: node.obfsPassword };
-    }
-    node.singboxObj = sb;
-    return node;
-  }
-
-  // 6. TUIC
-  if (type === 'tuic') {
-    const uuid = String(p.uuid || '');
-    const password = String(p.password || '');
-    if (!uuid) throw new Error(`[Clash YAML] TUIC 節點 [${name}] 缺少 uuid`);
-    const sni = p.sni ? String(p.sni) : (p.servername ? String(p.servername) : server);
-    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
-    const congestion_control = p['congestion-controller'] ? String(p['congestion-controller']) : 'bbr';
-    const udp_relay_mode = p['udp-relay-mode'] ? String(p['udp-relay-mode']) : 'native';
-    const alpn = Array.isArray(p.alpn) ? p.alpn.map(String) : ['h3'];
-
-    const node: ProxyNode = {
-      type: 'tuic', name, server, port, uuid, password, tls: true, sni, skipCertVerify,
-      congestion_control, udp_relay_mode, alpn,
-      udp: p.udp !== undefined ? Boolean(p.udp) : true,
-      clashObj: { ...p }
-    };
-    node.singboxObj = {
-      tag: name, type: 'tuic', server, server_port: port, uuid, password,
-      congestion_control, udp_relay_mode,
-      tls: { enabled: true, server_name: sni, alpn, insecure: skipCertVerify }
-    };
-    return node;
-  }
-
-  // 7. WireGuard (嚴格提取使用者貼入的 dns 陣列)
-  if (type === 'wireguard') {
-    const privateKey = String(p['private-key'] || '');
-    const publicKey = String(p['public-key'] || '');
-    if (!privateKey) throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 private-key (私鑰)`);
-    if (!publicKey) throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 public-key (公鑰)`);
-    if (!p.ip) throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 ip (內網 IP)`);
-    
-    const ip = String(p.ip);
-    const ipv6 = p.ipv6 ? String(p.ipv6) : undefined;
-    const localAddress = [ip.includes('/') ? ip : `${ip}/32`];
-    if (ipv6) localAddress.push(ipv6.includes('/') ? ipv6 : `${ipv6}/128`);
-    const presharedKey = p['preshared-key'] ? String(p['preshared-key']) : undefined;
-    const mtu = parseInt(String(p.mtu || 1420), 10) || 1420;
-    const reserved = Array.isArray(p.reserved) ? p.reserved.map(Number) : undefined;
-    
-    let dnsList: string[] = [];
-    if (p.dns) {
-      dnsList = Array.isArray(p.dns) ? p.dns.map(String) : [String(p.dns)];
-    } else {
-      throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 dns 設定（例如 dns: [10.2.0.1]）`);
-    }
-
-    const wgConfig: WireGuardConfig = {
-      privateKey, localAddress, publicKey, presharedKey, mtu, reserved, dns: dnsList[0]
-    };
-    const node: ProxyNode = {
-      type: 'wireguard', name, server, port, udp: true, wireguard: wgConfig,
-      clashObj: { ...p, dns: dnsList }
-    };
-    node.singboxObj = {
-      type: 'wireguard', tag: name, address: localAddress, private_key: privateKey,
-      peers: [{ address: server, port, public_key: publicKey, allowed_ips: ['0.0.0.0/0', '::/0'] }],
-      mtu
-    };
-    return node;
-  }
-
-  // 8. 兜底通用節點
-  return {
-    type, name, server, port, udp: true,
-    clashObj: { ...p }
-  };
-}
-
-// --- 解析完整 Clash YAML 配置中的 proxies 陣列 ---
-export function parseClashYaml(content: string): ProxyNode[] {
-  const nodes: ProxyNode[] = [];
-  if (!/(^|\n)\s*proxies\s*:/i.test(content)) {
-    return [];
-  }
-  const parsed = yaml.load(content);
-  if (!parsed || typeof parsed !== 'object') return [];
-  
-  const rawProxies = (parsed as Record<string, unknown>).proxies;
-  if (!Array.isArray(rawProxies)) return [];
-
-  for (let i = 0; i < rawProxies.length; i++) {
-    const p = rawProxies[i];
-    if (!p || typeof p !== 'object') continue;
-    const node = parseClashProxyItem(p as Record<string, unknown>, i);
-    if (node) nodes.push(node);
-  }
-  return nodes;
-}
-
-// --- 主解析入口 ---
-export async function parseContent(content: string): Promise<ProxyNode[]> {
-  let plainText = content.replace(/^\uFEFF/, '').trim(); 
-
-  // 1. 優先檢查是否為標準 WireGuard INI 配置 ([Interface] 與 [Peer])
-  if (/\[Interface\]/i.test(plainText) && /\[Peer\]/i.test(plainText)) {
-    const wgNodes = parseWireGuardConf(plainText);
-    if (wgNodes.length > 0) {
-      return wgNodes;
-    }
-  }
-
-  // 2. 優先檢查是否包含 Cloudflare WARP MASQUE JSON 配置
-  if (/["']private_key["']/i.test(plainText) && (plainText.includes('{') || plainText.includes('['))) {
-    const masqueNodes = parseMasqueConfigs(plainText);
-    if (masqueNodes.length > 0) {
-      return masqueNodes;
-    }
-  }
-
-  // 3. 優先檢查是否為完整 Clash YAML 配置 (含 proxies:)
-  if (/(^|\n)\s*proxies\s*:/i.test(plainText)) {
-    const clashNodes = parseClashYaml(plainText);
-    if (clashNodes.length > 0) {
-      return clashNodes;
-    }
-  }
-  
-  const protocols = ['ss://', 'vmess://', 'vless://', 'trojan://', 'tuic://', 'hysteria2://', 'hy2://', 'anytls://', 'wireguard://', 'warp://', 'masque://'];
-  const firstLine = plainText.split(/\r?\n/)[0].trim();
-  const isPlainText = protocols.some(p => firstLine.startsWith(p)) || (firstLine.includes('=') && firstLine.includes('wireguard'));
-  
-  if (!isPlainText) { 
-    try {
-      let b64 = plainText.replace(/[\s\r\n]+/g, '').replace(/-/g, '+').replace(/_/g, '/');
-      b64 = b64.replace(/=+$/, '');
-      while (b64.length % 4 > 0) b64 += '=';
-      
-      const binaryStr = atob(b64);
-      const bytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
-      }
-      const decoded = new TextDecoder('utf-8').decode(bytes);
-
-      if (/\[Interface\]/i.test(decoded) && /\[Peer\]/i.test(decoded)) {
-        const wgNodes = parseWireGuardConf(decoded);
-        if (wgNodes.length > 0) return wgNodes;
-      }
-
-      if (/["']private_key["']/i.test(decoded) && (decoded.includes('{') || decoded.includes('['))) {
-        const masqueNodes = parseMasqueConfigs(decoded);
-        if (masqueNodes.length > 0) return masqueNodes;
-      }
-
-      if (/(^|\n)\s*proxies\s*:/i.test(decoded)) {
-        const clashNodes = parseClashYaml(decoded);
-        if (clashNodes.length > 0) return clashNodes;
-      }
-      
-      if (decoded && (protocols.some(p => decoded.includes(p)) || decoded.includes('wireguard'))) {
-        plainText = decoded.replace(/^\uFEFF/, '').trim(); 
-      } else {
-        throw new Error("Base64 解碼成功，但內容並非有效的代理節點。");
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`Base64 暴力解碼失敗: ${msg}`);
-    }
-  }
-  
-  const lines = plainText.split(/\r?\n/); 
-  const nodes: ProxyNode[] = [];
-  
-  for (const line of lines) { 
-    const l = line.replace(/^[\s\uFEFF\xA0\u200B\u200C\u200D\u200E\u200F]+|[\s\uFEFF\xA0\u200B\u200C\u200D\u200E\u200F]+$/g, ''); 
-    if (!l) continue;
-    
-    if (l.startsWith('ss://')) { nodes.push(parseShadowsocks(l)); } 
-    else if (l.startsWith('vless://')) { nodes.push(parseVless(l)); } 
-    else if (l.startsWith('hysteria2://') || l.startsWith('hy2://')) { nodes.push(parseHysteria2(l)); } 
-    else if (l.startsWith('vmess://')) { nodes.push(parseVmess(l)); } 
-    else if (l.startsWith('tuic://')) { nodes.push(parseTuic(l)); } 
-    else if (l.startsWith('anytls://')) { nodes.push(parseAnytls(l)); } 
-    else if (l.startsWith('trojan://')) { nodes.push(parseTrojan(l)); } 
-    else if (l.startsWith('wireguard://') || l.startsWith('warp://')) { nodes.push(parseWireGuard(l)); } 
-    else if (l.startsWith('masque://')) { nodes.push(parseMasqueUri(l)); } 
-    else if (l.includes('=') && l.includes('wireguard')) {
-      nodes.push(parseShadowrocketWireGuard(l));
-    }
-  } 
-  
-  if (nodes.length === 0) {
-    throw new Error("資料獲取成功，但未能成功配對到任何支援的節點格式。");
-  }
-  
-  return nodes;
-}
-
-````
-
 ## File: src/types.ts
 ````ts
 export interface Env {
@@ -3597,1233 +5253,6 @@ export interface CachedTemplate {
   updatedAt: number;
 }
 
-````
-
-## File: src/index.ts
-````ts
-// src/index.ts
-// @ts-ignore
-import packageJson from '../package.json';
-import { Env, ProxyNode } from './types';
-import { HTML_PAGE } from './constants';
-import { parseContent } from './parser';
-import {
-  toSingBoxWithTemplate,
-  toClashWithTemplate,
-  toBase64,
-  toSurge,
-  toQuantumultX,
-  toLoon
-} from './generator';
-import { deduplicateNodeNames, groupNodesByFlag } from './utils';
-
-const version = packageJson.version || '3.5.0';
-
-// 密碼鑒權校驗
-function checkAuth(request: Request, env: Env): boolean {
-  if (!env.PAGE_PASSWORD || env.PAGE_PASSWORD.trim() === '') {
-    return true;
-  }
-  const clientPwd = request.headers.get('X-Password') || '';
-  return clientPwd === env.PAGE_PASSWORD.trim();
-}
-
-// 輔助載入與解析節點
-async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
-  const allNodes: ProxyNode[] = [];
-  const trimmed = urlParam.trim();
-  if (!trimmed) return allNodes;
-
-  // 1. 優先完整辨識多行 WireGuard
-  if (/\[Interface\]/i.test(trimmed) && /\[Peer\]/i.test(trimmed)) {
-    try {
-      const parsed = await parseContent(trimmed);
-      allNodes.push(...parsed);
-    } catch {}
-    return allNodes;
-  }
-
-  // 2. 優先完整辨識多組或單組 MASQUE JSON (物件或陣列)
-  if (/["']private_key["']/i.test(trimmed) && (trimmed.includes('{') || trimmed.includes('['))) {
-    try {
-      const parsed = await parseContent(trimmed);
-      allNodes.push(...parsed);
-    } catch {}
-    return allNodes;
-  }
-
-  // 3. 優先完整辨識多行 Clash YAML 配置 (含 proxies:)
-  if (/(^|\n)\s*proxies\s*:/i.test(trimmed)) {
-    try {
-      const parsed = await parseContent(trimmed);
-      allNodes.push(...parsed);
-    } catch {}
-    return allNodes;
-  }
-
-  const inputs = urlParam.split(/[\n\r|]+/); 
-  for (const input of inputs) {
-    const t = input.trim(); 
-    if (!t) continue;
-    
-    if (t.startsWith('http')) { 
-      try { 
-        const separator = t.includes('?') ? '&' : '?';
-        const fetchUrl = `${t}${separator}t=${Date.now()}`;
-        
-        const resp = await fetch(fetchUrl, { 
-          headers: { 
-            'User-Agent': 'v2rayNG/1.8.5',
-            'Accept': '*/*'
-          } 
-        }); 
-        
-        if (resp.ok) { 
-          const text = await resp.text(); 
-          if (!text.trim().startsWith('<')) {
-            try {
-              const parsed = await parseContent(text);
-              allNodes.push(...parsed);
-            } catch {}
-          }
-        }
-      } catch {} 
-    } else { 
-      try {
-        const parsed = await parseContent(t);
-        allNodes.push(...parsed); 
-      } catch {}
-    }
-  }
-  return allNodes;
-}
-
-function safeBtoa(str: string): string {
-  try {
-    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => {
-      return String.fromCharCode(parseInt(p1, 16));
-    }));
-  } catch {
-    return btoa(str);
-  }
-}
-
-async function getArgoScriptFromGithub(node: ProxyNode, port: string, token: string, domain: string): Promise<string> {
-  const GITHUB_TEMPLATE_URL = `https://raw.githubusercontent.com/sammy0101/cf-sub-converter/main/argo.sh?t=${Date.now()}`;
-  let template = "";
-  
-  try {
-    const res = await fetch(GITHUB_TEMPLATE_URL, { headers: { 'User-Agent': 'v2rayNG/1.8.5' } });
-    if (res.ok) {
-      template = await res.text();
-    } else {
-      throw new Error("GitHub Fetch Failed");
-    }
-  } catch {
-    template = `#!/bin/bash
-if ! command -v cloudflared &> /dev/null; then
-  curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
-  chmod +x /usr/local/bin/cloudflared
-fi
-cloudflared tunnel --url http://127.0.0.1:{{VLESS_PORT}}
-`;
-  }
-
-  const vlessType = node.network || 'ws';
-  const vlessPath = node.wsPath || '/';
-  const argoNodeName = `${node.name}_Argo`;
-  const isTls = node.tls ? "true" : "false";
-  const realHost = node.wsHeaders?.Host || node.sni || node.server; 
-
-  return template
-    .replace("{{NODE_TYPE}}", node.type)
-    .replace("{{VLESS_UUID}}", node.uuid || '')
-    .replace("{{VLESS_PATH}}", vlessPath)
-    .replace("{{VLESS_TYPE}}", vlessType)
-    .replace("{{VLESS_PORT}}", port)
-    .replace("{{NODE_NAME}}", argoNodeName)
-    .replace("{{TUNNEL_TOKEN}}", token.trim())
-    .replace("{{CUSTOM_DOMAIN}}", domain.trim())
-    .replace("{{VLESS_TLS}}", isTls)
-    .replace("{{ORIGIN_HOST}}", realHost);
-}
-
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, X-Password',
-        }
-      });
-    }
-
-    // GET /argo/sh/:id
-    if (request.method === 'GET' && url.pathname.startsWith('/argo/sh/')) {
-      const scriptId = url.pathname.split('/').pop();
-      if (env.SUB_CACHE && scriptId) {
-        const script = await env.SUB_CACHE.get(`script:${scriptId}`);
-        if (script) {
-          return new Response(script, {
-            headers: { 
-              'Content-Type': 'text/plain; charset=utf-8', 
-              'Access-Control-Allow-Origin': '*' 
-            }
-          });
-        }
-      }
-      return new Response('# 錯誤: 該腳本不存在或已過期，請重新在網頁上生成。\nexit 1\n', { 
-        status: 404,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-
-    // POST /api/parse-argo
-    if (request.method === 'POST' && (url.pathname === '/api/parse-vless' || url.pathname === '/api/parse-argo')) {
-      try {
-        const body = (await request.json()) as { url?: string };
-        const rawUrl = body.url || '';
-        if (!rawUrl.trim()) {
-          return new Response(JSON.stringify({ error: '請輸入有效的節點內容' }), { 
-            status: 400, 
-            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } 
-          });
-        }
-
-        const allNodes = await loadNodes(rawUrl);
-        const argoCompatibleNodes = allNodes.filter(n => n.type === 'vless' || n.type === 'vmess').map((n, idx) => ({
-          index: idx,
-          name: n.name,
-          server: n.server,
-          port: n.port,
-          type: n.type,
-          host: n.wsHeaders?.Host || n.sni || n.server
-        }));
-
-        return new Response(JSON.stringify(argoCompatibleNodes), {
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        });
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return new Response(JSON.stringify({ error: msg }), { 
-          status: 500, 
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } 
-        });
-      }
-    }
-
-    // POST /api/argo-generate
-    if (request.method === 'POST' && url.pathname === '/api/argo-generate') {
-      try {
-        const body = (await request.json()) as {
-          url?: string;
-          indices?: number[];
-          port?: string;
-          cleanIp?: string;
-          token?: string;
-          domain?: string;
-        };
-
-        const rawUrl = body.url || '';
-        const selectedIndices = body.indices || [];
-        const port = body.port || '8080';
-        const cleanIp = (body.cleanIp || '').trim();
-        const token = body.token || '';
-        const domain = body.domain || '';
-
-        if (!rawUrl.trim() || selectedIndices.length === 0) {
-          return new Response(JSON.stringify({ error: '無效的參數或未選擇節點' }), { 
-            status: 400, 
-            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } 
-          });
-        }
-
-        const allNodes = await loadNodes(rawUrl);
-        const compatibleNodes = allNodes.filter(n => n.type === 'vless' || n.type === 'vmess');
-        const selectedObjects = selectedIndices.map(idx => compatibleNodes[idx]).filter(Boolean);
-
-        let scripts = '';
-        const generatedNodesData: Array<{ originalIndex: number; link: string }> = [];
-
-        for (let i = 0; i < selectedObjects.length; i++) {
-          const node = selectedObjects[i];
-          const originalIndex = selectedIndices[i];
-          
-          scripts += await getArgoScriptFromGithub(node, port, token, domain) + '\n\n';
-
-          const targetDomain = (token.trim() && domain.trim()) ? domain.trim() : "請在VPS執行一鍵安裝腳本獲取臨時域名.trycloudflare.com";
-          const connectionServer = cleanIp || targetDomain;
-          const argoNodeName = `${node.name}_Argo${cleanIp ? '_優選' : ''}`;
-
-          let argoLink = '';
-          if (node.type === 'vless') {
-            argoLink = `vless://${node.uuid}@${connectionServer}:443?encryption=none&security=tls&type=${node.network || 'ws'}&host=${targetDomain}&sni=${targetDomain}&path=${node.wsPath || '/'}#${encodeURIComponent(argoNodeName)}`;
-          } else {
-            const vmessObj = {
-              v: "2", ps: argoNodeName, add: connectionServer, port: 443, id: node.uuid,
-              aid: 0, scy: "auto", net: node.network || 'ws', type: "none",
-              host: targetDomain, path: node.wsPath || '/', tls: "tls", sni: targetDomain
-            };
-            argoLink = 'vmess://' + safeBtoa(JSON.stringify(vmessObj));
-          }
-
-          generatedNodesData.push({ originalIndex, link: argoLink });
-        }
-
-        let scriptId = '';
-        if (env.SUB_CACHE) {
-          scriptId = crypto.randomUUID();
-          await env.SUB_CACHE.put('script:' + scriptId, scripts, { expirationTtl: 3600 });
-        }
-
-        return new Response(JSON.stringify({ 
-          scriptId, 
-          argoNodes: generatedNodesData 
-        }), {
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        });
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return new Response(JSON.stringify({ error: msg }), { 
-          status: 500, 
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } 
-        });
-      }
-    }
-
-    // GET /version
-    if (request.method === 'GET' && url.pathname === '/version') {
-      return new Response(`subconverter v${version} ${url.host} backend\n`, {
-        headers: { 
-          'Content-Type': 'text/plain; charset=utf-8', 
-          'Access-Control-Allow-Origin': '*'
-        } 
-      });
-    }
-
-    // POST /save 
-    if (request.method === 'POST' && url.pathname === '/save') {
-      try {
-        const body = (await request.json()) as { path?: string; content?: string; include?: string; exclude?: string; rename?: string };
-        if (!body.path || !body.content) return new Response('Missing path or content', { status: 400 });
-        
-        const saveData = {
-          content: body.content,
-          include: body.include || '',
-          exclude: body.exclude || '',
-          rename: body.rename || ''
-        };
-        await env.SUB_CACHE.put(body.path, JSON.stringify(saveData));
-        
-        return new Response('OK', { status: 200 });
-      } catch {
-        return new Response('Error saving profile', { status: 500 });
-      }
-    }
-
-    // --- Favorites API ---
-    const FAVS_KEY = 'favorites';
-    const getFavs = async (): Promise<Array<Record<string, string>>> => {
-      const data = await env.SUB_CACHE.get(FAVS_KEY);
-      return data ? JSON.parse(data) : [];
-    };
-    const saveFavs = async (favs: Array<Record<string, string>>): Promise<void> => {
-      await env.SUB_CACHE.put(FAVS_KEY, JSON.stringify(favs));
-    };
-
-    if (request.method === 'GET' && url.pathname === '/favs') {
-      if (!checkAuth(request, env)) {
-        return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
-          status: 401,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        });
-      }
-      const favs = await getFavs();
-      return new Response(JSON.stringify(favs), { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
-    }
-
-    if (request.method === 'POST' && url.pathname === '/favs') {
-      if (!checkAuth(request, env)) {
-        return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
-      }
-      try {
-        const body = (await request.json()) as Record<string, string>;
-        if (!body.name || !body.url) return new Response('Missing name or url', { status: 400 });
-        const favs = await getFavs();
-        favs.push({
-          name: body.name,
-          url: body.url,
-          include: body.include || '',
-          exclude: body.exclude || '',
-          rename: body.rename || ''
-        });
-        await saveFavs(favs);
-        return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
-      } catch {
-        return new Response('Error saving favorite', { status: 500 });
-      }
-    }
-
-    if (request.method === 'PUT' && url.pathname === '/favs') {
-      if (!checkAuth(request, env)) {
-        return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
-      }
-      try {
-        const body = (await request.json()) as { index?: number; name?: string; url?: string; include?: string; exclude?: string; rename?: string };
-        if (body.index === undefined || !body.name || !body.url) return new Response('Missing data', { status: 400 });
-        const favs = await getFavs();
-        if (body.index >= 0 && body.index < favs.length) {
-          favs[body.index] = {
-            name: body.name,
-            url: body.url,
-            include: body.include || '',
-            exclude: body.exclude || '',
-            rename: body.rename || ''
-          };
-          await saveFavs(favs);
-        }
-        return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
-      } catch {
-        return new Response('Error updating favorite', { status: 500 });
-      }
-    }
-
-    if (request.method === 'DELETE' && url.pathname === '/favs') {
-      if (!checkAuth(request, env)) {
-        return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
-      }
-      try {
-        const body = (await request.json()) as { index?: number };
-        if (body.index === undefined) return new Response('Missing index', { status: 400 });
-        const favs = await getFavs();
-        if (body.index >= 0 && body.index < favs.length) {
-          favs.splice(body.index, 1);
-          await saveFavs(favs);
-        }
-        return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
-      } catch {
-        return new Response('Error deleting favorite', { status: 500 });
-      }
-    }
-
-    // GET 訂閱路由
-    let urlParam = url.searchParams.get('url') || '';
-    let includeParam = url.searchParams.get('include') || '';
-    let excludeParam = url.searchParams.get('exclude') || '';
-    let renameParam = url.searchParams.get('rename') || '';
-    let nameParam = url.searchParams.get('name') || '';
-    const forceRefresh = url.searchParams.has('force') || url.searchParams.has('nocache');
-
-    const path = decodeURIComponent(url.pathname.slice(1)); 
-    let detectedProfileName = nameParam;
-
-    if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
-      if (!detectedProfileName) {
-        detectedProfileName = path;
-      }
-      let stored = await env.SUB_CACHE.get(path);
-      if (!stored && path !== path.toLowerCase()) {
-        stored = await env.SUB_CACHE.get(path.toLowerCase());
-      }
-
-      if (stored) { 
-        try {
-          const parsed = JSON.parse(stored);
-          if (parsed && parsed.content) {
-            urlParam = parsed.content;
-            if (!includeParam) includeParam = parsed.include || '';
-            if (!excludeParam) excludeParam = parsed.exclude || '';
-            if (!renameParam) renameParam = parsed.rename || '';
-          }
-        } catch {
-          urlParam = stored; 
-        }
-      }
-    }
-
-    if (!urlParam || urlParam.trim() === '') {
-      if (path === 'sub') {
-        return new Response('Error: Missing parameter "url"', { status: 400 });
-      }
-      const dynamicHtml = HTML_PAGE.replace('id="appVersionBadge">PRO</span>', `id="appVersionBadge">v${version}</span>`);
-      return new Response(dynamicHtml, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-    }
-
-    const allNodes: ProxyNode[] = [];
-    const errors: string[] = [];
-    let totalUpload = 0;
-    let totalDownload = 0;
-    let totalTotal = 0;
-    let minExpire = 0;
-    let hasTrafficInfo = false;
-
-    const trimmedParam = urlParam.trim();
-
-    // 1. 優先完整辨識多行 WireGuard 配置
-    if (/\[Interface\]/i.test(trimmedParam) && /\[Peer\]/i.test(trimmedParam)) {
-      try {
-        const parsed = await parseContent(trimmedParam);
-        allNodes.push(...parsed);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`[WireGuard 配置] 失敗原因: ${msg}`);
-      }
-    } 
-    // 2. 優先完整辨識多組或單組 MASQUE JSON
-    else if (/["']private_key["']/i.test(trimmedParam) && (trimmedParam.includes('{') || trimmedParam.includes('['))) {
-      try {
-        const parsed = await parseContent(trimmedParam);
-        allNodes.push(...parsed);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`[MASQUE 配置] 失敗原因: ${msg}`);
-      }
-    } 
-    // 3. 優先完整辨識多行 Clash YAML 配置
-    else if (/(^|\n)\s*proxies\s*:/i.test(trimmedParam)) {
-      try {
-        const parsed = await parseContent(trimmedParam);
-        allNodes.push(...parsed);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`[Clash YAML 配置] 失敗原因: ${msg}`);
-      }
-    }
-    else {
-      const inputs = urlParam.split(/[\n\r|]+/); 
-      for (const input of inputs) {
-        const trimmed = input.trim(); 
-        if (!trimmed) continue;
-        
-        if (trimmed.startsWith('http')) { 
-          try { 
-            const separator = trimmed.includes('?') ? '&' : '?';
-            const fetchUrl = `${trimmed}${separator}t=${Date.now()}`;
-            const resp = await fetch(fetchUrl, { headers: { 'User-Agent': 'v2rayNG/1.8.5' } }); 
-            
-            if (resp.ok) { 
-              const text = await resp.text(); 
-              const userInfo = resp.headers.get('subscription-userinfo');
-              if (userInfo) {
-                hasTrafficInfo = true;
-                const uploadMatch = userInfo.match(/upload=(\d+)/i);
-                const downloadMatch = userInfo.match(/download=(\d+)/i);
-                const totalMatch = userInfo.match(/total=(\d+)/i);
-                const expireMatch = userInfo.match(/expire=(\d+)/i);
-
-                totalUpload += uploadMatch ? parseInt(uploadMatch[1], 10) : 0;
-                totalDownload += downloadMatch ? parseInt(downloadMatch[1], 10) : 0;
-                totalTotal += totalMatch ? parseInt(totalMatch[1], 10) : 0;
-                
-                const expireVal = expireMatch ? parseInt(expireMatch[1], 10) : 0;
-                if (expireVal > 0) {
-                  if (minExpire === 0 || expireVal < minExpire) minExpire = expireVal; 
-                }
-              }
-
-              if (!text.trim().startsWith('<')) {
-                try {
-                  const parsed = await parseContent(text);
-                  allNodes.push(...parsed);
-                } catch {}
-              }
-            }
-          } catch {} 
-        } else { 
-          try {
-            const parsed = await parseContent(trimmed);
-            allNodes.push(...parsed); 
-          } catch {}
-        }
-      }
-    }
-
-    if (allNodes.length === 0) {
-      const errorMsg = errors.length > 0 ? errors.join('\n') : '未解析到任何有效節點。';
-      return new Response(errorMsg, { status: 400 });
-    }
-
-    let filteredNodes = allNodes;
-
-    if (renameParam) {
-      const rules = renameParam.split('|');
-      for (const rule of rules) {
-        const trimmedRule = rule.trim();
-        if (!trimmedRule) continue;
-
-        if (trimmedRule.startsWith('DEL-')) {
-          const search = trimmedRule.substring(4); 
-          if (search) {
-            filteredNodes.forEach(node => {
-              if (node.name) node.name = node.name.split(search).join('');
-            });
-          }
-        } else if (trimmedRule.includes('-')) {
-          const idx = trimmedRule.indexOf('-');
-          const search = trimmedRule.substring(0, idx).trim();
-          const replace = trimmedRule.substring(idx + 1).trim();
-          
-          if (search && replace !== undefined) {
-            if (search.toUpperCase() === 'ALL') {
-              filteredNodes.forEach(node => { node.name = replace; });
-            } else {
-              filteredNodes.forEach(node => {
-                if (node.name) node.name = node.name.split(search).join(replace);
-              });
-            }
-          }
-        }
-      }
-    }
-
-    const buildFilterRegex = (param: string): RegExp => {
-      const parts = param.split('|').map(part => {
-        const trimmed = part.trim();
-        if (!trimmed) return '';
-        const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        return escaped.replace(/[xXｘＸ×]/g, '[xXｘＸ×]');
-      }).filter(Boolean);
-      return new RegExp(parts.join('|'), 'i');
-    };
-
-    if (includeParam) {
-      const includeRegex = buildFilterRegex(includeParam);
-      filteredNodes = filteredNodes.filter(node => includeRegex.test(node.name));
-    }
-
-    if (excludeParam) {
-      const excludeRegex = buildFilterRegex(excludeParam);
-      filteredNodes = filteredNodes.filter(node => !excludeRegex.test(node.name));
-    }
-
-    const sortedNodes = groupNodesByFlag(filteredNodes);
-    const uniqueNodes = deduplicateNodeNames(sortedNodes);
-
-    let target = url.searchParams.get('target');
-
-    if (!target) {
-      const ua = (request.headers.get('User-Agent') || '').toLowerCase();
-      if (ua.includes('clash') || ua.includes('mihomo') || ua.includes('stash') || ua.includes('surfboard')) {
-        target = 'clash';
-      } else if (ua.includes('sing-box') || ua.includes('singbox') || ua.includes('hiddify')) {
-        target = 'singbox';
-      } else if (ua.includes('surge')) {
-        target = 'surge';
-      } else if (ua.includes('quantumult')) {
-        target = 'quanx';
-      } else if (ua.includes('loon')) {
-        target = 'loon';
-      } else if (ua.includes('v2ray') || ua.includes('shadowrocket')) {
-        target = 'base64';
-      }
-    }
-
-    if (!target) {
-      const host = `https://${url.host}`;
-      const encodedUrl = encodeURIComponent(urlParam);
-      let filterQuery = '';
-      if (includeParam) filterQuery += `&include=${encodeURIComponent(includeParam)}`;
-      if (excludeParam) filterQuery += `&exclude=${encodeURIComponent(excludeParam)}`;
-      if (renameParam) filterQuery += `&rename=${encodeURIComponent(renameParam)}`;
-      if (detectedProfileName) filterQuery += `&name=${encodeURIComponent(detectedProfileName)}`;
-
-      const htmlInfo = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>轉換完成</title><style>body{background:#0f172a;color:#f8fafc;font-family:sans-serif;padding:40px;text-align:center;}a{display:inline-block;margin:10px;padding:12px 24px;background:#3b82f6;color:#fff;text-decoration:none;border-radius:8px;}</style></head>
-<body>
-  <h1>⚡ 成功轉換 ${uniqueNodes.length} 個節點</h1>
-  <div>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=clash">Clash Meta (YAML)</a>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=singbox">Sing-Box (JSON)</a>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=surge">Surge 5</a>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=quanx">Quantumult X</a>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=loon">Loon</a>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=base64">Base64</a>
-  </div>
-</body></html>`;
-      return new Response(htmlInfo, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-    }
-
-    let result = '';
-    let contentType = 'text/plain';
-    let fileExt = '.txt';
-
-    try {
-      if (target === 'clash') {
-        result = await toClashWithTemplate(uniqueNodes, env, forceRefresh);
-        contentType = 'text/yaml';
-        fileExt = '.yaml';
-      } else if (target === 'surge') {
-        result = toSurge(uniqueNodes);
-        contentType = 'text/plain';
-        fileExt = '.conf';
-      } else if (target === 'quanx' || target === 'qx') {
-        result = toQuantumultX(uniqueNodes);
-        contentType = 'text/plain';
-        fileExt = '.txt';
-      } else if (target === 'loon') {
-        result = toLoon(uniqueNodes);
-        contentType = 'text/plain';
-        fileExt = '.conf';
-      } else if (target === 'base64') {
-        result = toBase64(uniqueNodes);
-        contentType = 'text/plain';
-        fileExt = '.txt';
-      } else {
-        result = await toSingBoxWithTemplate(uniqueNodes, env, forceRefresh);
-        contentType = 'application/json';
-        fileExt = '.json';
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return new Response(`轉換配置失敗: ${msg}`, {
-        status: 500,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-
-    const finalProfileName = detectedProfileName || 'subscription';
-    const filenameAscii = `${finalProfileName.replace(/[^a-zA-Z0-9_-]/g, '_')}${fileExt}`;
-    const filenameUtf8 = encodeURIComponent(`${finalProfileName}${fileExt}`);
-
-    const responseHeaders: Record<string, string> = {
-      'Content-Type': `${contentType}; charset=utf-8`, 
-      'Access-Control-Allow-Origin': '*', 
-      'Access-Control-Expose-Headers': 'Content-Disposition, Profile-Title, Subscription-Title, Profile-Update-Interval, subscription-userinfo',
-      'Cache-Control': 'no-store, no-cache, must-revalidate',
-      'Content-Disposition': `inline; filename="${filenameAscii}"; filename*=UTF-8''${filenameUtf8}`,
-      'Profile-Title': finalProfileName,
-      'Subscription-Title': finalProfileName,
-      'profile-update-interval': '3600',
-    };
-
-    if (hasTrafficInfo) {
-      let userInfoHeader = `upload=${totalUpload}; download=${totalDownload}; total=${totalTotal}`;
-      if (minExpire > 0) userInfoHeader += `; expire=${minExpire}`;
-      responseHeaders['subscription-userinfo'] = userInfoHeader;
-    }
-
-    return new Response(result, { headers: responseHeaders });
-  }
-};
-
-````
-
-## File: src/generator.ts
-````ts
-// src/generator.ts
-import yaml from 'js-yaml';
-import { Env, ProxyNode } from './types';
-import { REMOTE_CONFIG, FALLBACK_SINGBOX_RULES, FALLBACK_CLASH_RULES } from './constants';
-import { utf8ToBase64 } from './utils';
-
-// --- 明文 URI / 節點行格式導出 ---
-export function toRawLinks(nodes: ProxyNode[]): string {
-  const links = nodes.map(node => {
-    try {
-      if (node.type === 'vless') {
-        const params = new URLSearchParams();
-        params.set('security', node.reality ? 'reality' : (node.tls ? 'tls' : 'none'));
-        params.set('type', node.network || 'tcp');
-        if (node.flow) params.set('flow', node.flow);
-        if (node.sni) params.set('sni', node.sni);
-        if (node.fingerprint) params.set('fp', node.fingerprint);
-        if (node.ech) params.set('ech', `${node.echQueryServerName || 'cloudflare-ech.com'}+https://223.5.5.5/dns-query`);
-        if (node.reality) { params.set('pbk', node.reality.publicKey); params.set('sid', node.reality.shortId); }
-        if (node.network === 'ws') { if (node.wsPath) params.set('path', node.wsPath); if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host); }
-        if (node.network === 'xhttp' || node.network === 'splithttp') {
-          if (node.xhttpPath) params.set('path', node.xhttpPath);
-          if (node.xhttpHost) params.set('host', node.xhttpHost);
-          if (node.xhttpMode) params.set('mode', node.xhttpMode);
-        }
-        return `vless://${node.uuid}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-      }
-      if (node.type === 'hysteria2') {
-        const params = new URLSearchParams();
-        if (node.sni) params.set('sni', node.sni);
-        if (node.obfs) { params.set('obfs', node.obfs); if (node.obfsPassword) params.set('obfs-password', node.obfsPassword); }
-        if (node.skipCertVerify) params.set('insecure', '1');
-        return `hysteria2://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-      }
-      if (node.type === 'vmess') {
-        const vmessObj = {
-          v: "2", ps: node.name, add: node.server, port: node.port, id: node.uuid,
-          aid: (node.clashObj as Record<string, unknown>)?.alterId || 0, scy: "auto", net: node.network, type: "none",
-          host: node.wsHeaders?.Host || "", path: node.wsPath || "",
-          tls: node.tls ? "tls" : "", sni: node.sni || ""
-        };
-        return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
-      }
-      if (node.type === 'shadowsocks') {
-        const method = encodeURIComponent(node.cipher || '');
-        const pass = encodeURIComponent(node.password || '');
-        const params = new URLSearchParams();
-        if (node.tls) {
-          params.set('security', 'tls');
-          if (node.sni) params.set('sni', node.sni);
-          if (node.alpn) params.set('alpn', node.alpn.join(','));
-          if (node.fingerprint) params.set('fp', node.fingerprint);
-          if (node.ech) params.set('ech', `${node.echQueryServerName || 'cloudflare-ech.com'}+https://223.5.5.5/dns-query`);
-          params.set('type', node.network || 'tcp');
-        }
-        const clashPlugin = (node.clashObj as Record<string, unknown>)?.plugin as string | undefined;
-        if (clashPlugin && !node.tls) {
-          const pluginOpts = (node.clashObj as Record<string, unknown>)?.['plugin-opts'] as Record<string, string> | undefined;
-          const optStr = pluginOpts ? ';' + new URLSearchParams(pluginOpts).toString().replace(/&/g, ';') : '';
-          params.set('plugin', clashPlugin + optStr);
-        }
-        const query = params.toString();
-        return `ss://${method}:${pass}@${node.server}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
-      }
-      if (node.type === 'tuic') {
-        const params = new URLSearchParams();
-        if (node.sni) params.set('sni', node.sni);
-        if (node.congestion_control) params.set('congestion_control', node.congestion_control);
-        if (node.udp_relay_mode) params.set('udp_relay_mode', node.udp_relay_mode);
-        if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
-        if (node.skipCertVerify) params.set('allow_insecure', '1');
-        return `tuic://${node.uuid || ''}:${node.password || ''}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-      }
-      if (node.type === 'anytls') {
-        const params = new URLSearchParams();
-        params.set('security', 'tls');
-        if (node.sni) params.set('sni', node.sni);
-        params.set('insecure', node.skipCertVerify ? '1' : '0');
-        if (node.fingerprint) params.set('fp', node.fingerprint);
-        if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
-        params.set('type', 'tcp'); 
-        return `anytls://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-      }
-      if (node.type === 'trojan') {
-        const params = new URLSearchParams();
-        if (node.sni) params.set('sni', node.sni);
-        if (node.skipCertVerify) params.set('allowInsecure', '1');
-        if (node.ech) params.set('ech', `${node.echQueryServerName || 'cloudflare-ech.com'}+https://223.5.5.5/dns-query`);
-        return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-      }
-      
-      // WireGuard 標準格式
-      if (node.type === 'wireguard' && node.wireguard) {
-        const wg = node.wireguard;
-        const cleanIp = wg.localAddress[0]?.split('/')[0] || '10.2.0.2';
-        const params = new URLSearchParams();
-        params.set('publickey', wg.publicKey || '');
-        params.set('privatekey', wg.privateKey || '');
-        params.set('ip', cleanIp);
-        params.set('address', cleanIp);
-        if (wg.dns) params.set('dns', wg.dns);
-        if (wg.presharedKey) params.set('presharedkey', wg.presharedKey);
-        params.set('mtu', String(wg.mtu || 1420));
-        params.set('keepalive', '25');
-        return `wireguard://${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-      }
-
-      // MASQUE 標準格式
-      if (node.type === 'masque' && node.masque) {
-        const m = node.masque;
-        const params = new URLSearchParams();
-        params.set('public_key', m.publicKey);
-        if (m.localIpv4) params.set('ip', m.localIpv4.split('/')[0]);
-        if (m.localIpv6) params.set('ipv6', m.localIpv6.split('/')[0]);
-        if (m.mtu) params.set('mtu', String(m.mtu));
-        if (m.uri) params.set('uri', m.uri);
-        if (m.sni) params.set('sni', m.sni);
-        
-        const cc = m.congestion_controller || 'bbr';
-        params.set('cca', cc);
-        params.set('cc', cc);
-        params.set('congestion_control', cc);
-        params.set('congestion_controller', cc);
-        params.set('congestion-controller', cc);
-        
-        if (m.dns && m.dns.length > 0) params.set('dns', m.dns.join(','));
-        return `masque://${encodeURIComponent(m.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  }).filter((l): l is string => Boolean(l));
-
-  return links.join('\n');
-}
-
-// 導出 Base64 訂閱
-export function toBase64(nodes: ProxyNode[]): string {
-  const rawLinks = toRawLinks(nodes);
-  return utf8ToBase64(rawLinks);
-}
-
-// --- 直接自 GitHub 讀取遠端模板 (無 KV 快取，失敗時由內建降級規則兜底) ---
-async function fetchTemplateDirect(
-  url: string,
-  fallbackStr: string
-): Promise<string> {
-  try {
-    const resp = await fetch(`${url}?t=${Date.now()}`, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
-    });
-    if (resp.ok) {
-      return await resp.text();
-    }
-  } catch {}
-
-  return fallbackStr;
-}
-
-// --- Sing-Box 配置生成 ---
-export async function toSingBoxWithTemplate(nodes: ProxyNode[], _env?: Env, _forceRefresh = false): Promise<string> {
-  const text = await fetchTemplateDirect(REMOTE_CONFIG.singbox, FALLBACK_SINGBOX_RULES);
-  const config = JSON.parse(text);
-  
-  if (!config.http_clients || !Array.isArray(config.http_clients) || config.http_clients.length === 0) {
-    config.http_clients = [{ tag: 'default' }];
-  } else {
-    config.http_clients.forEach((hc: Record<string, unknown>) => {
-      if (hc.detour === 'direct' || hc.detour === 'DIRECT') {
-        delete hc.detour;
-      }
-    });
-  }
-
-  if (config.dns) {
-    config.dns.final = 'remote-dns';
-    if (Array.isArray(config.dns.servers)) {
-      config.dns.servers = config.dns.servers.filter((s: Record<string, unknown>) => s.type !== 'rcode');
-      config.dns.servers.forEach((s: Record<string, unknown>) => {
-        if (s.detour === 'direct' || s.detour === 'DIRECT') delete s.detour;
-      });
-    }
-    if (Array.isArray(config.dns.rules)) {
-      config.dns.rules = config.dns.rules.filter((r: Record<string, unknown>) => !('outbound' in r));
-    }
-
-    const echDomains = Array.from(new Set(
-      nodes.filter(n => n.ech).map(n => n.echQueryServerName || 'cloudflare-ech.com')
-    ));
-
-    if (echDomains.length > 0) {
-      if (!config.dns.servers.some((s: Record<string, unknown>) => s.tag === 'direct-ali-doh')) {
-        config.dns.servers.push({
-          tag: 'direct-ali-doh',
-          type: 'https',
-          server: '223.5.5.5'
-        });
-      }
-      config.dns.rules.unshift({
-        domain: echDomains,
-        domain_suffix: echDomains,
-        server: 'direct-ali-doh'
-      });
-    }
-  }
-
-  if (!config.route) config.route = {};
-  config.route.default_domain_resolver = 'system-dns';
-  config.route.default_http_client = 'default';
-  
-  if (Array.isArray(config.route.rule_set)) {
-    config.route.rule_set.forEach((rs: Record<string, unknown>) => {
-      delete rs.download_detour;
-    });
-  }
-
-  if (Array.isArray(config.inbounds)) {
-    config.inbounds.forEach((ib: Record<string, unknown>) => {
-      delete ib.sniff;
-      delete ib.sniff_override_destination;
-      delete ib.domain_strategy;
-    });
-  }
-
-  const outbounds: Record<string, unknown>[] = [];
-  const endpoints: Record<string, unknown>[] = [];
-  const allNodeTags: string[] = [];
-
-  nodes.forEach(n => {
-    allNodeTags.push(n.name);
-    
-    if (n.type === 'wireguard' && n.wireguard) {
-      const wg = n.wireguard;
-      const peerObj: Record<string, unknown> = {
-        address: n.server,
-        port: n.port,
-        public_key: wg.publicKey,
-        allowed_ips: ["0.0.0.0/0", "::/0"]
-      };
-      if (wg.presharedKey) peerObj.pre_shared_key = wg.presharedKey;
-      if (wg.reserved && wg.reserved.length > 0) peerObj.reserved = wg.reserved;
-
-      endpoints.push({
-        type: 'wireguard',
-        tag: n.name,
-        address: wg.localAddress,
-        private_key: wg.privateKey,
-        peers: [peerObj],
-        mtu: wg.mtu || 1420
-      });
-    } else {
-      const obj = JSON.parse(JSON.stringify(n.singboxObj));
-      if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {
-        obj.tls.alpn = ['http/1.1'];
-      }
-      outbounds.push(obj);
-    }
-  });
-
-  if (endpoints.length > 0) {
-    if (!config.endpoints || !Array.isArray(config.endpoints)) {
-      config.endpoints = [];
-    }
-    config.endpoints.push(...endpoints);
-  }
-
-  if (!Array.isArray(config.outbounds)) config.outbounds = [];
-  config.outbounds.push(...outbounds);
-
-  const lowRateTags = nodes.filter(n => n.multiplier !== undefined && n.multiplier < 1.0).map(n => n.name);
-  const iplcTags = nodes.filter(n => n.isIplc).map(n => n.name);
-
-  if (lowRateTags.length > 0) {
-    config.outbounds.unshift({
-      type: 'selector',
-      tag: '🏎️ 低倍率節點',
-      outbounds: lowRateTags
-    });
-  }
-
-  if (iplcTags.length > 0) {
-    config.outbounds.unshift({
-      type: 'selector',
-      tag: '⚡ 專線加速',
-      outbounds: iplcTags
-    });
-  }
-
-  config.outbounds.forEach((out: Record<string, unknown>) => {
-    if (out.type === 'selector' || out.type === 'urltest') {
-      if (!Array.isArray(out.outbounds)) out.outbounds = [];
-      const arr = out.outbounds as string[];
-      allNodeTags.forEach(tag => {
-        if (!arr.includes(tag)) arr.push(tag);
-      });
-    }
-  });
-
-  return JSON.stringify(config, null, 2);
-}
-
-// --- Clash Meta 配置生成 ---
-export async function toClashWithTemplate(nodes: ProxyNode[], _env?: Env, _forceRefresh = false): Promise<string> {
-  const text = await fetchTemplateDirect(REMOTE_CONFIG.clash, FALLBACK_CLASH_RULES);
-  const config = yaml.load(text) as Record<string, unknown>;
-  
-  const proxies = nodes.map(n => {
-    const obj = JSON.parse(JSON.stringify(n.clashObj));
-    Object.keys(obj).forEach(key => obj[key] === undefined && delete obj[key]);
-    return obj;
-  });
-  const proxyNames = proxies.map((p: Record<string, unknown>) => p.name as string);
-
-  if (!Array.isArray(config.proxies)) config.proxies = [];
-  config.proxies.push(...proxies);
-
-  const lowRateNames = nodes.filter(n => n.multiplier !== undefined && n.multiplier < 1.0).map(n => n.name);
-  const iplcNames = nodes.filter(n => n.isIplc).map(n => n.name);
-
-  if (Array.isArray(config['proxy-groups'])) {
-    const groups = config['proxy-groups'] as Array<Record<string, unknown>>;
-
-    if (lowRateNames.length > 0) {
-      groups.unshift({
-        name: '🏎️ 低倍率節點',
-        type: 'select',
-        proxies: lowRateNames
-      });
-    }
-
-    if (iplcNames.length > 0) {
-      groups.unshift({
-        name: '⚡ 專線加速',
-        type: 'select',
-        proxies: iplcNames
-      });
-    }
-
-    groups.forEach(group => {
-      if (!Array.isArray(group.proxies)) group.proxies = [];
-      const arr = group.proxies as string[];
-      proxyNames.forEach(name => {
-        if (!arr.includes(name)) arr.push(name);
-      });
-    });
-  }
-
-  const echDomains = Array.from(new Set(
-    nodes.filter(n => n.ech).map(n => n.echQueryServerName || 'cloudflare-ech.com')
-  ));
-
-  if (echDomains.length > 0 && config.dns && typeof config.dns === 'object') {
-    const dnsObj = config.dns as Record<string, unknown>;
-    if (!dnsObj['nameserver-policy'] || typeof dnsObj['nameserver-policy'] !== 'object') {
-      dnsObj['nameserver-policy'] = {};
-    }
-    const policy = dnsObj['nameserver-policy'] as Record<string, string[]>;
-    for (const domain of echDomains) {
-      policy[domain] = [
-        'https://223.5.5.5/dns-query'
-      ];
-    }
-  }
-
-  return yaml.dump(config, { indent: 2, noRefs: true });
-}
-
-// --- Surge 5 配置生成 ---
-export function toSurge(nodes: ProxyNode[]): string {
-  const lines: string[] = ['[Proxy]'];
-  const nodeNames: string[] = [];
-  const wgSections: string[] = [];
-
-  for (const node of nodes) {
-    let line = '';
-    const name = node.name.replace(/[,=]/g, '').trim();
-
-    if (node.type === 'shadowsocks') {
-      line = `${name} = ss, ${node.server}, ${node.port}, encrypt-method=${node.cipher}, password=${node.password}, udp-relay=true`;
-      if (node.sni) line += `, sni=${node.sni}`;
-    } else if (node.type === 'trojan') {
-      line = `${name} = trojan, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
-      if (node.network === 'ws') {
-        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
-        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
-      }
-    } else if (node.type === 'vmess') {
-      line = `${name} = vmess, ${node.server}, ${node.port}, username=${node.uuid}, tls=${node.tls ? 'true' : 'false'}, udp-relay=true`;
-      if (node.sni) line += `, sni=${node.sni}`;
-      if (node.network === 'ws') {
-        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
-        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
-      }
-    } else if (node.type === 'vless') {
-      line = `${name} = vless, ${node.server}, ${node.port}, username=${node.uuid}, tls=${node.tls ? 'true' : 'false'}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
-      if (node.network === 'ws') {
-        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
-        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
-      }
-    } else if (node.type === 'hysteria2') {
-      line = `${name} = hysteria2, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
-    } else if (node.type === 'tuic') {
-      line = `${name} = tuic, ${node.server}, ${node.port}, token=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}`;
-    } else if (node.type === 'wireguard' && node.wireguard) {
-      const wg = node.wireguard;
-      const safeSecName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
-      line = `${name} = wireguard, section-name=${safeSecName}`;
-      
-      let wgSec = `\n[WireGuard ${safeSecName}]\n`;
-      wgSec += `private-key = ${wg.privateKey}\n`;
-      wgSec += `self-ip = ${wg.localAddress[0]?.split('/')[0] || '10.2.0.2'}\n`;
-      if (wg.localAddress[1]) {
-        wgSec += `self-ip-v6 = ${wg.localAddress[1]?.split('/')[0]}\n`;
-      }
-      if (wg.dns) {
-        wgSec += `dns-server = ${wg.dns}\n`;
-      }
-      wgSec += `peer = (public-key = ${wg.publicKey || ''}, allowed-ips = "0.0.0.0/0, ::/0", endpoint = ${node.server}:${node.port}, keepalive = 25)\n`;
-      wgSections.push(wgSec);
-    }
-
-    if (line) {
-      lines.push(line);
-      nodeNames.push(name);
-    }
-  }
-
-  lines.push('\n[Proxy Group]');
-  if (nodeNames.length > 0) {
-    lines.push(`🚀 節點選擇 = select, ⚡ 自動選擇, DIRECT, ${nodeNames.join(', ')}`);
-    lines.push(`⚡ 自動選擇 = url-test, ${nodeNames.join(', ')}, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50`);
-  } else {
-    lines.push(`🚀 節點選擇 = select, DIRECT`);
-    lines.push(`⚡ 自動選擇 = select, DIRECT`);
-  }
-  lines.push(`🐟 漏網之魚 = select, 🚀 節點選擇, DIRECT`);
-
-  lines.push('\n[Rule]');
-  lines.push('GEOIP,CN,DIRECT');
-  lines.push('FINAL,🐟 漏網之魚\n');
-
-  if (wgSections.length > 0) {
-    lines.push(wgSections.join('\n'));
-  }
-
-  return lines.join('\n');
-}
-
-// --- Quantumult X (server_remote) ---
-export function toQuantumultX(nodes: ProxyNode[]): string {
-  const lines: string[] = [];
-
-  for (const node of nodes) {
-    const name = node.name.replace(/[,=]/g, '').trim();
-
-    if (node.type === 'shadowsocks') {
-      lines.push(`shadowsocks=${node.server}:${node.port}, method=${node.cipher}, password=${node.password}, fast-open=false, udp-relay=true, tag=${name}`);
-    } else if (node.type === 'trojan') {
-      lines.push(`trojan=${node.server}:${node.port}, password=${node.password}, over-tls=true, tls-host=${node.sni || node.server}, fast-open=false, udp-relay=true, tag=${name}`);
-    } else if (node.type === 'vmess') {
-      let vmessLine = `vmess=${node.server}:${node.port}, method=none, password=${node.uuid}, fast-open=false, udp-relay=true, tag=${name}`;
-      if (node.tls) vmessLine += `, over-tls=true, tls-host=${node.sni || node.server}`;
-      if (node.network === 'ws') vmessLine += `, obfs=ws, obfs-uri=${node.wsPath || '/'}`;
-      lines.push(vmessLine);
-    } else if (node.type === 'vless') {
-      let vlessLine = `vless=${node.server}:${node.port}, method=none, password=${node.uuid}, fast-open=false, udp-relay=true, tag=${name}`;
-      if (node.tls) vlessLine += `, over-tls=true, tls-host=${node.sni || node.server}`;
-      if (node.network === 'ws') {
-        vlessLine += `, obfs=ws, obfs-uri=${node.wsPath || '/'}`;
-        if (node.wsHeaders?.Host) vlessLine += `, obfs-host=${node.wsHeaders.Host}`;
-      }
-      lines.push(vlessLine);
-    } else if (node.type === 'hysteria2') {
-      lines.push(`hysteria2=${node.server}:${node.port}, password=${node.password}, tls-host=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, tag=${name}`);
-    }
-  }
-
-  if (lines.length === 0) {
-    return '# 未在該訂閱中找到相容的節點';
-  }
-
-  return lines.join('\n');
-}
-
-// --- Loon 格式生成 ---
-export function toLoon(nodes: ProxyNode[]): string {
-  const lines: string[] = ['[Proxy]'];
-
-  for (const node of nodes) {
-    const name = node.name.replace(/,/g, '');
-    if (node.type === 'shadowsocks') {
-      lines.push(`${name} = Shadowsocks,${node.server},${node.port},${node.cipher},"${node.password}",fast-open=false,udp=true`);
-    } else if (node.type === 'trojan') {
-      lines.push(`${name} = Trojan,${node.server},${node.port},"${node.password}",sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`);
-    } else if (node.type === 'vless') {
-      let l = `${name} = Vless,${node.server},${node.port},"${node.uuid}",tls=${node.tls ? 'true' : 'false'},sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`;
-      if (node.network === 'ws') l += `,transport=ws,path=${node.wsPath || '/'}`;
-      lines.push(l);
-    } else if (node.type === 'vmess') {
-      let v = `${name} = vmess,${node.server},${node.port},auto,"${node.uuid}",fast-open=false,udp=true`;
-      if (node.tls) v += `,over-tls=true,tls-name=${node.sni || node.server}`;
-      if (node.network === 'ws') v += `,transport=ws,path=${node.wsPath || '/'}`;
-      lines.push(v);
-    } else if (node.type === 'hysteria2') {
-      lines.push(`${name} = Hysteria2,${node.server},${node.port},password=${node.password},sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`);
-    }
-  }
-
-  return lines.join('\n');
-}
 ````
 
 ## File: src/utils.ts
@@ -5032,133 +5461,6 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
 
 ````
 
-## File: argo.sh
-````sh
-#!/bin/bash
-# Cloudflare Argo Tunnel 一鍵部署腳本 (增強版 2.0)
-# 專案網址: https://github.com/sammy0101/cf-sub-converter
-
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-NC='\033[0m'
-
-NODE_TYPE="{{NODE_TYPE}}"
-VLESS_UUID="{{VLESS_UUID}}"
-VLESS_PATH="{{VLESS_PATH}}"
-VLESS_TYPE="{{VLESS_TYPE}}"
-VLESS_PORT="{{VLESS_PORT}}"
-NODE_NAME="{{NODE_NAME}}"
-TUNNEL_TOKEN="{{TUNNEL_TOKEN}}"
-CUSTOM_DOMAIN="{{CUSTOM_DOMAIN}}"
-VLESS_TLS="{{VLESS_TLS}}"
-ORIGIN_HOST="{{ORIGIN_HOST}}"
-
-echo -e "${GREEN}=== 開始部署 Cloudflare Argo 隧道 (${NODE_NAME}) ===${NC}"
-
-if [ "$EUID" -ne 0 ]; then
-  echo -e "${RED}錯誤: 請使用 root 權限執行此腳本！${NC}"
-  exit 1
-fi
-
-# 1. 安裝 cloudflared
-if ! command -v cloudflared &> /dev/null; then
-    echo "正在下載安裝 cloudflared..."
-    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
-    chmod +x /usr/local/bin/cloudflared
-else
-    echo "cloudflared 已存在，跳過安裝。"
-fi
-
-SAFE_NODE_NAME=$(echo "$NODE_NAME" | sed 's/[^a-zA-Z0-9]/_/g')
-
-# 2. 自動探測與修正連接埠
-DETECTED_PORT="$VLESS_PORT"
-if command -v ss &> /dev/null; then
-    if ! ss -tln | grep -qE ":$VLESS_PORT([[:space:]]|$)"; then
-        echo -e "${RED}警告: 本地轉發埠 $VLESS_PORT 未監聽，正在探測...${NC}"
-        if ss -tln | grep -qE ":443([[:space:]]|$)"; then
-            echo -e "${GREEN}自動修正：轉發目標為 443 埠。${NC}"
-            DETECTED_PORT="443"
-        elif ss -tln | grep -qE ":80([[:space:]]|$)"; then
-            echo -e "${GREEN}自動修正：轉發目標為 80 埠。${NC}"
-            DETECTED_PORT="80"
-        fi
-    fi
-fi
-
-# 3. 智慧探測 TLS
-DETECTED_TLS="false"
-if curl -s -k --connect-timeout 2 "https://127.0.0.1:$DETECTED_PORT" &>/dev/null; then
-    echo "偵測到本地為 HTTPS 加密埠，開啟 TLS 轉發與 SNI 對齊。"
-    DETECTED_TLS="true"
-fi
-
-LOCAL_URL="http://127.0.0.1:$DETECTED_PORT"
-EXTRA_ARGS=""
-if [ "$DETECTED_TLS" = "true" ]; then
-    LOCAL_URL="https://127.0.0.1:$DETECTED_PORT"
-    EXTRA_ARGS="--no-tls-verify"
-fi
-
-if [ -n "$ORIGIN_HOST" ]; then
-    EXTRA_ARGS="$EXTRA_ARGS --http-host-header $ORIGIN_HOST"
-    if [ "$DETECTED_TLS" = "true" ]; then
-        EXTRA_ARGS="$EXTRA_ARGS --origin-server-name $ORIGIN_HOST"
-    fi
-fi
-
-# 4. 啟動隧道
-if [ -n "$TUNNEL_TOKEN" ]; then
-    echo -e "${GREEN}【固定隧道模式】正在啟動服務...${NC}"
-    cloudflared service uninstall &> /dev/null
-    cloudflared service install "$TUNNEL_TOKEN"
-    systemctl daemon-reload
-    systemctl enable cloudflared
-    systemctl restart cloudflared
-    echo -e "${GREEN}固定域名隧道部署完成！${NC}"
-else
-    echo -e "${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...${NC}"
-    systemctl stop cloudflared-argo-${SAFE_NODE_NAME} &> /dev/null
-    
-    cat <<EOF > /etc/systemd/system/cloudflared-argo-${SAFE_NODE_NAME}.service
-[Unit]
-Description=Cloudflare Argo Tunnel for ${NODE_NAME}
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/cloudflared tunnel --url $LOCAL_URL $EXTRA_ARGS
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    systemctl daemon-reload
-    systemctl enable cloudflared-argo-${SAFE_NODE_NAME}
-    systemctl start cloudflared-argo-${SAFE_NODE_NAME}
-    
-    echo "正在等待 Cloudflare 分配臨時域名..."
-    TEMP_DOMAIN=""
-    for i in {1..15}; do
-        sleep 1
-        TEMP_DOMAIN=$(journalctl -u cloudflared-argo-${SAFE_NODE_NAME} -n 50 --no-pager 2>/dev/null | grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' | tail -n 1 | cut -d'/' -f3)
-        if [ -n "$TEMP_DOMAIN" ]; then
-            break
-        fi
-    done
-    
-    if [ -n "$TEMP_DOMAIN" ]; then
-        echo -e "${GREEN}獲取臨時域名成功: $TEMP_DOMAIN${NC}"
-    else
-        echo -e "${RED}超時未獲取到域名，請手動檢查 journalctl -u cloudflared-argo-${SAFE_NODE_NAME}${NC}"
-    fi
-fi
-
-````
-
 ## File: Sing-Box_Rules.JSON
 ````JSON
 {
@@ -5345,423 +5647,132 @@ fi
 
 ````
 
-## File: README.md
-````md
-# ⚡ CF Sub Converter Pro
-
-基於 Cloudflare Workers 的全能 Serverless 訂閱轉換與節點中樞。擁有現代深色 UI、GitHub 遠端規則即時直讀與內嵌容災架構、自訂短代碼全字元（大小寫/符號）1:1 完整保留、私密配置管理安全鎖、智慧倍率/專線分組、國旗萬國對齊系統，以及 **Argo 隧道 2.0 自動化生成器**。支援將各類代理節點一鍵轉換為 **Sing-Box / Clash Meta (Mihomo) / Surge 5 / Quantumult X / Loon / Base64** 格式，並提供全平台專屬喚醒協議（Deep Link）與行動條碼掃描自動導入。
-
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sammy0101/cf-sub-converter)
-
----
-
-## 🌟 核心特性
-
-### 1. 🔌 全主流與新興協議深度解析
-- **完整 Clash / Mihomo YAML 跨協議智慧解析**：
-  - 支援將任何網上下載或機場提供的完整 `.yaml` 設定檔整份貼入主輸入框。
-  - 後端解析器自動跳過頂層 `port:`、`rules:` 與策略組，精準提取 `proxies:` 陣列中的所有節點，並無縫轉換為 Sing-Box、Surge、Base64 等任何目標格式。
-- **Cloudflare WARP MASQUE 萬能解析與高階調優**：
-  - **多元來源識別**：支援貼入單一 JSON 物件、多組連續 JSON 物件、標準 JSON 陣列 `[ { ... } ]`、單行 `masque://` URI，或包含 MASQUE 的 Clash YAML 設定檔。
-  - **Mihomo 專屬全規格補齊**：自動注入 `uri: https://cloudflareaccess.com`、`sni: www.microsoft.com`（防封鎖偽裝）、`congestion-controller: bbr`，以及 `dns: [1.1.1.1, 8.8.8.8]`。
-  - **客戶端 IP 遮罩規範化**：針對 Clash 自動剝離子網掩碼（純 IP：`172.16.0.2`），避免舊版或部分核心解析異常；針對 Sing-Box 精準保留標準 CIDR（`172.16.0.2/32`）。
-  - **Shadowrocket（小火箭）自動點亮 BBR**：在 Base64 明文 URI 中注入多別名 `cca=bbr`、`cc=bbr` 與 `congestion_control=bbr`，小火箭掃碼導入後**「擁塞控制」自動精確設定為 `bbr`**。
-  - **Sing-Box 戰未來支援**：輸出結構完整對齊現代規範與社群擴展分支（如 `sing-box-lx`、`sing-box-extended`），內嵌 `congestion_control: "bbr"` 與 `tls` 物件。
-- **WireGuard 官方 `.conf` 深度支援（支援多組批次貼入）**：
-  - 直接貼入多組 Proton VPN、Mullvad 或 WARP 的 `[Interface] ... [Peer] ...` 設定檔，自動批次辨識並分割為獨立節點。
-  - 自動提取 Proton 專屬 NetShield 內部 DNS（`10.2.0.1`），完整保留原生去廣告與極致防洩漏功能。
-  - 智慧辨識伺服器備註與國家標籤（例如 `# JP-FREE#23` 自動轉換為 `🇯🇵 JP-FREE#23`）。
-- **VLESS**：支援最新 `xhttp` / `splithttp`、`Reality`、`Vision`、`WebSocket (含 ?ed=2560 Early Data 淨化)`、`gRPC`。
-- **ECH (Encrypted Client Hello)**：自動解析 `&ech=` 參數，在 Sing-Box 與 Clash 中開啟 ECH 加密問候，徹底繞過 GFW 針對 SNI 網域的阻斷。
-- **WebSocket ALPN 智慧鎖定**：自動為 WS+TLS 節點指定 `alpn: ["http/1.1"]`，解決 Cloudflare 邊緣節點錯誤協商 HTTP/2 導致的斷流問題。
-- **Shadowsocks-2022**：完整支援 `2022-blake3-*` 多端口與服務端密鑰。
-- **其他協議**：Trojan、VMess、Hysteria 2 (`hy2`)、TUIC、AnyTLS。
-
-### 2. 📱 全生態客戶端適配與一鍵喚醒 (Deep Link)
-- **自適應識別 (Adaptive)**：自動依據請求客戶端的 `User-Agent` 回傳對應格式。
-- **Clash Meta (Mihomo)**：YAML 格式，內建 Fake-IP、DoH 分流、流量嗅探與動態策略組。
-- **Sing-Box (1.14+ 現代規範)**：
-  - 完整符合現代標準，WireGuard 自動歸入頂層現代 `endpoints` 結構，徹底消除 `unknown field "server"`、`unknown field "local_address"`、`download_detour` 等廢棄與語法錯誤。
-  - WireGuard 由策略組（`🚀 節點選擇`、`⚡ 自動選擇`）直接引用，自由切換。
-  - 國外代理流量採用 Fake-IP 封裝網域名稱，國內/內網流量自動使用 Real-IP 直連。
-- **Surge 5**：標準 `.conf` 格式，支援 Proxy、Proxy Group、分流規則與 `[WireGuard ...]` 獨立專屬區塊。
-- **Quantumult X**：支援包含 `vless=` 在內的標準 `server_remote` 節點清單。
-- **Loon**：標準 `[Proxy]` 格式。
-- **通用 Base64 / Shadowrocket (小火箭)**：
-  - 完整對齊標準 URI 結構（私鑰、公鑰、IP、DNS、MTU、CCA/BBR 與 Keepalive 參數全規格映射），解決小火箭解碼錯誤並支援原生通連。
-- **🚀 專屬喚醒二維碼與自動命名**：
-  - 點擊 QR Code 圖示自動產生符合各客戶端規範的條碼（例如 Sing-Box 官方標準 `sing-box://import-remote-profile?url=...#name`）。
-  - 手機相機或 App 掃描**全自動填入名稱與網址**，亦可點擊按鈕直接喚醒 App 一鍵導入。
-
-### 3. 🏷️ 短連結雲端儲存與全字元完整保留
-- **大小寫字母與特殊符號 1:1 完全保留**：
-  - 點選已儲存的配置時，自訂短路徑名稱完整保留原始大小寫字母（如 `HK-VIP-Pro`）、符號、Emoji 與中文，不再強制轉換為小寫。
-  - 網址生成器整合標準安全轉義（`encodeURIComponent`），確保包含特殊字元或空白時 HTTP 路由不被截斷，並能精確於 KV 還原對應配置。
-- **路徑短代碼命名同步**：
-  - 設定自訂短代碼（如 `My_Sub`），客戶端拉取時，後端自動下發標準 HTTP 標頭：
-    - `Profile-Title: My_Sub`
-    - `Subscription-Title: My_Sub`
-    - `Content-Disposition: inline; filename="My_Sub.json"`
-  - 各客戶端（Shadowrocket、Sing-Box、Surge、Clash）拉取後，訂閱清單自動顯示為指定名稱。
-
-### 4. 🔐 私密配置管理安全鎖 (PAGE_PASSWORD)
-- **公私分明**：
-  - **公開使用**：通用訂閱轉換、節點過濾、Argo 隧道生成、客戶端訂閱更新一律開放。
-  - **私密保護**：下方的「已儲存的配置」受密碼保護，需輸入管理密碼才能檢視、新增或編輯私密節點。
-- **永久記住登入狀態**：解鎖成功後瀏覽器（`localStorage`）自動保持登入，重開網頁免重複輸入，並提供隨時「🔒 鎖定」按鈕。
-- **後端安全攔截**：`/favs` 路由全面校驗 `X-Password`，未授權請求直接回傳 `401 Unauthorized`。
-
-### 5. 🛡️ 99.99% GitHub 模板即時直讀與雙重容災架構 (Zero Downtime)
-- **GitHub 遠端直讀 (零 KV 模板冗餘)**：
-  - Sing-Box 與 Clash Meta 的遠端規則模板直接向 GitHub 倉庫請求最新內容，徹底移除寫入 KV 之 `tpl:singbox` 與 `tpl:clash` 鍵值，邊緣資料庫乾淨純粹。
-  - 修改 GitHub 上的 `Sing-Box_Rules.JSON` 或 `Clash_Rules.YAML` 後，客戶端更新立即生效，無需手動清除快取。
-- **雙重容災降級保證**：
-  - 請求流程為：`GitHub 即時獲取` ➔ `內嵌應急模板兜底`。
-  - 若遇 GitHub 服務波動、網路逾時或 429 限流，系統自動無縫回退至內建純淨版預設模板，確保訂閱拉取 100% 成功。
-- **專屬純淨儲存**：KV 空間專門用於儲存用戶自訂短連結、私密收藏配置與 Argo 部署腳本。
-
-### 6. 🏎️ 智慧倍率與專線動態策略組
-- **倍率辨識**：自動識別節點名稱中的倍率特徵（如 `0.1x`、`0.5X`、`0.2倍`），並在 Sing-Box 與 Clash Meta 中動態建立「🏎️ 低倍率節點」策略組。
-- **專線辨識**：自動擷取 `IPLC`、`IEPL`、`專線`、`內網` 特徵，動態生成「⚡ 專線加速」策略組。
-
-### 7. 🌀 Argo 隧道 2.0 一鍵生成器
-- **優選 IP / 官方域名注入**：支援填入 Cloudflare Clean IP（如 `104.16.80.1`）或優選網域，自動完成連接伺服器與 SNI/Host 映射，顯著降低延遲。
-- **極簡 VPS 命令**：腳本自動上傳至 KV 快取，透過 `curl -sSL ... | bash` 極速完成部署。
-- **智慧探測與修復**：VPS 端自動探測 443 / 80 本地監聽連接埠、TLS 狀態與 Host Header 重寫。
-
-### 8. 🔍 智慧篩選、名稱替換與黃金國旗排版
-- **雙向過濾**：支援「僅保留」與「排除」規則（多組用 `|` 隔開，如 `HK|TW` 或 `5x`），內建 `x`/`X`/`×` 字符相容匹配。
-- **名稱替換**：支援 `DEL-關鍵字`（刪除）、`尋找-替換`，以及 `ALL-新名稱`（一鍵統改所有節點名稱）。
-- **黃金 22 地區國旗排序**：自動為節點補上國旗 Emoji，依亞太核心（港、台、日、星、韓）➔ 歐美主流（美、英、加、澳）順序緊密分群，並自動對重複節點編號。
-
-### 9. 📊 流量與到期日加總透傳
-- 自動從上游多個機場擷取並加總上傳、下載與總流量，計算最近的到期時間，透過標準 `subscription-userinfo` 標頭透傳，完美點亮客戶端流量資訊條。
-
----
-
-## 🚀 部署教學
-
-### 方法一：一鍵按鈕快速部署 (最推薦、零設定自動託管)
-
-點擊本說明文件上方的 **Deploy to Cloudflare Workers** 按鈕。
-
-* **零設定自動託管**：Cloudflare 網頁部署精靈會引導您登入，並**在背景全自動為您建立並對接好所需的 KV 命名空間（`SUB_CACHE`）**。
-* **自建 CI/CD (Workers Builds)**：Cloudflare 會在您的 GitHub 下自動建立此專案的複製倉庫。未來只要在 GitHub 修改並 `git push`，Cloudflare 就會自動在端點編譯部署。
-
----
-
-### 方法二：手動 Fork 本專案並使用 GitHub Actions 自動部署 (需設定 Secrets)
-
-如果您選擇**手動 Fork 本項目**並利用倉庫內建的 GitHub Actions 自動進行 CI/CD 部署，請依照以下步驟操作：
-
-1. **Fork 本專案**：
-   點擊本倉庫右上角的 **`Fork`** 按鈕，將專案複製一份到您的 GitHub 帳號下。
-
-2. **建立 Cloudflare KV 命名空間**：
-   - 登入 [Cloudflare Dashboard](https://dash.cloudflare.com/)。
-   - 點擊左側選單的 **`Storage & Databases` (儲存與資料庫)** ➔ **`KV`**。
-   - 點擊 **`Create a namespace`**，輸入名稱（例如 `SUB_CACHE`），建立完成後複製其 **Namespace ID**。
-
-3. **設定 GitHub Repository Secrets**：
-   前往您 Fork 出來的 GitHub 倉庫頁面，依次點擊：
-   **`Settings`** ➔ **`Secrets and variables`** ➔ **`Actions`** ➔ **`New repository secret`**，添加以下三個密鑰：
-
-   | 密鑰名稱 (Secret Name) | 說明與獲取方式 |
-   | :--- | :--- |
-   | **`CF_API_TOKEN`** | **Cloudflare API 權杖**<br>獲取方式：Cloudflare 首頁 ➔ 右上角「我的個人資料」➔「API 權杖」➔「建立權杖」➔ 選擇「編輯 Cloudflare Workers」模板（需具備 Workers 與 KV 的編輯權限）。 |
-   | **`CF_ACCOUNT_ID`** | **Cloudflare 帳戶 ID**<br>獲取方式：登入 Cloudflare ➔ 點擊任意網域或 Worker 頁面，在右側欄位即可找到「帳戶 ID (Account ID)」。 |
-   | **`CF_KV_ID`** | **KV 命名空間 ID**<br>獲取方式：填入步驟 2 中建立的 `SUB_CACHE` 命名空間 ID。 |
-
-4. **觸發自動部署**：
-   - 前往 GitHub 倉庫的 **`Actions`** 標籤頁。
-   - 點擊左側的 **`Deploy to Cloudflare Workers`** 工作流，點擊 **`Run workflow`** 手動執行部署。
-   - 後續只要您對 `main` 或 `master` 分支推送（Push）任何代碼變更，GitHub Actions 就會全自動為您編譯並發布至 Cloudflare Workers。
-
----
-
-### 方法三：本地手動編譯部署 (Wrangler CLI)
-
-1. **克隆專案並安裝依賴**：
-   ```bash
-   git clone https://github.com/sammy0101/cf-sub-converter.git
-   cd cf-sub-converter
-   npm install
-   ```
-
-2. **建立 KV 命名空間**：
-   ```bash
-   wrangler kv:namespace create SUB_CACHE
-   ```
-   *將終端機回傳的 `id` 替換至 `wrangler.toml` 中的 `KV_ID_PLACEHOLDER`。*
-
-3. **發布至 Cloudflare**：
-   ```bash
-   npm run deploy
-   ```
-
----
-
-## 🔐 設定私密管理密碼（PAGE_PASSWORD）
-
-若要啟用「已儲存的配置」安全密碼鎖，推薦直接在 Cloudflare Dashboard 中設定為 **Secret（加密機密）**，無論重新部署多少次都**永遠不會丟失**：
-
-1. 登入 [Cloudflare Dashboard](https://dash.cloudflare.com/) ➔ 點進您的 Worker。
-2. 點擊頂部的 **`Settings` (設定)** ➔ **`Variables and Secrets` (變數與機密)**。
-3. 點擊 **`Add variable`** 或 **`Add secret`**：
-   - **名稱**：`PAGE_PASSWORD`
-   - **值**：輸入您的管理密碼（例如 `MyPass888`）
-   - 點擊欄位旁的 **`Encrypt` (加密)** 按鈕鎖定。
-4. 點擊 **`Save and deploy` (儲存並部署)** 即可立即生效！
-
----
-
-## 📖 使用指南
-
-### 1. 視覺化 Web 面板
-訪問您部署完成的 Workers 網址：
-- **資料來源設定**：
-  - 貼上完整 **Clash Meta (.yaml) 設定檔**、機場訂閱連結、WireGuard `.conf` 設定檔（支援多組 `[Interface]...[Peer]` 連續貼入）、Cloudflare WARP MASQUE JSON（支援陣列或多個物件），或各類代理節點。
-- **過濾與替換**：設定保留/排除關鍵字或名稱替換規則。
-- **短連結雲端儲存**：設定自訂短代碼（如 `My_Sub`），規則將自動打包存入 KV，大小寫與字元原樣保留。
-- **多平台訂閱面板**：
-  - 複製對應客戶端的訂閱連結。
-  - 點擊 QR Code 圖示彈出專屬喚醒視窗，手機相機或 App 掃描自動填入，或點擊「🚀 一鍵打開並導入」直接喚醒 App。
-- **配置收藏管理**：輸入管理密碼解鎖後，可自由新增、編輯、刪除或一鍵套用常用的私密配置，瀏覽器會自動記住登入狀態。
-
----
-
-### 2. 多元輸入範例
-
-#### (1) 直接貼入完整 Clash YAML 設定檔（自動提取 proxies）
-```yaml
-mixed-port: 7890
-mode: rule
-proxies:
-  - name: "WARP-MASQUE-01"
-    type: masque
-    server: 162.159.198.2
-    port: 443
-    private-key: <REDACTED_PRIVATE_KEY>
-    public-key: <REDACTED_PUBLIC_KEY>
-    ip: 172.16.0.2
-    ipv6: 2606:4700:110:8f56:aae5:fd77:ac85:2622
-    uri: https://cloudflareaccess.com
-    mtu: 1280
-    udp: true
-    remote-dns-resolve: true
-    congestion-controller: bbr
-    dns: [ 1.1.1.1, 8.8.8.8 ]
-    sni: www.microsoft.com
-```
-
-#### (2) 多組 WireGuard (.conf) 連續貼入
-```ini
-[Interface]
-PrivateKey = <REDACTED_PRIVATE_KEY_1>
-Address = 10.2.0.2/32
-DNS = 10.2.0.1
-
-[Peer]
-# JP-FREE#01
-PublicKey = <REDACTED_PUBLIC_KEY_1>
-AllowedIPs = 0.0.0.0/0, ::/0
-Endpoint = 198.51.100.1:51820
-PersistentKeepalive = 25
-
-[Interface]
-PrivateKey = <REDACTED_PRIVATE_KEY_2>
-Address = 10.2.0.2/32
-DNS = 10.2.0.1
-
-[Peer]
-# US-FREE#02
-PublicKey = <REDACTED_PUBLIC_KEY_2>
-AllowedIPs = 0.0.0.0/0, ::/0
-Endpoint = 198.51.100.2:51820
-PersistentKeepalive = 25
-```
-
-#### (3) 多組 Cloudflare WARP MASQUE JSON 貼入
-```json
-[
-  {
-    "name": "WARP-HK",
-    "private_key": "<REDACTED_PRIVATE_KEY_1>",
-    "endpoint_v4": "162.159.198.2",
-    "endpoint_pub_key": "<REDACTED_PUBLIC_KEY_1>",
-    "ipv4": "172.16.0.2/32"
-  },
-  {
-    "name": "WARP-JP",
-    "private_key": "<REDACTED_PRIVATE_KEY_2>",
-    "endpoint_v4": "162.159.198.3",
-    "endpoint_pub_key": "<REDACTED_PUBLIC_KEY_2>",
-    "ipv4": "172.16.0.2/32"
-  }
-]
-```
-
----
-
-### 3. Argo 隧道 2.0 部署步驟
-
-1. 在網頁主輸入框貼入您的 VLESS / VMess 節點內容。
-2. 點擊 **「第一步：解析並載入目前輸入的 VLESS / VMess 節點」**。
-3. 勾選欲轉換之節點，系統會自動匹配原埠號。
-4. （選填）填入 **Cloudflare 優選 IP**（例如 `104.16.80.1`）以加速連線。
-5. （選填）填入固定 Tunnel Token 與自訂綁定域名（若留空則為臨時隨機隧道）。
-6. 點擊 **「第二步：生成 Argo 一鍵部署指令與節點」**。
-7. 將產生的 `curl -sSL ... | bash` 指令複製至 VPS（以 root 權限執行）。
-8. 部署成功後：
-   - **固定域名模式**：下方文字框直接複製已轉換好的 `_Argo_優選` 節點。
-   - **臨時隨機模式**：VPS 終端機將動態輸出最終分配的節點連結。
-
----
-
-### 4. API 調用與外部前端對接
-
-#### 當作標準 SubConverter 後端使用
-本專案內建標準 `/sub` 與 `/version` 端點，可直接填入任何開源 `sub-web` 前端的「後端地址 (Backend URL)」：
-```text
-https://your-worker.workers.dev
-```
-
-#### URL 參數手動轉換
-
-| 參數 | 說明 | 範例 |
-| :--- | :--- | :--- |
-| `url` | 原始訂閱連結、YAML 或節點內容（需 URL 編碼） | `https://example.com/sub` |
-| `target` | 目標格式：`clash` / `singbox` / `surge` / `quanx` / `loon` / `base64` | `target=clash` |
-| `include` | 僅保留符合正則之節點 | `include=HK\|TW` |
-| `exclude` | 排除符合正則之節點（自動相容乘號 `×`） | `exclude=5x\|官網` |
-| `rename` | 名稱替換（刪除：`DEL-字串`、替換：`A-B`、統改：`ALL-名稱`） | `rename=DEL-[69云]\|ALL-JP` |
-| `name` | 自訂客戶端訂閱名稱（覆蓋預設檔名） | `name=my-vip-sub` |
-| `force` / `nocache` | 兼容保留參數（模板已全面改為 GitHub 即時獲取） | `force=1` |
-
-**完整調用範例**：
-```http
-# 轉換原始訂閱為 Clash Meta 格式，僅保留香港，並刪除廣告名稱
-https://your-worker.workers.dev/sub?url=<URL編碼>&target=clash&include=HK&rename=DEL-[廣告]
-
-# 讀取已存於雲端 KV 的短連結配置
-https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox
-```
-
----
-
-## 🛡️ 內建分流群組 (Sing-Box / Clash Meta)
-
-| 圖示 | 策略組名稱 | 路由邏輯 |
-| :--- | :--- | :--- |
-| 🏎️ | 低倍率節點 | 自動彙整倍率 `< 1.0x` 的節點（省流專用） |
-| ⚡ | 專線加速 | 自動彙整包含 `IPLC` / `IEPL` / `專線` 的低延遲節點 |
-| 🚀 | 節點選擇 | 手動指定出站節點 |
-| ⚡ | 自動選擇 | URL Test 自動測速切換最低延遲節點 |
-| 💬 | HK AI 服務 | 針對 OpenAI / Claude / AI Studio 專屬分流 |
-| 🍎 | 蘋果服務 | Apple 相關服務直連或代理 |
-| Ⓜ️ | 微軟服務 | Microsoft 服務直連或代理 |
-| 🎮 | 遊戲平台 | Steam / Epic / EA / Ubisoft / Blizzard |
-| 🌐 | 非中國 | 全球主流網站（Google、Telegram、YouTube 等） |
-| 🇨🇳 | 國內服務 | 中國大陸 IP 與網域自動精準直連 |
-| 🏠 | 私有網絡 | 區域網路 (LAN) 直連 |
-| 🛑 | 廣告攔截 | 阻擋常見廣告與追蹤器 (AdBlock) |
-| 🐟 | 漏網之魚 | Final Match 未命中規則之預設路由 |
-
----
-
-## ❓ 常見問題排錯 (FAQ)
-
-### 1. 為什麼官方原版 Sing-Box 無法使用 MASQUE 節點？如何在 Sing-Box 使用 WARP？
-- **原因說明**：
-  - **MASQUE 協議現狀**：官方 `SagerNet/sing-box` 主線尚未合併 MASQUE 模組（若強行載入會報 `unknown outbound type: masque`）。目前僅社群擴展分支（如 `sing-box-lx`、`sing-box-extended`）支援 MASQUE。
-  - **協議不可互轉**：MASQUE（ECDSA P-256 / HTTP/3）與 WireGuard（Curve25519 / UDP）是兩套完全獨立的密碼學體系，轉換器**無法直接將 MASQUE 金鑰轉換成 WireGuard 節點**。
-- **解法（官方 Sing-Box 如何使用 WARP）**：
-  - 若需在官方原版 Sing-Box 使用 WARP，請直接獲取 **WARP 的 WireGuard 設定檔**（例如使用 `wgcf` 工具產生內含 `[Interface]...[Peer]` 的 `.conf` 檔）。
-  - 將該 WireGuard `.conf` 貼入本轉換器，即可轉出符合官方規範的頂層現代 `endpoints` 結構，流暢連通。
-
-### 2. WireGuard 節點在小火箭（Shadowrocket）測速顯示超時/紅燈（TCP 無延遲），但打開開關能正常上網？
-- **原因**：WireGuard 是工作在第 3 層（網路層）的虛擬網卡 TUN 隧道協議。小火箭首頁的「連通性測試」預設發送的是 **TCP/HTTP Ping**；在開關未開啟前，TUN 路由尚未真正建立，因此向私有 DNS（如 Proton 的 `10.2.0.1`）發起的 TCP 域名解析必定超時。
-- **說明**：這是所有包含內部私有 DNS 的 WireGuard / WARP 節點在小火箭中的**正常現象**。只要上方連線開關開啟後能順暢瀏覽網頁、查 IP 正確，即代表握手與代理功能完全正常。若需測出延遲數值，可在小火箭「設定」➔「測試方法」中切換為 **ICMP** 測速。
-
-### 3. Windows 上運行 WireGuard 節點報錯 `listen udp6: An invalid argument was supplied`？
-- **原因**：Windows 電腦未開啟 IPv6 協議元件，導致 Sing-Box 核心在嘗試雙棧 UDP 監聽時被 Windows Winsock 攔截。
-- **解法**：在 Windows 按 `Win + R` ➔ 輸入 `ncpa.cpl` ➔ 在連線的網卡（乙太網路或 Wi-Fi）點右鍵「內容」➔ **將「網際網路通訊協定第 6 版 (TCP/IPv6)」打勾啟用** 即可正常握手連通。若電腦完全無法開啟 IPv6，建議使用 **Clash Meta** 格式訂閱。
-
-### 4. Cloudflare EdgeTunnel 節點在手機端連線逾時？
-- **原因**：部分 Cloudflare 節點啟用了 ECH（加密問候）或自訂 WebSocket Early Data。
-- **解法**：本工具已全面自動淨化路徑中的 `?ed=2560`，並鎖定 `alpn: ["http/1.1"]`，只要透過本轉換器更新至最新訂閱，即可完美相容。
-
----
-
-## 📁 專案架構
-
-```text
-cf-sub-converter/
-├── src/
-│   ├── index.ts          # Worker 核心路由、並發請求控制、安全鑒權與 API 接口
-│   ├── constants.ts      # 響應式深色 UI 模板、QR Code 生成器與內嵌緊急降級規則
-│   ├── parser.ts         # 萬能節點解析器 (Clash YAML proxies 提取, WireGuard .conf, MASQUE, VLESS 等)
-│   ├── generator.ts      # 多平台格式生成器 (直連 GitHub 遠端模板 + 內嵌兜底、Sing-Box, Clash, Surge 等)
-│   ├── utils.ts          # 倍率與專線特徵提取、Base64 安全編碼、萬國國旗對齊演算法
-│   └── types.ts          # 嚴格 TypeScript 類型定義
-├── argo.sh               # VPS Argo 隧道 2.0 一鍵安裝與自我修復通用腳本
-├── Sing-Box_Rules.JSON   # GitHub 遠端 Sing-Box 混合 TUN 規則模板 (1.14+ 現代無警告規範)
-├── Clash_Rules.YAML      # GitHub 遠端 Clash Meta (Mihomo) 規則模板
-├── wrangler.toml         # Cloudflare Workers 配置檔
-└── .github/workflows/
-    └── deploy.yml        # GitHub Actions 自動化部署工作流
-```
-
----
-
-## ⚠️ 免責聲明
-
-本專案僅供網路安全、分散式架構學習與技術交流使用，不提供任何代理伺服器或節點服務。請使用者自覺遵守當地法律法規，切勿用於任何非法用途。
+## File: .github/workflows/combine-code.yml
+````yml
+name: Generate All Codebase to MD
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'combined_project_code.md' # 避免此檔案自身更新引發無限循環
+  workflow_dispatch: # 支援在 GitHub 網頁上手動觸發執行
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Combine All Files into MD
+        run: |
+          OUT_FILE="combined_project_code.md"
+          echo "# Complete Project Codebase" > "$OUT_FILE"
+          echo "Generated on: $(date)" >> "$OUT_FILE"
+          echo "" >> "$OUT_FILE"
+
+          # 遍歷專案內的所有檔案，排除依賴、Git 歷史、打包產物及二進位檔案
+          find . -type f \
+            -not -path "*/node_modules/*" \
+            -not -path "*/.git/*" \
+            -not -path "*/dist/*" \
+            -not -name "package-lock.json" \
+            -not -name "yarn.lock" \
+            -not -name "pnpm-lock.yaml" \
+            -not -name "$OUT_FILE" \
+            -not -name "*.png" \
+            -not -name "*.jpg" \
+            -not -name "*.jpeg" \
+            -not -name "*.gif" \
+            -not -name "*.ico" \
+            -not -name "*.woff*" \
+            -not -name "*.ttf" | while read -r file; do
+              
+              # 取得相對路徑與副檔名
+              rel_path="${file#./}"
+              ext="${file##*.}"
+              
+              # 如果無副檔名，清除變數避免格式混亂
+              if [ "$ext" = "$rel_path" ]; then
+                ext=""
+              fi
+              
+              # 寫入檔案標題
+              echo "## File: $rel_path" >> "$OUT_FILE"
+              # 使用四個反單引號（````）包裹，防止內部程式碼的三個反單引號造成排版衝突
+              echo "\`\`\`\`$ext" >> "$OUT_FILE"
+              cat "$file" >> "$OUT_FILE"
+              echo "" >> "$OUT_FILE"
+              echo "\`\`\`\`" >> "$OUT_FILE"
+              echo "" >> "$OUT_FILE"
+          done
+
+      - name: Commit and Push changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add combined_project_code.md
+          
+          if git diff --staged --quiet; then
+            echo "No changes in codebase."
+          else
+            git commit -m "docs: auto-generate complete codebase [skip ci]"
+            git push origin main
+          fi
 
 ````
 
-## File: package.json
-````json
-{
-  "name": "cf-sub-converter",
-  "version": "3.5.7",
-  "private": true,
-  "scripts": {
-    "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
-    "start": "wrangler dev",
-    "argo": "tsx scripts/argo-converter.ts"
-  },
-  "dependencies": {
-    "js-yaml": "^4.1.0"
-  },
-  "devDependencies": {
-    "@cloudflare/workers-types": "^4.20240208.0",
-    "@types/js-yaml": "^4.0.9",
-    "tsx": "^4.7.1",
-    "typescript": "^5.3.3",
-    "wrangler": "^3.28.1"
-  }
-}
+## File: .github/workflows/deploy.yml
+````yml
+# .github/workflows/deploy.yml
+name: Deploy to Cloudflare Workers
 
-````
+on:
+  # 1. 當推送到 main 或 master 分支時自動執行
+  push:
+    branches:
+      - main
+      - master
+  
+  # 2. 保留手動執行按鈕
+  workflow_dispatch:
 
-## File: wrangler.toml
-````toml
-name = "my-sub-converter"
-main = "src/index.ts"
-compatibility_date = "2024-04-01"
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      # 已將 Node.js 環境升級至 Node 24 以消除棄用警告
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          # 暫時移除 cache: 'npm'，避免因缺少 package-lock.json 報錯
 
-[placement]
-mode = "smart"
+      # 替換成相容無鎖定檔的普通安裝（加入 --prefer-offline 稍微加速）
+      - name: Install dependencies
+        run: npm install --prefer-offline
 
-[[kv_namespaces]]
-binding = "SUB_CACHE"
-id = "KV_ID_PLACEHOLDER"
+      # 替換 KV ID
+      - name: Inject KV ID from Secrets
+        run: |
+          sed -i 's/KV_ID_PLACEHOLDER/${{ secrets.CF_KV_ID }}/g' wrangler.toml
 
-[vars]
-# 💥 私密管理密碼（選填）：設定後將保護「已儲存的配置」管理區域，避免他人檢視或竄改
-# PAGE_PASSWORD = "your_secret_password"
+      # 部署步驟
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
 
 ````
 

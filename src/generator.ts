@@ -4,6 +4,10 @@ import { Env, ProxyNode } from './types';
 import { REMOTE_CONFIG, FALLBACK_SINGBOX_RULES, FALLBACK_CLASH_RULES } from './constants';
 import { utf8ToBase64 } from './utils';
 
+function isIpAddress(str: string): boolean {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(str) || str.includes(':');
+}
+
 // --- 明文 URI / 節點行格式導出 ---
 export function toRawLinks(nodes: ProxyNode[]): string {
   const links = nodes.map(node => {
@@ -16,8 +20,10 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (node.sni) params.set('sni', node.sni);
         if (node.fingerprint) params.set('fp', node.fingerprint);
         if (node.ech) {
-          if (node.echDoh) {
-            params.set('ech', `${node.echQueryServerName || 'cloudflare-ech.com'}+${node.echDoh}`);
+          if (node.echDoh && node.echQueryServerName) {
+            params.set('ech', `${node.echQueryServerName}+${node.echDoh}`);
+          } else if (node.echDoh) {
+            params.set('ech', node.echDoh);
           } else if (node.echQueryServerName) {
             params.set('ech', node.echQueryServerName);
           } else {
@@ -59,8 +65,10 @@ export function toRawLinks(nodes: ProxyNode[]): string {
           if (node.alpn) params.set('alpn', node.alpn.join(','));
           if (node.fingerprint) params.set('fp', node.fingerprint);
           if (node.ech) {
-            if (node.echDoh) {
-              params.set('ech', `${node.echQueryServerName || 'cloudflare-ech.com'}+${node.echDoh}`);
+            if (node.echDoh && node.echQueryServerName) {
+              params.set('ech', `${node.echQueryServerName}+${node.echDoh}`);
+            } else if (node.echDoh) {
+              params.set('ech', node.echDoh);
             } else if (node.echQueryServerName) {
               params.set('ech', node.echQueryServerName);
             } else {
@@ -102,8 +110,10 @@ export function toRawLinks(nodes: ProxyNode[]): string {
         if (node.sni) params.set('sni', node.sni);
         if (node.skipCertVerify) params.set('allowInsecure', '1');
         if (node.ech) {
-          if (node.echDoh) {
-            params.set('ech', `${node.echQueryServerName || 'cloudflare-ech.com'}+${node.echDoh}`);
+          if (node.echDoh && node.echQueryServerName) {
+            params.set('ech', `${node.echQueryServerName}+${node.echDoh}`);
+          } else if (node.echDoh) {
+            params.set('ech', node.echDoh);
           } else if (node.echQueryServerName) {
             params.set('ech', node.echQueryServerName);
           } else {
@@ -209,14 +219,14 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], _env?: Env, _for
       config.dns.rules = config.dns.rules.filter((r: Record<string, unknown>) => !('outbound' in r));
     }
 
-    // 只有節點「明確以 https:// 給出 DoH」時，才動態掛載 DoH 與網域
+    // 只有節點「明確以 https:// 給出自訂 DoH」時，才在頂層 DNS 針對該特定網域掛載 DoH
     const nodesWithCustomDoh = nodes.filter(n => n.ech && n.echDoh && /^https?:\/\//i.test(n.echDoh));
     if (nodesWithCustomDoh.length > 0) {
       const dohMap = new Map<string, string>(); // domain -> dohUrl
       for (const n of nodesWithCustomDoh) {
-        const domain = n.echQueryServerName || 'cloudflare-ech.com';
+        const domain = n.echQueryServerName || n.sni || n.server;
         const dohUrl = n.echDoh!;
-        if (!dohMap.has(domain)) {
+        if (domain && !isIpAddress(domain) && !dohMap.has(domain)) {
           dohMap.set(domain, dohUrl);
         }
       }
@@ -302,6 +312,17 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], _env?: Env, _for
       if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {
         obj.tls.alpn = ['http/1.1'];
       }
+      
+      // 💥 嚴格遵循輸入：只有當節點明確提供了自訂 ECH 網域時才加上 query_server_name
+      // 若未提供，保持為預設的 {"enabled": true}，Sing-Box 自動使用節點自身的偽裝域名
+      if (n.ech && obj.tls) {
+        const echObj: Record<string, unknown> = { enabled: true };
+        if (n.echQueryServerName && !isIpAddress(n.echQueryServerName)) {
+          echObj.query_server_name = n.echQueryServerName;
+        }
+        obj.tls.ech = echObj;
+      }
+
       outbounds.push(obj);
     }
   });
@@ -356,6 +377,16 @@ export async function toClashWithTemplate(nodes: ProxyNode[], _env?: Env, _force
   const proxies = nodes.map(n => {
     const obj = JSON.parse(JSON.stringify(n.clashObj));
     Object.keys(obj).forEach(key => obj[key] === undefined && delete obj[key]);
+    
+    // 嚴格遵循輸入：只有節點輸入有自訂 ECH 網域時才設置 query-server-name
+    if (n.ech) {
+      const echOpts: Record<string, unknown> = { enable: true };
+      if (n.echQueryServerName && !isIpAddress(n.echQueryServerName)) {
+        echOpts['query-server-name'] = n.echQueryServerName;
+      }
+      obj['ech-opts'] = echOpts;
+    }
+
     return obj;
   });
   const proxyNames = proxies.map((p: Record<string, unknown>) => p.name as string);
@@ -403,8 +434,10 @@ export async function toClashWithTemplate(nodes: ProxyNode[], _env?: Env, _force
     }
     const policy = dnsObj['nameserver-policy'] as Record<string, string[]>;
     for (const n of nodesWithCustomDoh) {
-      const domain = n.echQueryServerName || 'cloudflare-ech.com';
-      policy[domain] = [n.echDoh!];
+      const domain = n.echQueryServerName || n.sni || n.server;
+      if (domain && !isIpAddress(domain)) {
+        policy[domain] = [n.echDoh!];
+      }
     }
   }
 

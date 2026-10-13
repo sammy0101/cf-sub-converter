@@ -47,7 +47,11 @@ function parsePluginParams(str: string): Record<string, string> {
   return params;
 }
 
-// 嚴格判斷 ECH 參數：只有以 https:// 開頭才視為 DoH，不再任意腦補 IP
+function isIpAddress(str: string): boolean {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(str) || str.includes(':');
+}
+
+// 嚴格依據輸入解析 ECH，不腦補任何預設網域
 function parseEchInfo(val: string | null | undefined): { enabled: boolean; domain?: string; doh?: string } {
   if (!val) return { enabled: false };
   const raw = val.trim();
@@ -56,21 +60,21 @@ function parseEchInfo(val: string | null | undefined): { enabled: boolean; domai
     return { enabled: false };
   }
   
-  // 1. 純開關 (例如: ech=1 或 ech=true)
+  // 1. 純開關 (例如: ech=1 或 ech=true)，網域與 DoH 均為 undefined
   if (clean === '1' || clean === 'true') {
     return { enabled: true };
   }
 
-  // 2. 格式: domain+doh (例如: cloudflare-ech.com+https://1.1.1.1/dns-query)
+  // 2. 格式: domain+doh (例如: custom-domain.com+https://1.1.1.1/dns-query)
   if (raw.includes('+')) {
     const parts = raw.split('+');
     const domainPart = parts[0]?.trim();
     const dohPart = parts.slice(1).join('+').trim();
-    // 嚴格只有以 https:// 或 http:// 開頭才認定為 DoH
     const validDoh = /^https?:\/\//i.test(dohPart) ? dohPart : undefined;
+    const validDomain = (domainPart && !isIpAddress(domainPart)) ? domainPart : undefined;
     return {
       enabled: true,
-      domain: domainPart || undefined,
+      domain: validDomain,
       doh: validDoh
     };
   }
@@ -83,11 +87,15 @@ function parseEchInfo(val: string | null | undefined): { enabled: boolean; domai
     };
   }
 
-  // 4. 其餘普通字串視為自訂 ECH 查詢網域名稱
-  return {
-    enabled: true,
-    domain: raw
-  };
+  // 4. 其餘普通字串且非 IP，視為使用者明確輸入的自訂 ECH 查詢網域名稱
+  if (!isIpAddress(raw)) {
+    return {
+      enabled: true,
+      domain: raw
+    };
+  }
+
+  return { enabled: true };
 }
 
 // --- 解析 Cloudflare WARP MASQUE 配置 ---
@@ -693,6 +701,20 @@ function parseShadowsocks(urlStr: string): ProxyNode {
   if (isSs2022) {
     sb.udp_over_tcp = true;
   }
+  if (isTls) {
+    const tlsObj: Record<string, unknown> = {
+      enabled: true,
+      server_name: sni,
+      utls: { enabled: true, fingerprint: fp }
+    };
+    if (alpn) tlsObj.alpn = alpn;
+    if (echInfo.enabled) {
+      const echObj: Record<string, unknown> = { enabled: true };
+      if (echInfo.domain) echObj.query_server_name = echInfo.domain;
+      tlsObj.ech = echObj;
+    }
+    sb.tls = tlsObj;
+  }
   node.singboxObj = sb;
 
   const cl: Record<string, unknown> = {
@@ -710,7 +732,9 @@ function parseShadowsocks(urlStr: string): ProxyNode {
     cl.smux = { enabled: true };
   }
   if (node.ech) {
-    cl['ech-opts'] = { enable: true };
+    const echOpts: Record<string, unknown> = { enable: true };
+    if (node.echQueryServerName) echOpts['query-server-name'] = node.echQueryServerName;
+    cl['ech-opts'] = echOpts;
   }
   node.clashObj = cl;
 
@@ -814,7 +838,14 @@ function parseVless(urlStr: string): ProxyNode {
       utls: { enabled: true, fingerprint: node.fingerprint }
     };
     if (node.alpn) tlsObj.alpn = node.alpn;
-    if (node.ech) tlsObj.ech = { enabled: true };
+    if (node.ech) {
+      const echObj: Record<string, unknown> = { enabled: true };
+      // 只有當節點確實指定了 queryServerName，才注入 query_server_name
+      if (node.echQueryServerName) {
+        echObj.query_server_name = node.echQueryServerName;
+      }
+      tlsObj.ech = echObj;
+    }
     if (node.reality) {
       tlsObj.reality = { enabled: true, public_key: node.reality.publicKey, short_id: node.reality.shortId };
     }
@@ -863,7 +894,11 @@ function parseVless(urlStr: string): ProxyNode {
   };
 
   if (node.alpn) cl.alpn = node.alpn;
-  if (node.ech) cl['ech-opts'] = { enable: true };
+  if (node.ech) {
+    const echOpts: Record<string, unknown> = { enable: true };
+    if (node.echQueryServerName) echOpts['query-server-name'] = node.echQueryServerName;
+    cl['ech-opts'] = echOpts;
+  }
   if (node.flow) cl.flow = node.flow; 
   if (node.reality) {
     cl.reality = true;
@@ -1272,7 +1307,9 @@ function parseTrojan(urlStr: string): ProxyNode {
     insecure: node.skipCertVerify
   };
   if (node.ech) {
-    tlsObj.ech = { enabled: true };
+    const echObj: Record<string, unknown> = { enabled: true };
+    if (node.echQueryServerName) echObj.query_server_name = node.echQueryServerName;
+    tlsObj.ech = echObj;
   }
 
   node.singboxObj = {
@@ -1295,7 +1332,9 @@ function parseTrojan(urlStr: string): ProxyNode {
     udp: true
   };
   if (node.ech) {
-    cl['ech-opts'] = { enable: true };
+    const echOpts: Record<string, unknown> = { enable: true };
+    if (node.echQueryServerName) echOpts['query-server-name'] = node.echQueryServerName;
+    cl['ech-opts'] = echOpts;
   }
   node.clashObj = cl;
 
@@ -1398,7 +1437,11 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
         utls: { enabled: true, fingerprint }
       };
       if (alpn) tlsObj.alpn = alpn;
-      if (echEnabled) tlsObj.ech = { enabled: true };
+      if (echEnabled) {
+        const echObj: Record<string, unknown> = { enabled: true };
+        if (echDomain) echObj.query_server_name = echDomain;
+        tlsObj.ech = echObj;
+      }
       if (reality) {
         tlsObj.reality = { enabled: true, public_key: reality.publicKey, short_id: reality.shortId };
       }
@@ -1416,6 +1459,18 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
         wsTransport.early_data_header_name = 'Sec-WebSocket-Protocol';
       }
       sb.transport = wsTransport;
+    } else if (isXhttp) {
+      sb.transport = {
+        type: 'splithttp',
+        path: cleanPath,
+        headers: { Host: node.xhttpHost },
+        mode: node.xhttpMode
+      };
+    } else if (isGrpc) {
+      sb.transport = {
+        type: 'grpc',
+        service_name: params.get('serviceName') || ''
+      };
     }
     node.singboxObj = sb;
     return node;

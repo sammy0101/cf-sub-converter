@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Tue Oct 13 15:14:08 UTC 2026
+Generated on: Tue Oct 13 15:17:19 UTC 2026
 
 ## File: .github/workflows/combine-code.yml
 ````yml
@@ -5937,7 +5937,7 @@ cf-sub-converter/
 ````json
 {
   "name": "cf-sub-converter",
-  "version": "3.5.9",
+  "version": "3.6.0",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",

@@ -258,7 +258,8 @@ export default {
 
           let argoLink = '';
           if (node.type === 'vless') {
-            argoLink = `vless://${node.uuid}@${connectionServer}:443?encryption=none&security=tls&type=${node.network || 'ws'}&host=${targetDomain}&sni=${targetDomain}&path=${node.wsPath || '/'}#${encodeURIComponent(argoNodeName)}`;
+            // 修復：移除 encodeURIComponent，直接輸出原生中文名稱，防止出現 %E5%84%AA%E9%81%B8
+            argoLink = `vless://${node.uuid}@${connectionServer}:443?encryption=none&security=tls&type=${node.network || 'ws'}&host=${targetDomain}&sni=${targetDomain}&path=${node.wsPath || '/'}#${argoNodeName}`;
           } else {
             const vmessObj = {
               v: "2", ps: argoNodeName, add: connectionServer, port: 443, id: node.uuid,
@@ -475,7 +476,7 @@ export default {
         stored = await env.SUB_CACHE.get(path.toLowerCase());
       }
 
-      // 3. 若未找到，嘗試大寫 (關鍵修復：輸入 cf_masque 亦可尋獲 CF_MASQUE)
+      // 3. 若未找到，嘗試大寫
       if (!stored && path !== path.toUpperCase()) {
         stored = await env.SUB_CACHE.get(path.toUpperCase());
       }
@@ -494,7 +495,7 @@ export default {
         }
       }
 
-      // 4. 終極容災：若獨立 Key 未找到，搜尋收藏夾列表 (Favorites)
+      // 4. 容災：若獨立 Key 未找到，搜尋收藏夾列表 (Favorites)
       if (!urlParam || urlParam.trim() === '') {
         try {
           const favsData = await env.SUB_CACHE.get('favorites');

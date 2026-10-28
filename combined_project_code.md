@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Oct 28 05:16:19 UTC 2026
+Generated on: Wed Oct 28 05:30:43 UTC 2026
 
 ## File: .github/workflows/combine-code.yml
 ````yml
@@ -5452,11 +5452,6 @@ fi
         "clash_mode": "Global",
         "server": "fakeip-dns"
       },
-      // 💥 第一道防線：DNS 查詢階段直接阻斷廣告網域
-      {
-        "rule_set": "rs-ads",
-        "action": "reject"
-      },
       {
         "rule_set": [
           "rs-private"
@@ -5543,8 +5538,7 @@ fi
       { "protocol": "dns", "action": "hijack-dns" },
       { "clash_mode": "Direct", "outbound": "DIRECT" },
       { "clash_mode": "Global", "outbound": "🚀 節點選擇" },
-      // 💥 第二道防線：路由連線層面兜底攔截
-      { "rule_set": "rs-ads", "outbound": "REJECT" },
+      { "rule_set": "rs-ads", "outbound": "🛑 廣告攔截" },
       { "rule_set": ["rs-private", "ip-private"], "outbound": "🏠 私有網絡" },
       { "rule_set": "rs-ai", "outbound": "💬 AI 服務" },
       { "rule_set": "rs-microsoft", "outbound": "Ⓜ️ 微軟服務" },

@@ -4,7 +4,7 @@ export const REMOTE_CONFIG = {
   clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML'
 };
 
-// 方案 B1 內嵌緊急降級模板 (純 IPv4 純淨版，雙層 DNS + 路由去廣告)
+// 方案 B1 內嵌緊急降級模板 (純 IPv4 純淨版，100% 合法 JSON)
 export const FALLBACK_SINGBOX_RULES = JSON.stringify({
   log: { level: "info" },
   http_clients: [
@@ -19,8 +19,6 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
       { tag: "fakeip-dns", type: "fakeip", inet4_range: "198.18.0.0/15" }
     ],
     rules: [
-      // 第一道防線：DNS 查詢層面阻斷
-      { rule_set: "rs-ads", action: "reject" },
       { rule_set: ["rs-private"], server: "system-dns" },
       { rule_set: ["rs-cn"], server: "system-dns", disable_cache: true },
       { rule_set: ["rs-apple"], server: "system-dns", disable_cache: true },
@@ -39,6 +37,7 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
   outbounds: [
     { type: "selector", tag: "🚀 節點選擇", outbounds: ["⚡ 自動選擇", "direct"] },
     { type: "urltest", tag: "⚡ 自動選擇", outbounds: [], url: "https://www.gstatic.com/generate_204", interval: "3m" },
+    { type: "selector", tag: "🛑 廣告攔截", outbounds: ["block", "direct"] },
     { type: "direct", tag: "direct" },
     { type: "block", tag: "block" }
   ],
@@ -48,8 +47,7 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
     rules: [
       { action: "sniff" },
       { protocol: "dns", action: "hijack-dns" },
-      // 第二道防線：路由層面兜底攔截
-      { rule_set: "rs-ads", outbound: "block" }
+      { rule_set: "rs-ads", outbound: "🛑 廣告攔截" }
     ],
     auto_detect_interface: true
   },
@@ -108,8 +106,6 @@ dns:
   direct-nameserver:
     - system
   nameserver-policy:
-    # 第一道防線：DNS 查詢階段直接阻斷
-    "rule-set:category-ads-all": rcode://name_error
     "rule-set:private":
       - system
     "rule-set:cn":
@@ -122,7 +118,6 @@ dns:
     - https://8.8.8.8/dns-query
     - https://1.1.1.1/dns-query
 rules:
-  # 第二道防線：路由層面兜底攔截
   - RULE-SET,category-ads-all,🛑 廣告攔截
   - GEOIP,CN,DIRECT
   - MATCH,🚀 節點選擇
@@ -343,7 +338,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
           </h2>
         </div>
         
-        <!-- 自適應 -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
@@ -356,7 +350,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
           </div>
         </div>
 
-        <!-- Sing-Box -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
@@ -369,7 +362,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
           </div>
         </div>
 
-        <!-- Clash Meta -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"></path><line x1="16" y1="8" x2="2" y2="22"></line><line x1="17.5" y1="15" x2="9" y2="6.5"></line></svg>
@@ -382,7 +374,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
           </div>
         </div>
 
-        <!-- Surge 5 -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
@@ -395,7 +386,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
           </div>
         </div>
 
-        <!-- Quantumult X -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
@@ -408,7 +398,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
           </div>
         </div>
 
-        <!-- Loon -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
@@ -421,7 +410,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
           </div>
         </div>
 
-        <!-- Base64 -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
@@ -514,7 +502,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
     </section>
   </div>
 
-  <!-- 新增/編輯配置對話框 -->
   <div class="modal-overlay" id="modal">
     <div class="modal-content">
       <h3 id="modalTitle" style="margin-bottom: 1rem;">新增配置</h3>

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Oct 28 05:31:53 UTC 2026
+Generated on: Wed Oct 28 05:33:06 UTC 2026
 
 ## File: package.json
 ````json
@@ -1649,6 +1649,13 @@ function isIpAddress(str: string): boolean {
   return /^(\d{1,3}\.){3}\d{1,3}$/.test(str) || str.includes(':');
 }
 
+// 防禦性濾網：安全過濾 JSON 字串中意外存在的單行與多行註解，防止 JSON.parse 報錯
+function stripJsonComments(jsonStr: string): string {
+  return jsonStr.replace(/\\"|"(?:\\"|[^"])*"|(\/\/.*|\/\*[\s\S]*?\*\/)/g, (match, group) => {
+    return group ? '' : match;
+  });
+}
+
 // --- 明文 URI / 節點行格式導出 ---
 export function toRawLinks(nodes: ProxyNode[]): string {
   const links = nodes.map(node => {
@@ -1836,7 +1843,8 @@ async function fetchTemplateDirect(
 // --- Sing-Box 配置生成 ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[], _env?: Env, _forceRefresh = false): Promise<string> {
   const text = await fetchTemplateDirect(REMOTE_CONFIG.singbox, FALLBACK_SINGBOX_RULES);
-  const config = JSON.parse(text);
+  // 使用防禦性過濾後解析 JSON，徹底解決註解引起的 SyntaxError
+  const config = JSON.parse(stripJsonComments(text));
   
   if (!config.http_clients || !Array.isArray(config.http_clients) || config.http_clients.length === 0) {
     config.http_clients = [{ tag: 'default' }];
@@ -1954,8 +1962,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], _env?: Env, _for
         obj.tls.alpn = ['http/1.1'];
       }
       
-      // 💥 嚴格遵循輸入：只有當節點明確提供了自訂 ECH 網域時才加上 query_server_name
-      // 若未提供，保持為預設的 {"enabled": true}，Sing-Box 自動使用節點自身的偽裝域名
+      // 只有節點指定了自訂 ECH 網域才附加 query_server_name，未指定則留空讓 Sing-Box 自動適配節點偽裝域名
       if (n.ech && obj.tls) {
         const echObj: Record<string, unknown> = { enabled: true };
         if (n.echQueryServerName && !isIpAddress(n.echQueryServerName)) {
@@ -2019,7 +2026,6 @@ export async function toClashWithTemplate(nodes: ProxyNode[], _env?: Env, _force
     const obj = JSON.parse(JSON.stringify(n.clashObj));
     Object.keys(obj).forEach(key => obj[key] === undefined && delete obj[key]);
     
-    // 嚴格遵循輸入：只有節點輸入有自訂 ECH 網域時才設置 query-server-name
     if (n.ech) {
       const echOpts: Record<string, unknown> = { enable: true };
       if (n.echQueryServerName && !isIpAddress(n.echQueryServerName)) {
@@ -2228,7 +2234,6 @@ export function toLoon(nodes: ProxyNode[]): string {
 
   return lines.join('\n');
 }
-
 ````
 
 ## File: src/utils.ts

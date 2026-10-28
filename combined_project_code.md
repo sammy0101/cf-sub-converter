@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Oct 28 05:30:43 UTC 2026
+Generated on: Wed Oct 28 05:31:12 UTC 2026
 
 ## File: .github/workflows/combine-code.yml
 ````yml
@@ -463,15 +463,12 @@ external-controller: 0.0.0.0:9090
 tcp-concurrent: true
 unified-delay: true
 
-# 停用 TCP Fast Open，防止部分 ISP / CDN 邊緣節點在 TLS 握手時丟包
 fast-open: false
 
-# ==================== 設定檔快取 ====================
 profile:
   store-selected: true
   store-fake-ip: true
 
-# ==================== 流量嗅探器 Sniffer ====================
 sniffer:
   enable: true
   override-destination: true
@@ -498,7 +495,6 @@ sniffer:
   parse-pure-ip: true
   force-dns-mapping: true
 
-# ==================== 進階 DNS 設定 ====================
 dns:
   enable: true
   ipv6: false
@@ -524,7 +520,6 @@ dns:
     - 'rule-set:private'
     - 'rule-set:apple'
 
-  # 1. 基礎引導 DNS (直連)
   default-nameserver:
     - system
     - 119.29.29.29
@@ -532,20 +527,15 @@ dns:
     - 1.1.1.1
     - 8.8.8.8
 
-  # 直連專用 DNS
   direct-nameserver:
     - system
 
-  # 2. 節點/直連專用 DNS (DoH)
   proxy-server-nameserver:
     - https://223.5.5.5/dns-query
     - https://doh.pub/dns-query
     - https://1.1.1.1/dns-query
 
-  # 3. 網域特殊分流策略
   nameserver-policy:
-    # 💥 第一道防線：DNS 層面直接返回 NXDOMAIN，廣告連線根本不會發起
-    "rule-set:category-ads-all": rcode://name_error
     "rule-set:private":
       - system
     "rule-set:cn":
@@ -555,14 +545,10 @@ dns:
     "rule-set:apple":
       - system
 
-  # 4. 國外代理兜底 DNS (並發競速查詢 8.8.8.8 與 1.1.1.1)
   nameserver:
     - https://8.8.8.8/dns-query
     - https://1.1.1.1/dns-query
 
-# ==================================================
-# 代理節點設定
-# ==================================================
 proxies:
 
 proxy-groups:
@@ -632,9 +618,6 @@ proxy-groups:
       - REJECT
       - DIRECT
 
-# ==================================================
-# 規則集 Rule Providers
-# ==================================================
 rule-providers:
   my-ai:
     type: http
@@ -748,39 +731,21 @@ rule-providers:
     path: ./ruleset/cn-ip.mrs
     interval: 86400
 
-# ==================================================
-# 流量路由 Rules
-# ==================================================
 rules:
-  # 💥 第二道防線：路由層面兜底攔截（REJECT 掐斷純 IP 或殘留廣告連線）
   - RULE-SET,category-ads-all,🛑 廣告攔截
   - RULE-SET,private,🏠 私有網絡
   - RULE-SET,private-ip,🏠 私有網絡,no-resolve
-
-  # 2. 強制代理業務
   - RULE-SET,my-ai,💬 AI 服務
-
-  # 3. Microsoft 服務分流
   - RULE-SET,microsoft,Ⓜ️ 微軟服務
-
-  # 4. 遊戲平台分流
   - RULE-SET,steam,🎮 遊戲平台
   - RULE-SET,epicgames,🎮 遊戲平台
   - RULE-SET,ea,🎮 遊戲平台
   - RULE-SET,ubisoft,🎮 遊戲平台
   - RULE-SET,blizzard,🎮 遊戲平台
-
-  # 5. Apple 服務分流
   - RULE-SET,apple,🍎 蘋果服務
-
-  # 6. 非中國網站：走代理
   - RULE-SET,geolocation-non-cn,🌐 非中國
-
-  # 7. 中國國內網域與 IP：走直連
   - RULE-SET,cn,🇨🇳 國內服務
   - RULE-SET,cn-ip,🇨🇳 國內服務,no-resolve
-
-  # 8. 國外網站兜底：全走代理
   - MATCH,🐟 漏網之魚
 ````
 

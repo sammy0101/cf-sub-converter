@@ -45,6 +45,7 @@
         "clash_mode": "Global",
         "server": "fakeip-dns"
       },
+      // 💥 第一道防線：DNS 查詢階段直接阻斷廣告網域
       {
         "rule_set": "rs-ads",
         "action": "reject"
@@ -135,6 +136,7 @@
       { "protocol": "dns", "action": "hijack-dns" },
       { "clash_mode": "Direct", "outbound": "DIRECT" },
       { "clash_mode": "Global", "outbound": "🚀 節點選擇" },
+      // 💥 第二道防線：路由連線層面兜底攔截
       { "rule_set": "rs-ads", "outbound": "REJECT" },
       { "rule_set": ["rs-private", "ip-private"], "outbound": "🏠 私有網絡" },
       { "rule_set": "rs-ai", "outbound": "💬 AI 服務" },

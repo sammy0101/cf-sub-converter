@@ -4,7 +4,7 @@ export const REMOTE_CONFIG = {
   clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML'
 };
 
-// 方案 B1 內嵌緊急降級模板
+// 方案 B1 內嵌緊急降級模板 (純 IPv4 純淨版，雙層 DNS + 路由去廣告)
 export const FALLBACK_SINGBOX_RULES = JSON.stringify({
   log: { level: "info" },
   http_clients: [
@@ -19,6 +19,7 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
       { tag: "fakeip-dns", type: "fakeip", inet4_range: "198.18.0.0/15" }
     ],
     rules: [
+      // 第一道防線：DNS 查詢層面阻斷
       { rule_set: "rs-ads", action: "reject" },
       { rule_set: ["rs-private"], server: "system-dns" },
       { rule_set: ["rs-cn"], server: "system-dns", disable_cache: true },
@@ -46,7 +47,9 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
     default_http_client: "default",
     rules: [
       { action: "sniff" },
-      { protocol: "dns", action: "hijack-dns" }
+      { protocol: "dns", action: "hijack-dns" },
+      // 第二道防線：路由層面兜底攔截
+      { rule_set: "rs-ads", outbound: "block" }
     ],
     auto_detect_interface: true
   },
@@ -72,6 +75,11 @@ proxy-groups:
     url: http://www.gstatic.com/generate_204
     interval: 300
     proxies: []
+  - name: 🛑 廣告攔截
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
 dns:
   enable: true
   enhanced-mode: fake-ip
@@ -100,6 +108,8 @@ dns:
   direct-nameserver:
     - system
   nameserver-policy:
+    # 第一道防線：DNS 查詢階段直接阻斷
+    "rule-set:category-ads-all": rcode://name_error
     "rule-set:private":
       - system
     "rule-set:cn":
@@ -112,6 +122,8 @@ dns:
     - https://8.8.8.8/dns-query
     - https://1.1.1.1/dns-query
 rules:
+  # 第二道防線：路由層面兜底攔截
+  - RULE-SET,category-ads-all,🛑 廣告攔截
   - GEOIP,CN,DIRECT
   - MATCH,🚀 節點選擇
 `;
@@ -735,7 +747,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
       document.getElementById('renameKeywords').value = f.rename || '';
       window.scrollTo({ top: 0, behavior: 'smooth' });
       showToast('已載入配置：' + f.name);
-      // 點擊載入收藏時，自動為用戶註冊短路徑並產生下方轉換連結
       generate();
     }
 

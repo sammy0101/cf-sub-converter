@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Mon Oct 26 15:37:05 UTC 2026
+Generated on: Wed Oct 28 05:14:53 UTC 2026
 
 ## File: .github/workflows/combine-code.yml
 ````yml
@@ -544,6 +544,8 @@ dns:
 
   # 3. 網域特殊分流策略
   nameserver-policy:
+    # 💥 第一道防線：DNS 層面直接返回 NXDOMAIN，廣告連線根本不會發起
+    "rule-set:category-ads-all": rcode://name_error
     "rule-set:private":
       - system
     "rule-set:cn":
@@ -750,7 +752,7 @@ rule-providers:
 # 流量路由 Rules
 # ==================================================
 rules:
-  # 1. 廣告與內網
+  # 💥 第二道防線：路由層面兜底攔截（REJECT 掐斷純 IP 或殘留廣告連線）
   - RULE-SET,category-ads-all,🛑 廣告攔截
   - RULE-SET,private,🏠 私有網絡
   - RULE-SET,private-ip,🏠 私有網絡,no-resolve
@@ -780,7 +782,6 @@ rules:
 
   # 8. 國外網站兜底：全走代理
   - MATCH,🐟 漏網之魚
-
 ````
 
 ## File: src/constants.ts

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Oct 29 12:49:04 UTC 2026
+Generated on: Thu Oct 29 13:07:12 UTC 2026
 
 ## File: package.json
 ````json
@@ -1566,8 +1566,6 @@ import { Env, ProxyNode } from './types';
 import { REMOTE_CONFIG, FALLBACK_SINGBOX_RULES, FALLBACK_CLASH_RULES } from './constants';
 import { utf8ToBase64 } from './utils';
 
-const AI_DAE_URL = 'https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.dae';
-
 function isIpAddress(str: string): boolean {
   return /^(\d{1,3}\.){3}\d{1,3}$/.test(str) || str.includes(':');
 }
@@ -1792,7 +1790,7 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], _env?: Env, _for
 
     const nodesWithCustomDoh = nodes.filter(n => n.ech && n.echDoh && /^https?:\/\//i.test(n.echDoh));
     if (nodesWithCustomDoh.length > 0) {
-      const dohMap = new Map<string, string>();
+      const dohMap = new Map<string, string>(); // domain -> dohUrl
       for (const n of nodesWithCustomDoh) {
         const domain = n.echQueryServerName || n.sni || n.server;
         const dohUrl = n.echDoh!;
@@ -2039,7 +2037,9 @@ export async function toHonk(nodes: ProxyNode[], subUrl?: string, profileName?: 
 # ==============================================================================
 
 global {
+    # 綁定外網介面 (預設 auto 自動偵測。若為 PPPoE 撥接上網，可能需手動改為 pppoe-wan)
     wan_interface: auto
+    # 綁定內網介面 (請務必確認你的路由器 LAN 網卡名稱，預設為 br-lan。多網卡可用逗號隔開)
     lan_interface: br-lan
 
     dial_mode: domain++
@@ -2053,6 +2053,7 @@ global {
     check_interval: 300s
     check_tolerance: 50ms
 
+    # 基礎引導 DNS (用於節點與訂閱連結的初始解析)
     bootstrap_resolver: '1.1.1.1:53'
 }
 
@@ -2062,6 +2063,7 @@ global {
 experimental {
     native_api {
         enabled: true
+        # Doona 面板監聽位址 (0.0.0.0 代表允許內網所有設備透過路由器 IP 訪問)
         listen: '0.0.0.0:9527'
         password_auth: true
         config_write: true
@@ -2079,6 +2081,7 @@ experimental {
 subscription {
     ${finalSubTag}: '${targetSubUrl}' {
         route: direct
+        # 訂閱自動更新間隔 (43200 秒 = 12 小時，可自行更改)
         interval: 43200s
     }
 }
@@ -2121,6 +2124,7 @@ group {
 # ==============================================================================
 dns {
     upstream {
+        # 預設指向 OpenWrt 本機 dnsmasq (若有自建 AdGuardHome 或 SmartDNS 亦可改為對應 IP:Port)
         localdns: 'udp://127.0.0.1:53'
         cfdoh: 'https://1.1.1.1/dns-query'
         googledns: 'tcp+udp://dns.google:53'
@@ -2145,7 +2149,7 @@ routing {
     pname(NetworkManager, systemd-resolved, dnsmasq) -> direct(must)
     dip(224.0.0.0/3, 'ff00::/8') -> direct
 
-    # 1. 🏠 私有網絡 (已移除 must，完美適配旁路由非對稱路由環境)
+    # 1. 🏠 私有網絡 (已移除 must，完美適配旁路由非對稱路由環境，內網訪問不癱瘓)
     dip(geoip:private) -> direct
 
     # 2. 🛑 廣告攔截

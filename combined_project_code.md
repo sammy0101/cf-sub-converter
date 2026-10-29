@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Oct 29 09:47:36 UTC 2026
+Generated on: Thu Oct 29 09:48:47 UTC 2026
 
 ## File: package.json
 ````json
@@ -2963,6 +2963,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           </h2>
         </div>
         
+        <!-- 自適應 -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
@@ -2975,6 +2976,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           </div>
         </div>
 
+        <!-- Sing-Box -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
@@ -2987,6 +2989,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           </div>
         </div>
 
+        <!-- Clash Meta -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"></path><line x1="16" y1="8" x2="2" y2="22"></line><line x1="17.5" y1="15" x2="9" y2="6.5"></line></svg>
@@ -2999,6 +3002,19 @@ export const HTML_PAGE = `<!DOCTYPE html>
           </div>
         </div>
 
+        <!-- Honk / DAE (新增) -->
+        <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+          </div>
+          <div class="result-info"><div class="result-name">Honk / DAE</div><div class="result-desc">OpenWrt eBPF 內核級配置 · Doona UI</div></div>
+          <div class="result-input-wrapper"><input type="text" id="honkUrl" readonly></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('honkUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+          </div>
+        </div>
+
+        <!-- Surge 5 -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
@@ -3011,6 +3027,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           </div>
         </div>
 
+        <!-- Quantumult X -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
@@ -3023,6 +3040,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           </div>
         </div>
 
+        <!-- Loon -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
@@ -3035,6 +3053,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           </div>
         </div>
 
+        <!-- Base64 -->
         <div class="result-item">
           <div class="result-icon-box">
             <svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
@@ -3460,6 +3479,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
         document.getElementById('adaptiveUrl').value = buildUrl('');
         document.getElementById('clashUrl').value = buildUrl('clash');
         document.getElementById('singboxUrl').value = buildUrl('singbox');
+        document.getElementById('honkUrl').value = buildUrl('honk');
         document.getElementById('surgeUrl').value = buildUrl('surge');
         document.getElementById('quanxUrl').value = buildUrl('quanx');
         document.getElementById('loonUrl').value = buildUrl('loon');
@@ -3680,6 +3700,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
 </body>
 </html>
 `;
+
 ````
 
 ## File: src/parser.ts

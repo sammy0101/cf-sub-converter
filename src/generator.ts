@@ -450,7 +450,6 @@ export async function toClashWithTemplate(nodes: ProxyNode[], _env?: Env, _force
 
 // --- Honk / DAE (config.dae) 配置生成 ---
 export async function toHonk(nodes: ProxyNode[], subUrl?: string, profileName?: string): Promise<string> {
-  // 1. 100% 動態從你的 GitHub 即時抓取最新的 AI 網域檔案，杜絕任何寫死
   let aiRulesBody = '';
   try {
     const aiResp = await fetch(`${AI_DAE_URL}?t=${Date.now()}`, {
@@ -459,7 +458,6 @@ export async function toHonk(nodes: ProxyNode[], subUrl?: string, profileName?: 
     if (aiResp.ok) {
       const text = await aiResp.text();
       if (text.includes('domain(')) {
-        // 將原作者檔案裡的 -> proxy 動態置換為 -> '💬 AI 服務'
         aiRulesBody = text.replace(/->\s*proxy/g, "-> '💬 AI 服務'").trim();
       }
     } else {
@@ -470,7 +468,6 @@ export async function toHonk(nodes: ProxyNode[], subUrl?: string, profileName?: 
     throw new Error(`無法動態獲取遠端 AI 規則檔案 (${AI_DAE_URL}): ${msg}`);
   }
 
-  // 2. 訂閱模組設定：直連下載 (route: direct)，每 12 小時自動更新 (interval: 43200s)
   const finalSubTag = (profileName || 'My_Sub').replace(/[^a-zA-Z0-9_-]/g, '_');
   const targetSubUrl = subUrl || 'https://sub.myvs.dpdns.org/EDT?target=base64';
 
@@ -586,8 +583,8 @@ routing {
     pname(NetworkManager, systemd-resolved, dnsmasq) -> direct(must)
     dip(224.0.0.0/3, 'ff00::/8') -> direct
 
-    # 1. 🏠 私有網絡 (內網 NAS、管理後台等)
-    dip(geoip:private) -> direct(must)
+    # 1. 🏠 私有網絡 (已移除 must，完美適配旁路由非對稱路由環境)
+    dip(geoip:private) -> direct
 
     # 2. 🛑 廣告攔截
     domain(geosite:category-ads-all) -> block

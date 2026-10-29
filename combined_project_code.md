@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Oct 29 10:28:45 UTC 2026
+Generated on: Thu Oct 29 10:35:00 UTC 2026
 
 ## File: package.json
 ````json
@@ -2986,18 +2986,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
           </div>
         </div>
 
-        <!-- Honk / DAE (新增) -->
-        <div class="result-item">
-          <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
-          </div>
-          <div class="result-info"><div class="result-name">Honk / DAE</div><div class="result-desc">OpenWrt eBPF 內核級配置 · Doona UI</div></div>
-          <div class="result-input-wrapper"><input type="text" id="honkUrl" readonly></div>
-          <div class="result-actions">
-            <button class="btn-icon" onclick="copyResult('honkUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-          </div>
-        </div>
-
         <!-- Surge 5 -->
         <div class="result-item">
           <div class="result-icon-box">
@@ -3047,6 +3035,18 @@ export const HTML_PAGE = `<!DOCTYPE html>
           <div class="result-actions">
             <button class="btn-icon" onclick="copyResult('base64Url')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
             <button class="btn-icon" onclick="showQr('base64Url', 'shadowrocket')" title="顯示通用掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
+        </div>
+
+        <!-- Honk / DAE (放在最下面) -->
+        <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+          </div>
+          <div class="result-info"><div class="result-name">Honk / DAE</div><div class="result-desc">OpenWrt eBPF 內核級配置 · Doona UI</div></div>
+          <div class="result-input-wrapper"><input type="text" id="honkUrl" readonly></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('honkUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
           </div>
         </div>
       </div>
@@ -3463,11 +3463,11 @@ export const HTML_PAGE = `<!DOCTYPE html>
         document.getElementById('adaptiveUrl').value = buildUrl('');
         document.getElementById('clashUrl').value = buildUrl('clash');
         document.getElementById('singboxUrl').value = buildUrl('singbox');
-        document.getElementById('honkUrl').value = buildUrl('honk');
         document.getElementById('surgeUrl').value = buildUrl('surge');
         document.getElementById('quanxUrl').value = buildUrl('quanx');
         document.getElementById('loonUrl').value = buildUrl('loon');
         document.getElementById('base64Url').value = buildUrl('base64');
+        document.getElementById('honkUrl').value = buildUrl('honk');
 
         document.getElementById('results').classList.add('show');
         showToast('全客戶端連結生成完畢！');

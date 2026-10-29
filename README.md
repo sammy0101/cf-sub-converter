@@ -1,6 +1,6 @@
 # ⚡ CF Sub Converter Pro
 
-基於 Cloudflare Workers 的全能 Serverless 訂閱轉換與節點中樞。擁有現代深色 UI、GitHub 遠端規則即時直讀與內嵌容災架構、自訂短代碼全字元（大小寫/符號）1:1 完整保留、私密配置管理安全鎖、智慧倍率/專線分組、國旗萬國對齊系統，以及 **Argo 隧道 2.0 自動化生成器**。支援將各類代理節點一鍵轉換為 **Sing-Box / Clash Meta (Mihomo) / Surge 5 / Quantumult X / Loon / Base64** 格式，並提供全平台專屬喚醒協議（Deep Link）與行動條碼掃描自動導入。
+基於 Cloudflare Workers 的全能 Serverless 訂閱轉換與節點中樞。擁有現代深色 UI、GitHub 遠端規則即時直讀與內嵌容災架構、自訂短代碼全字元（大小寫/符號）1:1 完整保留、私密配置管理安全鎖、智慧倍率/專線分組、國旗萬國對齊系統、**Argo 隧道 2.0 自動化生成器**，以及 **OpenWrt Honk / DAE (eBPF 內核級透明代理) 與 Doona Web UI 深度適配**。支援將各類代理節點一鍵轉換為 **Sing-Box / Clash Meta (Mihomo) / Honk (DAE) / Surge 5 / Quantumult X / Loon / Base64** 格式，並提供全平台專屬喚醒協議（Deep Link）與行動條碼掃描自動導入。
 
 [![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sammy0101/cf-sub-converter)
 
@@ -11,7 +11,7 @@
 ### 1. 🔌 全主流與新興協議深度解析
 - **完整 Clash / Mihomo YAML 跨協議智慧解析**：
   - 支援將任何網上下載或機場提供的完整 `.yaml` 設定檔整份貼入主輸入框。
-  - 後端解析器自動跳過頂層 `port:`、`rules:` 與策略組，精準提取 `proxies:` 陣列中的所有節點，並無縫轉換為 Sing-Box、Surge、Base64 等任何目標格式。
+  - 後端解析器自動跳過頂層 `port:`、`rules:` 與策略組，精準提取 `proxies:` 陣列中的所有節點，並無縫轉換為 Sing-Box、Honk、Surge、Base64 等任何目標格式。
 - **Cloudflare WARP MASQUE 萬能解析與高階調優**：
   - **多元來源識別**：支援貼入單一 JSON 物件、多組連續 JSON 物件、標準 JSON 陣列 `[ { ... } ]`、單行 `masque://` URI，或包含 MASQUE 的 Clash YAML 設定檔。
   - **Mihomo 專屬全規格補齊**：自動注入 `uri: https://cloudflareaccess.com`、`sni: www.microsoft.com`（防封鎖偽裝）、`congestion-controller: bbr`，以及 `dns: [1.1.1.1, 8.8.8.8]`。
@@ -22,9 +22,11 @@
   - 直接貼入多組 Proton VPN、Mullvad 或 WARP 的 `[Interface] ... [Peer] ...` 設定檔，自動批次辨識並分割為獨立節點。
   - 自動提取 Proton 專屬 NetShield 內部 DNS（`10.2.0.1`），完整保留原生去廣告與極致防洩漏功能。
   - 智慧辨識伺服器備註與國家標籤（例如 `# JP-FREE#23` 自動轉換為 `🇯🇵 JP-FREE#23`）。
-- **VLESS**：支援最新 `xhttp` / `splithttp`、`Reality`、`Vision`、`WebSocket (含 ?ed=2560 Early Data 淨化)`、`gRPC`。
-- **ECH (Encrypted Client Hello)**：自動解析 `&ech=` 參數，在 Sing-Box 與 Clash 中開啟 ECH 加密問候，徹底繞過 GFW 針對 SNI 網域的阻斷。
-- **WebSocket ALPN 智慧鎖定**：自動為 WS+TLS 節點指定 `alpn: ["http/1.1"]`，解決 Cloudflare 邊緣節點錯誤協商 HTTP/2 導致的斷流問題。
+- **VLESS**：支援最新 `xhttp` / `splithttp`、`Reality`、`Vision`、`WebSocket (含 ?ed=2560 Early Data 規範化)`、`gRPC`。
+- **ECH (Encrypted Client Hello) 零腦補動態適配**：
+  - 嚴格依照節點輸入解析 ECH，僅在節點自帶以 `https://` 開頭的 DoH 時才掛載自訂解析器，絕不胡亂捏造 IP 或虛構網域。
+  - 完美對齊節點偽裝域名（SNI）或指定之 ECH 查詢網域。
+- **WebSocket ALPN 智慧鎖定**：自動為 WS+TLS 節點指定 `alpn: ["http/1.1"]`，解決 Cloudflare 邊緣節點錯誤協商 HTTP/2 導致的斷流問題；其餘協議（Reality、gRPC、TCP）維持靈活原生協商。
 - **Shadowsocks-2022**：完整支援 `2022-blake3-*` 多端口與服務端密鑰。
 - **其他協議**：Trojan、VMess、Hysteria 2 (`hy2`)、TUIC、AnyTLS。
 
@@ -32,17 +34,22 @@
 - **自適應識別 (Adaptive)**：自動依據請求客戶端的 `User-Agent` 回傳對應格式。
 - **Clash Meta (Mihomo)**：YAML 格式，內建 Fake-IP、DoH 分流、流量嗅探與動態策略組。
 - **Sing-Box (1.14+ 現代規範)**：
-  - 完整符合現代標準，WireGuard 自動歸入頂層現代 `endpoints` 結構，徹底消除 `unknown field "server"`、`unknown field "local_address"`、`download_detour` 等廢棄與語法錯誤。
-  - WireGuard 由策略組（`🚀 節點選擇`、`⚡ 自動選擇`）直接引用，自由切換。
+  - 完整符合現代標準，WireGuard 自動歸入頂層現代 `endpoints` 結構，徹底消除廢棄與語法錯誤。
   - 國外代理流量採用 Fake-IP 封裝網域名稱，國內/內網流量自動使用 Real-IP 直連。
+- **OpenWrt Honk / DAE (`config.dae`，新增)**：
+  - 一鍵生成適用於 OpenWrt Linux eBPF 內核級透明代理的完整 `/etc/honk/config.dae` 設定檔。
+  - **Doona 原生 Web UI 深度整合**：自動配置 `experimental.native_api` 監聽 `0.0.0.0:9527`，區域網路手機或電腦直接開啟 `http://路由器IP:9527` 即可直觀監控即時流量與策略組。
+  - **自動化訂閱對接**：配置 `subscription` 區塊直接拉取本轉換器的 Base64 訂閱，指定 `route: direct`（直連下載），並預設設定每 12 小時自動排程更新（`interval: 43200s`）。
+  - **旁路由（雙網關）專屬優化**：私有網段規則採用純 `dip(geoip:private) -> direct`（排除 `must`），徹底消除同網段主旁路由非對稱路由（Asymmetric Routing）導致的 DNS 癱瘓問題。
+  - **動態雲端規則連動**：即時拉取 GitHub 專屬 `geosite_ai_hk_proxy.dae` 規則，AI 網域修改隨時生效，零代碼維護。
 - **Surge 5**：標準 `.conf` 格式，支援 Proxy、Proxy Group、分流規則與 `[WireGuard ...]` 獨立專屬區塊。
 - **Quantumult X**：支援包含 `vless=` 在內的標準 `server_remote` 節點清單。
 - **Loon**：標準 `[Proxy]` 格式。
 - **通用 Base64 / Shadowrocket (小火箭)**：
   - 完整對齊標準 URI 結構（私鑰、公鑰、IP、DNS、MTU、CCA/BBR 與 Keepalive 參數全規格映射），解決小火箭解碼錯誤並支援原生通連。
 - **🚀 專屬喚醒二維碼與自動命名**：
-  - 點擊 QR Code 圖示自動產生符合各客戶端規範的條碼（例如 Sing-Box 官方標準 `sing-box://import-remote-profile?url=...#name`）。
-  - 手機相機或 App 掃描**全自動填入名稱與網址**，亦可點擊按鈕直接喚醒 App 一鍵導入。
+  - 點擊 QR Code 圖示自動產生符合各客戶端規範的條碼。
+  - 手機相機或 App 掃描全自動填入名稱與網址，亦可點擊按鈕直接喚醒 App 一鍵導入。
 
 ### 3. 🏷️ 短連結雲端儲存與全字元完整保留
 - **大小寫字母與特殊符號 1:1 完全保留**：
@@ -53,7 +60,6 @@
     - `Profile-Title: My_Sub`
     - `Subscription-Title: My_Sub`
     - `Content-Disposition: inline; filename="My_Sub.json"`
-  - 各客戶端（Shadowrocket、Sing-Box、Surge、Clash）拉取後，訂閱清單自動顯示為指定名稱。
 
 ### 4. 🔐 私密配置管理安全鎖 (PAGE_PASSWORD)
 - **公私分明**：
@@ -64,8 +70,8 @@
 
 ### 5. 🛡️ 99.99% GitHub 模板即時直讀與雙重容災架構 (Zero Downtime)
 - **GitHub 遠端直讀 (零 KV 模板冗餘)**：
-  - Sing-Box 與 Clash Meta 的遠端規則模板直接向 GitHub 倉庫請求最新內容，徹底移除寫入 KV 之 `tpl:singbox` 與 `tpl:clash` 鍵值，邊緣資料庫乾淨純粹。
-  - 修改 GitHub 上的 `Sing-Box_Rules.JSON` 或 `Clash_Rules.YAML` 後，客戶端更新立即生效，無需手動清除快取。
+  - 遠端規則模板直接向 GitHub 倉庫請求最新內容，徹底移除寫入 KV 之 `tpl:singbox` 與 `tpl:clash` 鍵值，邊緣資料庫乾淨純粹。
+  - 修改 GitHub 上的規則模板後，客戶端更新立即生效，無需手動清除快取。
 - **雙重容災降級保證**：
   - 請求流程為：`GitHub 即時獲取` ➔ `內嵌應急模板兜底`。
   - 若遇 GitHub 服務波動、網路逾時或 429 限流，系統自動無縫回退至內建純淨版預設模板，確保訂閱拉取 100% 成功。
@@ -175,101 +181,13 @@
 - **過濾與替換**：設定保留/排除關鍵字或名稱替換規則。
 - **短連結雲端儲存**：設定自訂短代碼（如 `My_Sub`），規則將自動打包存入 KV，大小寫與字元原樣保留。
 - **多平台訂閱面板**：
-  - 複製對應客戶端的訂閱連結。
+  - 複製對應客戶端的訂閱連結（含 Sing-Box、Clash Meta、Honk/DAE、Surge、Base64 等）。
   - 點擊 QR Code 圖示彈出專屬喚醒視窗，手機相機或 App 掃描自動填入，或點擊「🚀 一鍵打開並導入」直接喚醒 App。
 - **配置收藏管理**：輸入管理密碼解鎖後，可自由新增、編輯、刪除或一鍵套用常用的私密配置，瀏覽器會自動記住登入狀態。
 
 ---
 
-### 2. 多元輸入範例
-
-#### (1) 直接貼入完整 Clash YAML 設定檔（自動提取 proxies）
-```yaml
-mixed-port: 7890
-mode: rule
-proxies:
-  - name: "WARP-MASQUE-01"
-    type: masque
-    server: 162.159.198.2
-    port: 443
-    private-key: <REDACTED_PRIVATE_KEY>
-    public-key: <REDACTED_PUBLIC_KEY>
-    ip: 172.16.0.2
-    ipv6: 2606:4700:110:8f56:aae5:fd77:ac85:2622
-    uri: https://cloudflareaccess.com
-    mtu: 1280
-    udp: true
-    remote-dns-resolve: true
-    congestion-controller: bbr
-    dns: [ 1.1.1.1, 8.8.8.8 ]
-    sni: www.microsoft.com
-```
-
-#### (2) 多組 WireGuard (.conf) 連續貼入
-```ini
-[Interface]
-PrivateKey = <REDACTED_PRIVATE_KEY_1>
-Address = 10.2.0.2/32
-DNS = 10.2.0.1
-
-[Peer]
-# JP-FREE#01
-PublicKey = <REDACTED_PUBLIC_KEY_1>
-AllowedIPs = 0.0.0.0/0, ::/0
-Endpoint = 198.51.100.1:51820
-PersistentKeepalive = 25
-
-[Interface]
-PrivateKey = <REDACTED_PRIVATE_KEY_2>
-Address = 10.2.0.2/32
-DNS = 10.2.0.1
-
-[Peer]
-# US-FREE#02
-PublicKey = <REDACTED_PUBLIC_KEY_2>
-AllowedIPs = 0.0.0.0/0, ::/0
-Endpoint = 198.51.100.2:51820
-PersistentKeepalive = 25
-```
-
-#### (3) 多組 Cloudflare WARP MASQUE JSON 貼入
-```json
-[
-  {
-    "name": "WARP-HK",
-    "private_key": "<REDACTED_PRIVATE_KEY_1>",
-    "endpoint_v4": "162.159.198.2",
-    "endpoint_pub_key": "<REDACTED_PUBLIC_KEY_1>",
-    "ipv4": "172.16.0.2/32"
-  },
-  {
-    "name": "WARP-JP",
-    "private_key": "<REDACTED_PRIVATE_KEY_2>",
-    "endpoint_v4": "162.159.198.3",
-    "endpoint_pub_key": "<REDACTED_PUBLIC_KEY_2>",
-    "ipv4": "172.16.0.2/32"
-  }
-]
-```
-
----
-
-### 3. Argo 隧道 2.0 部署步驟
-
-1. 在網頁主輸入框貼入您的 VLESS / VMess 節點內容。
-2. 點擊 **「第一步：解析並載入目前輸入的 VLESS / VMess 節點」**。
-3. 勾選欲轉換之節點，系統會自動匹配原埠號。
-4. （選填）填入 **Cloudflare 優選 IP**（例如 `104.16.80.1`）以加速連線。
-5. （選填）填入固定 Tunnel Token 與自訂綁定域名（若留空則為臨時隨機隧道）。
-6. 點擊 **「第二步：生成 Argo 一鍵部署指令與節點」**。
-7. 將產生的 `curl -sSL ... | bash` 指令複製至 VPS（以 root 權限執行）。
-8. 部署成功後：
-   - **固定域名模式**：下方文字框直接複製已轉換好的 `_Argo_優選` 節點。
-   - **臨時隨機模式**：VPS 終端機將動態輸出最終分配的節點連結。
-
----
-
-### 4. API 調用與外部前端對接
+### 2. API 調用與外部前端對接
 
 #### 當作標準 SubConverter 後端使用
 本專案內建標準 `/sub` 與 `/version` 端點，可直接填入任何開源 `sub-web` 前端的「後端地址 (Backend URL)」：
@@ -282,7 +200,7 @@ https://your-worker.workers.dev
 | 參數 | 說明 | 範例 |
 | :--- | :--- | :--- |
 | `url` | 原始訂閱連結、YAML 或節點內容（需 URL 編碼） | `https://example.com/sub` |
-| `target` | 目標格式：`clash` / `singbox` / `surge` / `quanx` / `loon` / `base64` | `target=clash` |
+| `target` | 目標格式：`clash` / `singbox` / `honk` (或 `dae`) / `surge` / `quanx` / `loon` / `base64` | `target=honk` |
 | `include` | 僅保留符合正則之節點 | `include=HK\|TW` |
 | `exclude` | 排除符合正則之節點（自動相容乘號 `×`） | `exclude=5x\|官網` |
 | `rename` | 名稱替換（刪除：`DEL-字串`、替換：`A-B`、統改：`ALL-名稱`） | `rename=DEL-[69云]\|ALL-JP` |
@@ -294,21 +212,24 @@ https://your-worker.workers.dev
 # 轉換原始訂閱為 Clash Meta 格式，僅保留香港，並刪除廣告名稱
 https://your-worker.workers.dev/sub?url=<URL編碼>&target=clash&include=HK&rename=DEL-[廣告]
 
-# 讀取已存於雲端 KV 的短連結配置
+# 讀取已存於雲端 KV 的短連結配置為 OpenWrt Honk (config.dae) 格式
+https://your-worker.workers.dev/<自訂短連結名稱>?target=honk
+
+# 讀取短連結為 Sing-Box 格式
 https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox
 ```
 
 ---
 
-## 🛡️ 內建分流群組 (Sing-Box / Clash Meta)
+## 🛡️ 內建分流群組 (Sing-Box / Clash Meta / Honk)
 
 | 圖示 | 策略組名稱 | 路由邏輯 |
 | :--- | :--- | :--- |
 | 🏎️ | 低倍率節點 | 自動彙整倍率 `< 1.0x` 的節點（省流專用） |
 | ⚡ | 專線加速 | 自動彙整包含 `IPLC` / `IEPL` / `專線` 的低延遲節點 |
-| 🚀 | 節點選擇 | 手動指定出站節點 |
+| 🚀 | 節點選擇 | 手動指定出站節點 / 主代理 |
 | ⚡ | 自動選擇 | URL Test 自動測速切換最低延遲節點 |
-| 💬 | HK AI 服務 | 針對 OpenAI / Claude / AI Studio 專屬分流 |
+| 💬 | AI 服務 | 針對 OpenAI / Claude / AI Studio 專屬分流 |
 | 🍎 | 蘋果服務 | Apple 相關服務直連或代理 |
 | Ⓜ️ | 微軟服務 | Microsoft 服務直連或代理 |
 | 🎮 | 遊戲平台 | Steam / Epic / EA / Ubisoft / Blizzard |
@@ -322,25 +243,31 @@ https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox
 
 ## ❓ 常見問題排錯 (FAQ)
 
-### 1. 為什麼官方原版 Sing-Box 無法使用 MASQUE 節點？如何在 Sing-Box 使用 WARP？
+### 1. 在 OpenWrt 旁路由（雙網關）使用 Honk / DAE 時，為什麼私有網段不能加 `(must)`？
+- **原因說明**：
+  - 在旁路由架構中，主路由與旁路由位於同一個 L2 廣播網段。
+  - 若在私有 IP 規則寫上 `dip(geoip:private) -> direct(must)`，Linux 核心會強制跳過 eBPF 狀態鏈直接發送，繞過了 DAE 的 Conntrack（連接追蹤）與 SNAT 偽裝。
+  - 主路由收到 DNS 查詢後，會跨過旁路由直接回覆客戶端，造成**非對稱路由（Asymmetric Routing）**。客戶端因來源 IP 不匹配直接丟棄回覆，造成全網 DNS 癱瘓。
+- **解法**：
+  - 本專案產出的 Honk 配置已採用 `dip(geoip:private) -> direct`，保留 eBPF 狀態追蹤，在旁路由與單臂路由環境下均可順暢連通。
+
+### 2. 為什麼官方原版 Sing-Box 無法使用 MASQUE 節點？如何在 Sing-Box 使用 WARP？
 - **原因說明**：
   - **MASQUE 協議現狀**：官方 `SagerNet/sing-box` 主線尚未合併 MASQUE 模組（若強行載入會報 `unknown outbound type: masque`）。目前僅社群擴展分支（如 `sing-box-lx`、`sing-box-extended`）支援 MASQUE。
-  - **協議不可互轉**：MASQUE（ECDSA P-256 / HTTP/3）與 WireGuard（Curve25519 / UDP）是兩套完全獨立的密碼學體系，轉換器**無法直接將 MASQUE 金鑰轉換成 WireGuard 節點**。
+  - **協議不可互轉**：MASQUE（ECDSA P-256 / HTTP/3）與 WireGuard（Curve25519 / UDP）是兩套完全獨立的密碼學體系，轉換器無法直接將 MASQUE 金鑰轉換成 WireGuard 節點。
 - **解法（官方 Sing-Box 如何使用 WARP）**：
   - 若需在官方原版 Sing-Box 使用 WARP，請直接獲取 **WARP 的 WireGuard 設定檔**（例如使用 `wgcf` 工具產生內含 `[Interface]...[Peer]` 的 `.conf` 檔）。
   - 將該 WireGuard `.conf` 貼入本轉換器，即可轉出符合官方規範的頂層現代 `endpoints` 結構，流暢連通。
 
-### 2. WireGuard 節點在小火箭（Shadowrocket）測速顯示超時/紅燈（TCP 無延遲），但打開開關能正常上網？
+### 3. WireGuard 節點在小火箭（Shadowrocket）測速顯示超時/紅燈（TCP 無延遲），但打開開關能正常上網？
 - **原因**：WireGuard 是工作在第 3 層（網路層）的虛擬網卡 TUN 隧道協議。小火箭首頁的「連通性測試」預設發送的是 **TCP/HTTP Ping**；在開關未開啟前，TUN 路由尚未真正建立，因此向私有 DNS（如 Proton 的 `10.2.0.1`）發起的 TCP 域名解析必定超時。
-- **說明**：這是所有包含內部私有 DNS 的 WireGuard / WARP 節點在小火箭中的**正常現象**。只要上方連線開關開啟後能順暢瀏覽網頁、查 IP 正確，即代表握手與代理功能完全正常。若需測出延遲數值，可在小火箭「設定」➔「測試方法」中切換為 **ICMP** 測速。
+- **說明**：這是所有包含內部私有 DNS 的 WireGuard / WARP 節點在小火箭中的**正常現象**。只要連線開關開啟後能順暢瀏覽網頁，即代表功能完全正常。若需測出數值，可在小火箭「設定」➔「測試方法」中切換為 **ICMP** 測速。
 
-### 3. Windows 上運行 WireGuard 節點報錯 `listen udp6: An invalid argument was supplied`？
-- **原因**：Windows 電腦未開啟 IPv6 協議元件，導致 Sing-Box 核心在嘗試雙棧 UDP 監聽時被 Windows Winsock 攔截。
-- **解法**：在 Windows 按 `Win + R` ➔ 輸入 `ncpa.cpl` ➔ 在連線的網卡（乙太網路或 Wi-Fi）點右鍵「內容」➔ **將「網際網路通訊協定第 6 版 (TCP/IPv6)」打勾啟用** 即可正常握手連通。若電腦完全無法開啟 IPv6，建議使用 **Clash Meta** 格式訂閱。
-
-### 4. Cloudflare EdgeTunnel 節點在手機端連線逾時？
-- **原因**：部分 Cloudflare 節點啟用了 ECH（加密問候）或自訂 WebSocket Early Data。
-- **解法**：本工具已全面自動淨化路徑中的 `?ed=2560`，並鎖定 `alpn: ["http/1.1"]`，只要透過本轉換器更新至最新訂閱，即可完美相容。
+### 4. 某些優選節點（如 `www.visa.cn`）在小火箭測速顯示綠燈，但在 Sing-Box / Clash 上連不上？
+- **原因**：
+  - **小火箭 TCP Ping 假象**：小火箭預設只測 TCP 握手。`www.visa.cn` 的真實伺服器目前已遷至阿里雲香港（`47.75.18.65`），TCP 端口能通（顯示 2ms 綠燈），但**阿里雲節點根本不具備 Cloudflare Workers 的反代回源功能**，實際上根本無法上網。
+  - **Sing-Box 真實業務探測**：Sing-Box 的測速發起的是真正的 HTTP 204 端到端業務測試（`https://www.gstatic.com/generate_204`），握手失敗立即如實回報紅燈。
+- **解法**：請避免使用 `.cn` 結尾的過期優選域名，建議改用真正的官方 Anycast 節點（如 `www.visa.com`、`icook.hk`、`mfa.gov.ua` 或純 IP `162.159.198.2`）。
 
 ---
 
@@ -349,14 +276,14 @@ https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox
 ```text
 cf-sub-converter/
 ├── src/
-│   ├── index.ts          # Worker 核心路由、並發請求控制、安全鑒權與 API 接口
+│   ├── index.ts          # Worker 核心路由、短代碼雙向容錯檢索、安全鑒權與 API 接口
 │   ├── constants.ts      # 響應式深色 UI 模板、QR Code 生成器與內嵌緊急降級規則
-│   ├── parser.ts         # 萬能節點解析器 (Clash YAML proxies 提取, WireGuard .conf, MASQUE, VLESS 等)
-│   ├── generator.ts      # 多平台格式生成器 (直連 GitHub 遠端模板 + 內嵌兜底、Sing-Box, Clash, Surge 等)
+│   ├── parser.ts         # 萬能節點解析器 (Clash YAML, WireGuard, MASQUE, VLESS, ECH 動態解析)
+│   ├── generator.ts      # 多平台格式生成器 (Sing-Box, Clash Meta, Honk/DAE, Surge 5, Base64)
 │   ├── utils.ts          # 倍率與專線特徵提取、Base64 安全編碼、萬國國旗對齊演算法
 │   └── types.ts          # 嚴格 TypeScript 類型定義
 ├── argo.sh               # VPS Argo 隧道 2.0 一鍵安裝與自我修復通用腳本
-├── Sing-Box_Rules.JSON   # GitHub 遠端 Sing-Box 混合 TUN 規則模板 (1.14+ 現代無警告規範)
+├── Sing-Box_Rules.JSON   # GitHub 遠端 Sing-Box 混合 TUN 規則模板
 ├── Clash_Rules.YAML      # GitHub 遠端 Clash Meta (Mihomo) 規則模板
 ├── wrangler.toml         # Cloudflare Workers 配置檔
 └── .github/workflows/

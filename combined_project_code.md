@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Oct 28 05:33:06 UTC 2026
+Generated on: Thu Oct 29 09:28:54 UTC 2026
 
 ## File: package.json
 ````json
@@ -1843,7 +1843,6 @@ async function fetchTemplateDirect(
 // --- Sing-Box 配置生成 ---
 export async function toSingBoxWithTemplate(nodes: ProxyNode[], _env?: Env, _forceRefresh = false): Promise<string> {
   const text = await fetchTemplateDirect(REMOTE_CONFIG.singbox, FALLBACK_SINGBOX_RULES);
-  // 使用防禦性過濾後解析 JSON，徹底解決註解引起的 SyntaxError
   const config = JSON.parse(stripJsonComments(text));
   
   if (!config.http_clients || !Array.isArray(config.http_clients) || config.http_clients.length === 0) {
@@ -1868,10 +1867,9 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], _env?: Env, _for
       config.dns.rules = config.dns.rules.filter((r: Record<string, unknown>) => !('outbound' in r));
     }
 
-    // 只有節點「明確以 https:// 給出自訂 DoH」時，才在頂層 DNS 針對該特定網域掛載 DoH
     const nodesWithCustomDoh = nodes.filter(n => n.ech && n.echDoh && /^https?:\/\//i.test(n.echDoh));
     if (nodesWithCustomDoh.length > 0) {
-      const dohMap = new Map<string, string>(); // domain -> dohUrl
+      const dohMap = new Map<string, string>();
       for (const n of nodesWithCustomDoh) {
         const domain = n.echQueryServerName || n.sni || n.server;
         const dohUrl = n.echDoh!;
@@ -1962,7 +1960,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], _env?: Env, _for
         obj.tls.alpn = ['http/1.1'];
       }
       
-      // 只有節點指定了自訂 ECH 網域才附加 query_server_name，未指定則留空讓 Sing-Box 自動適配節點偽裝域名
       if (n.ech && obj.tls) {
         const echObj: Record<string, unknown> = { enabled: true };
         if (n.echQueryServerName && !isIpAddress(n.echQueryServerName)) {
@@ -2072,7 +2069,6 @@ export async function toClashWithTemplate(nodes: ProxyNode[], _env?: Env, _force
     });
   }
 
-  // 只有當節點明確給出以 https:// 開頭的 DoH 時，才在 Clash 中掛載 nameserver-policy
   const nodesWithCustomDoh = nodes.filter(n => n.ech && n.echDoh && /^https?:\/\//i.test(n.echDoh));
   if (nodesWithCustomDoh.length > 0 && config.dns && typeof config.dns === 'object') {
     const dnsObj = config.dns as Record<string, unknown>;
@@ -2089,6 +2085,193 @@ export async function toClashWithTemplate(nodes: ProxyNode[], _env?: Env, _force
   }
 
   return yaml.dump(config, { indent: 2, noRefs: true });
+}
+
+// --- Honk / DAE (config.dae) 配置生成 ---
+export async function toHonk(nodes: ProxyNode[]): Promise<string> {
+  // 1. 動態拉取使用者的自訂 AI 網域清單，並設有本地應急兜底
+  let aiRulesBody = '';
+  try {
+    const aiResp = await fetch('https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.dae?t=' + Date.now(), {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+    });
+    if (aiResp.ok) {
+      const text = await aiResp.text();
+      // 提取 domain(...) 內部的網域名稱，將原來的 -> proxy 替換為 -> '💬 AI 服務'
+      if (text.includes('domain(')) {
+        aiRulesBody = text.replace(/->\s*proxy/g, "-> '💬 AI 服務'").trim();
+      }
+    }
+  } catch {}
+
+  // 兜底常用 AI 規則
+  if (!aiRulesBody) {
+    aiRulesBody = `domain(
+        geosite:category-ai-!cn,
+        geosite:openai,
+        geosite:claude,
+        ai.google.dev,
+        aistudio.google.com,
+        cursor.com,
+        sora.com
+    ) -> '💬 AI 服務'`;
+  }
+
+  // 2. 產出 node { ... } 節點清單
+  const nodeEntries: string[] = [];
+  for (const node of nodes) {
+    const rawLink = toRawLinks([node]).trim();
+    if (rawLink) {
+      const safeName = node.name.replace(/['\\]/g, '').trim();
+      nodeEntries.push(`    '${safeName}': '${rawLink}'`);
+    }
+  }
+
+  return `# ==============================================================================
+# OpenWrt Honk-Core / DAE 完整設定檔 (由 CF Sub Converter 自動產生)
+# 儲存路徑: /etc/honk/config.dae
+# ==============================================================================
+
+global {
+    wan_interface: auto
+    lan_interface: br-lan
+
+    dial_mode: domain++
+    auto_config_kernel_parameter: true
+    data_dir: '/etc/honk'
+    log_level: info
+    log_file: ''
+
+    tcp_check_url: 'https://www.gstatic.com/generate_204'
+    tcp_check_http_method: HEAD
+    check_interval: 300s
+    check_tolerance: 50ms
+
+    bootstrap_resolver: '1.1.1.1:53'
+}
+
+# ==============================================================================
+# 原生 Web API 與 Doona Web UI (內網瀏覽 http://<路由器IP>:9527)
+# ==============================================================================
+experimental {
+    native_api {
+        enabled: true
+        listen: '0.0.0.0:9527'
+        password_auth: true
+        config_write: true
+        ui: 'embedded'
+    }
+    cache_file {
+        enabled: true
+        store_dns: true
+    }
+}
+
+# ==============================================================================
+# 節點定義 (包含全部轉換之代理節點)
+# ==============================================================================
+node {
+${nodeEntries.join('\n')}
+}
+
+# ==============================================================================
+# 策略分流群組 (不加地區正則過濾，每個組皆包含全部節點供自由調度)
+# ==============================================================================
+group {
+    '🚀 節點選擇' {
+        policy: min_moving_avg
+    }
+
+    '💬 AI 服務' {
+        policy: min_moving_avg
+    }
+
+    'Ⓜ️ 微軟服務' {
+        policy: min_moving_avg
+    }
+
+    '🎮 遊戲平台' {
+        policy: min_moving_avg
+    }
+
+    '🍎 蘋果服務' {
+        policy: min_moving_avg
+    }
+
+    '🌐 非中國' {
+        policy: min_moving_avg
+    }
+
+    '🐟 漏網之魚' {
+        policy: min_moving_avg
+    }
+}
+
+# ==============================================================================
+# DNS 智慧解析 (localdns 走本機 dnsmasq，即 OpenWrt 原生 system DNS)
+# ==============================================================================
+dns {
+    upstream {
+        # 127.0.0.1:53 為 OpenWrt 本機 dnsmasq，自動跟隨當前 WAN 口電信商 system-dns
+        localdns: 'udp://127.0.0.1:53'
+        cfdoh: 'https://1.1.1.1/dns-query'
+        googledns: 'tcp+udp://dns.google:53'
+    }
+    routing {
+        request {
+            # 第一道防線：DNS 查詢階段阻斷廣告
+            qname(geosite:category-ads-all) -> reject
+
+            # 國內網域由本機 dnsmasq 解析就近 CDN
+            qname(geosite:cn) -> localdns
+
+            # 其餘走安全 DoH
+            fallback: cfdoh
+        }
+        response {
+            upstream(cfdoh) && ip(geoip:cn) -> localdns
+            fallback: accept
+        }
+    }
+}
+
+# ==============================================================================
+# eBPF 流量路由規則 (完全對齊舊配置)
+# ==============================================================================
+routing {
+    # 1. 系統本機行程與廣播封包強制直連
+    pname(NetworkManager, systemd-resolved, dnsmasq) -> direct(must)
+    dip(224.0.0.0/3, 'ff00::/8') -> direct
+
+    # 2. 🏠 私有網絡 (內網 NAS、管理後台等)
+    dip(geoip:private) -> direct(must)
+
+    # 3. 🛑 廣告攔截 (第二道防線兜底)
+    domain(geosite:category-ads-all) -> block
+
+    # 4. 💬 AI 服務 (完全載入你的自訂 AI 網域規則)
+    ${aiRulesBody}
+
+    # 5. Ⓜ️ 微軟服務
+    domain(geosite:microsoft) -> 'Ⓜ️ 微軟服務'
+
+    # 6. 🎮 遊戲平台
+    domain(geosite:steam, geosite:epicgames, geosite:ea, geosite:ubisoft, geosite:blizzard) -> '🎮 遊戲平台'
+
+    # 7. 🍎 蘋果服務
+    domain(geosite:apple) -> '🍎 蘋果服務'
+
+    # 8. 🌐 非中國 (國外網站走非中國策略)
+    domain(geosite:geolocation-!cn) -> '🌐 非中國'
+
+    # 9. 🇨🇳 國內服務 (中國國內網域與 IP 全部直連)
+    domain(geosite:cn) -> direct
+    dip(geoip:cn) -> direct
+
+    # 10. 🐟 漏網之魚 (最終兜底)
+    fallback: '🐟 漏網之魚'
+}
+`;
 }
 
 // --- Surge 5 配置生成 ---
@@ -2234,6 +2417,7 @@ export function toLoon(nodes: ProxyNode[]): string {
 
   return lines.join('\n');
 }
+
 ````
 
 ## File: src/utils.ts

@@ -530,10 +530,6 @@ subscription {
 # 策略分流群組 (Group) - 全數採用 min_moving_avg 自動優選
 # ==============================================================================
 group {
-    '🚀 節點選擇' {
-        policy: min_moving_avg
-    }
-
     '💬 AI 服務' {
         policy: min_moving_avg
     }
@@ -554,7 +550,7 @@ group {
         policy: min_moving_avg
     }
 
-    '🐟 漏網之魚' {
+    '🎯 綜合評分' {
         policy: min_moving_avg
     }
 }
@@ -589,13 +585,13 @@ routing {
     pname(NetworkManager, systemd-resolved, dnsmasq) -> direct(must)
     dip(224.0.0.0/3, 'ff00::/8') -> direct
 
-    # 1. 🏠 私有網絡 (已移除 must，完美適配旁路由非對稱路由環境，內網訪問不癱瘓)
+    # 1. 🏠 私有網絡 (完美適配單臂/旁路由非對稱路由環境，內網訪問不癱瘓)
     dip(geoip:private) -> direct
 
     # 2. 🛑 廣告攔截
     domain(geosite:category-ads-all) -> block
 
-    # 3. 💬 AI 服務 (100% 即時從你的 GitHub 獲取)
+    # 3. 💬 AI 服務 (100% 即時從你的 GitHub 獲取最新清單)
     ${aiRulesBody}
 
     # 4. Ⓜ️ 微軟服務
@@ -614,8 +610,8 @@ routing {
     domain(geosite:cn) -> direct
     dip(geoip:cn) -> direct
 
-    # 9. 🐟 漏網之魚 (最終兜底)
-    fallback: '🐟 漏網之魚'
+    # 9. 🎯 綜合評分 (最終兜底)
+    fallback: '🎯 綜合評分'
 }
 `;
 }

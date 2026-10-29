@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Oct 29 13:07:12 UTC 2026
+Generated on: Thu Oct 29 13:11:03 UTC 2026
 
 ## File: package.json
 ````json
@@ -2010,7 +2010,9 @@ export async function toClashWithTemplate(nodes: ProxyNode[], _env?: Env, _force
 
 // --- Honk / DAE (config.dae) 配置生成 ---
 export async function toHonk(nodes: ProxyNode[], subUrl?: string, profileName?: string): Promise<string> {
+  const AI_DAE_URL = 'https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.dae';
   let aiRulesBody = '';
+  
   try {
     const aiResp = await fetch(`${AI_DAE_URL}?t=${Date.now()}`, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }

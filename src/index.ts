@@ -10,7 +10,8 @@ import {
   toBase64,
   toSurge,
   toQuantumultX,
-  toLoon
+  toLoon,
+  toHonk
 } from './generator';
 import { deduplicateNodeNames, groupNodesByFlag } from './utils';
 
@@ -258,7 +259,6 @@ export default {
 
           let argoLink = '';
           if (node.type === 'vless') {
-            // 修復：移除 encodeURIComponent，直接輸出原生中文名稱，防止出現 %E5%84%AA%E9%81%B8
             argoLink = `vless://${node.uuid}@${connectionServer}:443?encryption=none&security=tls&type=${node.network || 'ws'}&host=${targetDomain}&sni=${targetDomain}&path=${node.wsPath || '/'}#${argoNodeName}`;
           } else {
             const vmessObj = {
@@ -318,10 +318,8 @@ export default {
         };
         const jsonStr = JSON.stringify(saveData);
 
-        // 1. 寫入原始鍵值
         await env.SUB_CACHE.put(cleanPath, jsonStr);
 
-        // 2. 若含大寫，同步備份全小寫鍵值
         if (cleanPath !== cleanPath.toLowerCase()) {
           await env.SUB_CACHE.put(cleanPath.toLowerCase(), jsonStr);
         }
@@ -373,7 +371,6 @@ export default {
         });
         await saveFavs(favs);
 
-        // 同步在獨立短代碼建立映射
         const cleanName = body.name.trim();
         const syncData = JSON.stringify({
           content: body.url,
@@ -458,7 +455,6 @@ export default {
     let nameParam = url.searchParams.get('name') || '';
     const forceRefresh = url.searchParams.has('force') || url.searchParams.has('nocache');
 
-    // 取得路徑短代碼 (去除首位斜線並完整 URL 解碼)
     const rawPath = url.pathname.replace(/^\/+/, '');
     const path = decodeURIComponent(rawPath).trim();
     let detectedProfileName = nameParam;
@@ -468,15 +464,12 @@ export default {
         detectedProfileName = path;
       }
       
-      // 1. 優先直接讀取原始 path
       let stored = await env.SUB_CACHE.get(path);
       
-      // 2. 若未找到，嘗試小寫
       if (!stored && path !== path.toLowerCase()) {
         stored = await env.SUB_CACHE.get(path.toLowerCase());
       }
 
-      // 3. 若未找到，嘗試大寫
       if (!stored && path !== path.toUpperCase()) {
         stored = await env.SUB_CACHE.get(path.toUpperCase());
       }
@@ -495,7 +488,6 @@ export default {
         }
       }
 
-      // 4. 容災：若獨立 Key 未找到，搜尋收藏夾列表 (Favorites)
       if (!urlParam || urlParam.trim() === '') {
         try {
           const favsData = await env.SUB_CACHE.get('favorites');
@@ -516,7 +508,6 @@ export default {
       }
     }
 
-    // 若沒有內容，且非 sub 端點，才顯示首頁 Web 前端
     if (!urlParam || urlParam.trim() === '') {
       if (path === 'sub') {
         return new Response('Error: Missing parameter "url"', { status: 400 });
@@ -535,7 +526,6 @@ export default {
 
     const trimmedParam = urlParam.trim();
 
-    // 1. 優先完整辨識多行 WireGuard 配置
     if (/\[Interface\]/i.test(trimmedParam) && /\[Peer\]/i.test(trimmedParam)) {
       try {
         const parsed = await parseContent(trimmedParam);
@@ -545,7 +535,6 @@ export default {
         errors.push(`[WireGuard 配置] 失敗原因: ${msg}`);
       }
     } 
-    // 2. 優先完整辨識多組或單組 MASQUE JSON
     else if (/["']private_key["']/i.test(trimmedParam) && (trimmedParam.includes('{') || trimmedParam.includes('['))) {
       try {
         const parsed = await parseContent(trimmedParam);
@@ -555,7 +544,6 @@ export default {
         errors.push(`[MASQUE 配置] 失敗原因: ${msg}`);
       }
     } 
-    // 3. 優先完整辨識多行 Clash YAML 配置 (含 proxies:)
     else if (/(^|\n)\s*proxies\s*:/i.test(trimmedParam)) {
       try {
         const parsed = await parseContent(trimmedParam);
@@ -689,6 +677,8 @@ export default {
         target = 'quanx';
       } else if (ua.includes('loon')) {
         target = 'loon';
+      } else if (ua.includes('honk') || ua.includes('dae')) {
+        target = 'honk';
       } else if (ua.includes('v2ray') || ua.includes('shadowrocket')) {
         target = 'base64';
       }
@@ -709,6 +699,7 @@ export default {
   <div>
     <a href="${host}/?url=${encodedUrl}${filterQuery}&target=clash">Clash Meta (YAML)</a>
     <a href="${host}/?url=${encodedUrl}${filterQuery}&target=singbox">Sing-Box (JSON)</a>
+    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=honk">Honk / dae (config.dae)</a>
     <a href="${host}/?url=${encodedUrl}${filterQuery}&target=surge">Surge 5</a>
     <a href="${host}/?url=${encodedUrl}${filterQuery}&target=quanx">Quantumult X</a>
     <a href="${host}/?url=${encodedUrl}${filterQuery}&target=loon">Loon</a>
@@ -739,6 +730,10 @@ export default {
         result = toLoon(uniqueNodes);
         contentType = 'text/plain';
         fileExt = '.conf';
+      } else if (target === 'honk' || target === 'dae') {
+        result = await toHonk(uniqueNodes);
+        contentType = 'text/plain';
+        fileExt = '.dae';
       } else if (target === 'base64') {
         result = toBase64(uniqueNodes);
         contentType = 'text/plain';

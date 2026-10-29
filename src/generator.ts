@@ -4,6 +4,8 @@ import { Env, ProxyNode } from './types';
 import { REMOTE_CONFIG, FALLBACK_SINGBOX_RULES, FALLBACK_CLASH_RULES } from './constants';
 import { utf8ToBase64 } from './utils';
 
+const AI_DAE_URL = 'https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.dae';
+
 function isIpAddress(str: string): boolean {
   return /^(\d{1,3}\.){3}\d{1,3}$/.test(str) || str.includes(':');
 }
@@ -448,130 +450,32 @@ export async function toClashWithTemplate(nodes: ProxyNode[], _env?: Env, _force
 
 // --- Honk / DAE (config.dae) 配置生成 ---
 export async function toHonk(nodes: ProxyNode[], subUrl?: string, profileName?: string): Promise<string> {
-  // 1. 動態拉取使用者的自訂 AI 網域清單，並設有本地完整兜底
+  // 1. 100% 動態從你的 GitHub 即時抓取最新的 AI 網域檔案，杜絕任何寫死
   let aiRulesBody = '';
   try {
-    const aiResp = await fetch('https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.dae?t=' + Date.now(), {
+    const aiResp = await fetch(`${AI_DAE_URL}?t=${Date.now()}`, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
     });
     if (aiResp.ok) {
       const text = await aiResp.text();
       if (text.includes('domain(')) {
+        // 將原作者檔案裡的 -> proxy 動態置換為 -> '💬 AI 服務'
         aiRulesBody = text.replace(/->\s*proxy/g, "-> '💬 AI 服務'").trim();
       }
+    } else {
+      throw new Error(`GitHub HTTP ${aiResp.status}`);
     }
-  } catch {}
-
-  // 兜底採用你完整的自訂 AI 網域清單 (80+ 個網域，絕不退回 geosite)
-  if (!aiRulesBody) {
-    aiRulesBody = `domain(
-        ai.google.dev,
-        alkalicore-pa.clients6.google.com,
-        api.githubcopilot.com,
-        api.groq.com,
-        api.together.xyz,
-        bard.google.com,
-        chatgpt.com,
-        claude.ai,
-        claude.com,
-        client-api.arkoselabs.com,
-        console.groq.com,
-        copilot-proxy.githubusercontent.com,
-        copilot.cloud.microsoft,
-        copilot.microsoft.com,
-        cursor.com,
-        cursor.sh,
-        events.statsigapi.net,
-        featuregates.org,
-        gemini.google.com,
-        generativelanguage.googleapis.com,
-        grazie.ai,
-        grazie.aws.intellij.net,
-        identrust.com,
-        intercom.io,
-        intercomcdn.com,
-        jetbrains.ai,
-        makersuite.google.com,
-        meta.ai,
-        mistral.ai,
-        notebooklm.google,
-        notebooklm.google.com,
-        oaistatic.com,
-        oaiusercontent.com,
-        openai.com,
-        openaiapi-site.azureedge.net,
-        pa.googleapis.com,
-        perplexity.ai,
-        robinfrontend-pa.googleapis.com,
-        signaler-pa.googleapis.com,
-        sora.com,
-        sydney.bing.com,
-        x.ai,
-        suffix(ai.azure.com),
-        suffix(anthropic.com),
-        suffix(auth0.com),
-        suffix(bard.google.com),
-        suffix(chatgpt.com),
-        suffix(claude.ai),
-        suffix(claude.com),
-        suffix(claudeusercontent.com),
-        suffix(client-api.arkoselabs.com),
-        suffix(copilot.cloud.microsoft),
-        suffix(copilot.microsoft.com),
-        suffix(cursor.com),
-        suffix(cursor.sh),
-        suffix(events.statsigapi.net),
-        suffix(featuregates.org),
-        suffix(gemini.google.com),
-        suffix(grazie.ai),
-        suffix(grazie.aws.intellij.net),
-        suffix(identrust.com),
-        suffix(intercom.io),
-        suffix(intercomcdn.com),
-        suffix(jetbrains.ai),
-        suffix(makersuite.google.com),
-        suffix(meta.ai),
-        suffix(mistral.ai),
-        suffix(notebooklm.google),
-        suffix(notebooklm.google.com),
-        suffix(oaistatic.com),
-        suffix(oaiusercontent.com),
-        suffix(openai.com),
-        suffix(openaiapi-site.azureedge.net),
-        suffix(perplexity.ai),
-        suffix(sora.com),
-        suffix(x.ai),
-        keyword(anthropic),
-        keyword(claude),
-        keyword(openai),
-        browser-intake-datadoghq.com,
-        chat.openai.com,
-        chat.openai.com.cdn.cloudflare.net,
-        openai-api.arkoselabs.com,
-        openaicom.imgix.net,
-        openaicomproductionae4b.blob.core.windows.net,
-        production-openaicom-storage.azureedge.net,
-        static.cloudflareinsights.com,
-        tcr9i.chat.openai.com,
-        whisper.lab.mgmt.openai.com,
-        apple.news,
-        news-assets.apple.com,
-        news-client.apple.com,
-        news-client-search.apple.com,
-        news-edge.apple.com,
-        news-events.apple.com,
-        play.itunes.apple.com,
-        gateway.icloud.com,
-        openai.qualtrics.com
-    ) -> '💬 AI 服務'`;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`無法動態獲取遠端 AI 規則檔案 (${AI_DAE_URL}): ${msg}`);
   }
 
-  // 2. 訂閱模組設定：直連下載 (route: direct)，每 12 小時更新一次 (interval: 43200s)
+  // 2. 訂閱模組設定：直連下載 (route: direct)，每 12 小時自動更新 (interval: 43200s)
   const finalSubTag = (profileName || 'My_Sub').replace(/[^a-zA-Z0-9_-]/g, '_');
   const targetSubUrl = subUrl || 'https://sub.myvs.dpdns.org/EDT?target=base64';
 
   return `# ==============================================================================
-# OpenWrt Honk-Core / DAE 完整設定檔 (由 CF Sub Converter 自動產生)
+# OpenWrt Honk-Core / DAE 完整設定檔 (由 CF Sub Converter 動態產生)
 # 儲存路徑: /etc/honk/config.dae
 # ==============================================================================
 
@@ -688,7 +592,7 @@ routing {
     # 2. 🛑 廣告攔截
     domain(geosite:category-ads-all) -> block
 
-    # 3. 💬 AI 服務 (完全載入你自己的 geosite_ai_hk_proxy.dae 規則清單)
+    # 3. 💬 AI 服務 (100% 即時從你的 GitHub 獲取)
     ${aiRulesBody}
 
     # 4. Ⓜ️ 微軟服務

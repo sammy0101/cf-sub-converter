@@ -673,6 +673,8 @@ export default {
       }
     }
 
+    const finalProfileName = detectedProfileName || 'subscription';
+
     if (!target) {
       const host = `https://${url.host}`;
       const encodedUrl = encodeURIComponent(urlParam);
@@ -688,11 +690,11 @@ export default {
   <div>
     <a href="${host}/?url=${encodedUrl}${filterQuery}&target=clash">Clash Meta (YAML)</a>
     <a href="${host}/?url=${encodedUrl}${filterQuery}&target=singbox">Sing-Box (JSON)</a>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=honk">Honk / dae (config.dae)</a>
     <a href="${host}/?url=${encodedUrl}${filterQuery}&target=surge">Surge 5</a>
     <a href="${host}/?url=${encodedUrl}${filterQuery}&target=quanx">Quantumult X</a>
     <a href="${host}/?url=${encodedUrl}${filterQuery}&target=loon">Loon</a>
     <a href="${host}/?url=${encodedUrl}${filterQuery}&target=base64">Base64</a>
+    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=honk">Honk / dae (config.dae)</a>
   </div>
 </body></html>`;
       return new Response(htmlInfo, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
@@ -701,8 +703,6 @@ export default {
     let result = '';
     let contentType = 'text/plain';
     let fileExt = '.txt';
-
-    const finalProfileName = detectedProfileName || 'subscription';
 
     try {
       if (target === 'clash') {
@@ -722,7 +722,6 @@ export default {
         contentType = 'text/plain';
         fileExt = '.conf';
       } else if (target === 'honk' || target === 'dae') {
-        // 自動生成當前配置專屬的 Base64 訂閱網址注入到 config.dae 中
         const host = `https://${url.host}`;
         let base64SubUrl = `${host}/?url=${encodeURIComponent(urlParam)}&target=base64`;
         if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {

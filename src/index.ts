@@ -17,7 +17,6 @@ import { deduplicateNodeNames, groupNodesByFlag } from './utils';
 
 const version = packageJson.version || '3.5.0';
 
-// 密碼鑒權校驗
 function checkAuth(request: Request, env: Env): boolean {
   if (!env.PAGE_PASSWORD || env.PAGE_PASSWORD.trim() === '') {
     return true;
@@ -26,13 +25,11 @@ function checkAuth(request: Request, env: Env): boolean {
   return clientPwd === env.PAGE_PASSWORD.trim();
 }
 
-// 輔助載入與解析節點
 async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
   const allNodes: ProxyNode[] = [];
   const trimmed = urlParam.trim();
   if (!trimmed) return allNodes;
 
-  // 1. 優先完整辨識多行 WireGuard
   if (/\[Interface\]/i.test(trimmed) && /\[Peer\]/i.test(trimmed)) {
     try {
       const parsed = await parseContent(trimmed);
@@ -41,7 +38,6 @@ async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
     return allNodes;
   }
 
-  // 2. 優先完整辨識多組或單組 MASQUE JSON (物件或陣列)
   if (/["']private_key["']/i.test(trimmed) && (trimmed.includes('{') || trimmed.includes('['))) {
     try {
       const parsed = await parseContent(trimmed);
@@ -50,7 +46,6 @@ async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
     return allNodes;
   }
 
-  // 3. 優先完整辨識多行 Clash YAML 配置 (含 proxies:)
   if (/(^|\n)\s*proxies\s*:/i.test(trimmed)) {
     try {
       const parsed = await parseContent(trimmed);
@@ -160,7 +155,6 @@ export default {
       });
     }
 
-    // GET /argo/sh/:id
     if (request.method === 'GET' && url.pathname.startsWith('/argo/sh/')) {
       const scriptId = url.pathname.split('/').pop();
       if (env.SUB_CACHE && scriptId) {
@@ -180,7 +174,6 @@ export default {
       });
     }
 
-    // POST /api/parse-argo
     if (request.method === 'POST' && (url.pathname === '/api/parse-vless' || url.pathname === '/api/parse-argo')) {
       try {
         const body = (await request.json()) as { url?: string };
@@ -214,7 +207,6 @@ export default {
       }
     }
 
-    // POST /api/argo-generate
     if (request.method === 'POST' && url.pathname === '/api/argo-generate') {
       try {
         const body = (await request.json()) as {
@@ -293,7 +285,6 @@ export default {
       }
     }
 
-    // GET /version
     if (request.method === 'GET' && url.pathname === '/version') {
       return new Response(`subconverter v${version} ${url.host} backend\n`, {
         headers: { 
@@ -303,7 +294,6 @@ export default {
       });
     }
 
-    // POST /save (雙向儲存原始與全小寫路徑)
     if (request.method === 'POST' && url.pathname === '/save') {
       try {
         const body = (await request.json()) as { path?: string; content?: string; include?: string; exclude?: string; rename?: string };
@@ -333,7 +323,6 @@ export default {
       }
     }
 
-    // --- Favorites API ---
     const FAVS_KEY = 'favorites';
     const getFavs = async (): Promise<Array<Record<string, string>>> => {
       const data = await env.SUB_CACHE.get(FAVS_KEY);
@@ -713,6 +702,8 @@ export default {
     let contentType = 'text/plain';
     let fileExt = '.txt';
 
+    const finalProfileName = detectedProfileName || 'subscription';
+
     try {
       if (target === 'clash') {
         result = await toClashWithTemplate(uniqueNodes, env, forceRefresh);
@@ -731,7 +722,17 @@ export default {
         contentType = 'text/plain';
         fileExt = '.conf';
       } else if (target === 'honk' || target === 'dae') {
-        result = await toHonk(uniqueNodes);
+        // 自動生成當前配置專屬的 Base64 訂閱網址注入到 config.dae 中
+        const host = `https://${url.host}`;
+        let base64SubUrl = `${host}/?url=${encodeURIComponent(urlParam)}&target=base64`;
+        if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
+          base64SubUrl = `${host}/${encodeURIComponent(path)}?target=base64`;
+        }
+        if (includeParam) base64SubUrl += `&include=${encodeURIComponent(includeParam)}`;
+        if (excludeParam) base64SubUrl += `&exclude=${encodeURIComponent(excludeParam)}`;
+        if (renameParam) base64SubUrl += `&rename=${encodeURIComponent(renameParam)}`;
+        
+        result = await toHonk(uniqueNodes, base64SubUrl, finalProfileName);
         contentType = 'text/plain';
         fileExt = '.dae';
       } else if (target === 'base64') {
@@ -751,7 +752,6 @@ export default {
       });
     }
 
-    const finalProfileName = detectedProfileName || 'subscription';
     const filenameAscii = `${finalProfileName.replace(/[^a-zA-Z0-9_-]/g, '_')}${fileExt}`;
     const filenameUtf8 = encodeURIComponent(`${finalProfileName}${fileExt}`);
 

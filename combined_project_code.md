@@ -1,11 +1,11 @@
 # Complete Project Codebase
-Generated on: Thu Oct 29 09:48:47 UTC 2026
+Generated on: Thu Oct 29 09:49:54 UTC 2026
 
 ## File: package.json
 ````json
 {
   "name": "cf-sub-converter",
-  "version": "3.6.1",
+  "version": "3.7.0",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",

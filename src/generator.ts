@@ -447,8 +447,8 @@ export async function toClashWithTemplate(nodes: ProxyNode[], _env?: Env, _force
 }
 
 // --- Honk / DAE (config.dae) 配置生成 ---
-export async function toHonk(nodes: ProxyNode[]): Promise<string> {
-  // 1. 動態拉取使用者的自訂 AI 網域清單，並設有本地應急兜底
+export async function toHonk(nodes: ProxyNode[], subUrl?: string, profileName?: string): Promise<string> {
+  // 1. 動態拉取使用者的自訂 AI 網域清單，並設有本地完整兜底
   let aiRulesBody = '';
   try {
     const aiResp = await fetch('https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.dae?t=' + Date.now(), {
@@ -456,35 +456,119 @@ export async function toHonk(nodes: ProxyNode[]): Promise<string> {
     });
     if (aiResp.ok) {
       const text = await aiResp.text();
-      // 提取 domain(...) 內部的網域名稱，將原來的 -> proxy 替換為 -> '💬 AI 服務'
       if (text.includes('domain(')) {
         aiRulesBody = text.replace(/->\s*proxy/g, "-> '💬 AI 服務'").trim();
       }
     }
   } catch {}
 
-  // 兜底常用 AI 規則
+  // 兜底採用你完整的自訂 AI 網域清單 (80+ 個網域，絕不退回 geosite)
   if (!aiRulesBody) {
     aiRulesBody = `domain(
-        geosite:category-ai-!cn,
-        geosite:openai,
-        geosite:claude,
         ai.google.dev,
-        aistudio.google.com,
+        alkalicore-pa.clients6.google.com,
+        api.githubcopilot.com,
+        api.groq.com,
+        api.together.xyz,
+        bard.google.com,
+        chatgpt.com,
+        claude.ai,
+        claude.com,
+        client-api.arkoselabs.com,
+        console.groq.com,
+        copilot-proxy.githubusercontent.com,
+        copilot.cloud.microsoft,
+        copilot.microsoft.com,
         cursor.com,
-        sora.com
+        cursor.sh,
+        events.statsigapi.net,
+        featuregates.org,
+        gemini.google.com,
+        generativelanguage.googleapis.com,
+        grazie.ai,
+        grazie.aws.intellij.net,
+        identrust.com,
+        intercom.io,
+        intercomcdn.com,
+        jetbrains.ai,
+        makersuite.google.com,
+        meta.ai,
+        mistral.ai,
+        notebooklm.google,
+        notebooklm.google.com,
+        oaistatic.com,
+        oaiusercontent.com,
+        openai.com,
+        openaiapi-site.azureedge.net,
+        pa.googleapis.com,
+        perplexity.ai,
+        robinfrontend-pa.googleapis.com,
+        signaler-pa.googleapis.com,
+        sora.com,
+        sydney.bing.com,
+        x.ai,
+        suffix(ai.azure.com),
+        suffix(anthropic.com),
+        suffix(auth0.com),
+        suffix(bard.google.com),
+        suffix(chatgpt.com),
+        suffix(claude.ai),
+        suffix(claude.com),
+        suffix(claudeusercontent.com),
+        suffix(client-api.arkoselabs.com),
+        suffix(copilot.cloud.microsoft),
+        suffix(copilot.microsoft.com),
+        suffix(cursor.com),
+        suffix(cursor.sh),
+        suffix(events.statsigapi.net),
+        suffix(featuregates.org),
+        suffix(gemini.google.com),
+        suffix(grazie.ai),
+        suffix(grazie.aws.intellij.net),
+        suffix(identrust.com),
+        suffix(intercom.io),
+        suffix(intercomcdn.com),
+        suffix(jetbrains.ai),
+        suffix(makersuite.google.com),
+        suffix(meta.ai),
+        suffix(mistral.ai),
+        suffix(notebooklm.google),
+        suffix(notebooklm.google.com),
+        suffix(oaistatic.com),
+        suffix(oaiusercontent.com),
+        suffix(openai.com),
+        suffix(openaiapi-site.azureedge.net),
+        suffix(perplexity.ai),
+        suffix(sora.com),
+        suffix(x.ai),
+        keyword(anthropic),
+        keyword(claude),
+        keyword(openai),
+        browser-intake-datadoghq.com,
+        chat.openai.com,
+        chat.openai.com.cdn.cloudflare.net,
+        openai-api.arkoselabs.com,
+        openaicom.imgix.net,
+        openaicomproductionae4b.blob.core.windows.net,
+        production-openaicom-storage.azureedge.net,
+        static.cloudflareinsights.com,
+        tcr9i.chat.openai.com,
+        whisper.lab.mgmt.openai.com,
+        apple.news,
+        news-assets.apple.com,
+        news-client.apple.com,
+        news-client-search.apple.com,
+        news-edge.apple.com,
+        news-events.apple.com,
+        play.itunes.apple.com,
+        gateway.icloud.com,
+        openai.qualtrics.com
     ) -> '💬 AI 服務'`;
   }
 
-  // 2. 產出 node { ... } 節點清單
-  const nodeEntries: string[] = [];
-  for (const node of nodes) {
-    const rawLink = toRawLinks([node]).trim();
-    if (rawLink) {
-      const safeName = node.name.replace(/['\\]/g, '').trim();
-      nodeEntries.push(`    '${safeName}': '${rawLink}'`);
-    }
-  }
+  // 2. 訂閱模組設定：直連下載 (route: direct)，每 12 小時更新一次 (interval: 43200s)
+  const finalSubTag = (profileName || 'My_Sub').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const targetSubUrl = subUrl || 'https://sub.myvs.dpdns.org/EDT?target=base64';
 
   return `# ==============================================================================
 # OpenWrt Honk-Core / DAE 完整設定檔 (由 CF Sub Converter 自動產生)
@@ -527,14 +611,17 @@ experimental {
 }
 
 # ==============================================================================
-# 節點定義 (包含全部轉換之代理節點)
+# 訂閱配置 (直連下載，每 12 小時自動更新)
 # ==============================================================================
-node {
-${nodeEntries.join('\n')}
+subscription {
+    ${finalSubTag}: '${targetSubUrl}' {
+        route: direct
+        interval: 43200s
+    }
 }
 
 # ==============================================================================
-# 策略分流群組 (不加地區正則過濾，每個組皆包含全部節點供自由調度)
+# 策略分流群組 (Group) - 全數採用 min_moving_avg 自動優選
 # ==============================================================================
 group {
     '🚀 節點選擇' {
@@ -571,20 +658,14 @@ group {
 # ==============================================================================
 dns {
     upstream {
-        # 127.0.0.1:53 為 OpenWrt 本機 dnsmasq，自動跟隨當前 WAN 口電信商 system-dns
         localdns: 'udp://127.0.0.1:53'
         cfdoh: 'https://1.1.1.1/dns-query'
         googledns: 'tcp+udp://dns.google:53'
     }
     routing {
         request {
-            # 第一道防線：DNS 查詢階段阻斷廣告
             qname(geosite:category-ads-all) -> reject
-
-            # 國內網域由本機 dnsmasq 解析就近 CDN
             qname(geosite:cn) -> localdns
-
-            # 其餘走安全 DoH
             fallback: cfdoh
         }
         response {
@@ -595,39 +676,38 @@ dns {
 }
 
 # ==============================================================================
-# eBPF 流量路由規則 (完全對齊舊配置)
+# eBPF 流量路由規則
 # ==============================================================================
 routing {
-    # 1. 系統本機行程與廣播封包強制直連
     pname(NetworkManager, systemd-resolved, dnsmasq) -> direct(must)
     dip(224.0.0.0/3, 'ff00::/8') -> direct
 
-    # 2. 🏠 私有網絡 (內網 NAS、管理後台等)
+    # 1. 🏠 私有網絡 (內網 NAS、管理後台等)
     dip(geoip:private) -> direct(must)
 
-    # 3. 🛑 廣告攔截 (第二道防線兜底)
+    # 2. 🛑 廣告攔截
     domain(geosite:category-ads-all) -> block
 
-    # 4. 💬 AI 服務 (完全載入你的自訂 AI 網域規則)
+    # 3. 💬 AI 服務 (完全載入你自己的 geosite_ai_hk_proxy.dae 規則清單)
     ${aiRulesBody}
 
-    # 5. Ⓜ️ 微軟服務
+    # 4. Ⓜ️ 微軟服務
     domain(geosite:microsoft) -> 'Ⓜ️ 微軟服務'
 
-    # 6. 🎮 遊戲平台
+    # 5. 🎮 遊戲平台
     domain(geosite:steam, geosite:epicgames, geosite:ea, geosite:ubisoft, geosite:blizzard) -> '🎮 遊戲平台'
 
-    # 7. 🍎 蘋果服務
+    # 6. 🍎 蘋果服務
     domain(geosite:apple) -> '🍎 蘋果服務'
 
-    # 8. 🌐 非中國 (國外網站走非中國策略)
+    # 7. 🌐 非中國 (國外網站)
     domain(geosite:geolocation-!cn) -> '🌐 非中國'
 
-    # 9. 🇨🇳 國內服務 (中國國內網域與 IP 全部直連)
+    # 8. 🇨🇳 國內服務 (中國國內網域與 IP 全部直連)
     domain(geosite:cn) -> direct
     dip(geoip:cn) -> direct
 
-    # 10. 🐟 漏網之魚 (最終兜底)
+    # 9. 🐟 漏網之魚 (最終兜底)
     fallback: '🐟 漏網之魚'
 }
 `;

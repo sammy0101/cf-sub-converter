@@ -341,25 +341,6 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], _env?: Env, _for
   if (!Array.isArray(config.outbounds)) config.outbounds = [];
   config.outbounds.push(...outbounds);
 
-  const lowRateTags = nodes.filter(n => n.multiplier !== undefined && n.multiplier < 1.0).map(n => n.name);
-  const iplcTags = nodes.filter(n => n.isIplc).map(n => n.name);
-
-  if (lowRateTags.length > 0) {
-    config.outbounds.unshift({
-      type: 'selector',
-      tag: '🏎️ 低倍率節點',
-      outbounds: lowRateTags
-    });
-  }
-
-  if (iplcTags.length > 0) {
-    config.outbounds.unshift({
-      type: 'selector',
-      tag: '⚡ 專線加速',
-      outbounds: iplcTags
-    });
-  }
-
   config.outbounds.forEach((out: Record<string, unknown>) => {
     if (out.type === 'selector' || out.type === 'urltest') {
       if (!Array.isArray(out.outbounds)) out.outbounds = [];
@@ -397,27 +378,8 @@ export async function toClashWithTemplate(nodes: ProxyNode[], _env?: Env, _force
   if (!Array.isArray(config.proxies)) config.proxies = [];
   config.proxies.push(...proxies);
 
-  const lowRateNames = nodes.filter(n => n.multiplier !== undefined && n.multiplier < 1.0).map(n => n.name);
-  const iplcNames = nodes.filter(n => n.isIplc).map(n => n.name);
-
   if (Array.isArray(config['proxy-groups'])) {
     const groups = config['proxy-groups'] as Array<Record<string, unknown>>;
-
-    if (lowRateNames.length > 0) {
-      groups.unshift({
-        name: '🏎️ 低倍率節點',
-        type: 'select',
-        proxies: lowRateNames
-      });
-    }
-
-    if (iplcNames.length > 0) {
-      groups.unshift({
-        name: '⚡ 專線加速',
-        type: 'select',
-        proxies: iplcNames
-      });
-    }
 
     groups.forEach(group => {
       if (!Array.isArray(group.proxies)) group.proxies = [];

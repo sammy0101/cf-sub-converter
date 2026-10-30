@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Oct 29 13:36:20 UTC 2026
+Generated on: Fri Oct 30 11:17:17 UTC 2026
 
 ## File: package.json
 ````json
@@ -2112,6 +2112,7 @@ group {
         policy: min_moving_avg
     }
 
+    # 🐟 漏網之魚專用：採用 score (綜合評分)
     '🐟 漏網之魚' {
         policy: score
     }
@@ -2153,7 +2154,7 @@ routing {
     # 2. 🛑 廣告攔截
     domain(geosite:category-ads-all) -> block
 
-    # 3. 💬 AI 服務
+    # 3. 💬 AI 服務 (100% 即時從你的 GitHub 獲取)
     ${aiRulesBody}
 
     # 4. Ⓜ️ 微軟服務

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Fri Oct 30 16:42:30 UTC 2026
+Generated on: Fri Oct 30 16:45:52 UTC 2026
 
 ## File: package.json
 ````json
@@ -5501,7 +5501,7 @@ function parseVlessLink(link: string): VlessNode | null {
       sni: params.get('sni') || url.hostname,
       name: decodeURIComponent(url.hash.slice(1)) || 'VLESS Node'
     };
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -5517,8 +5517,9 @@ async function fetchAndParse(input: string): Promise<VlessNode[]> {
       });
       if (!res.ok) throw new Error(`HTTP 狀態碼 ${res.status}`);
       content = await res.text();
-    } catch (e: any) {
-      console.log(`獲取訂閱失敗: ${e.message}`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.log(`獲取訂閱失敗: ${msg}`);
       return [];
     }
   }
@@ -5528,7 +5529,7 @@ async function fetchAndParse(input: string): Promise<VlessNode[]> {
   try {
     const cleaned = content.replace(/[\s\r\n]+/g, '');
     decoded = Buffer.from(cleaned, 'base64').toString('utf8');
-  } catch (e) {
+  } catch {
     // 解碼失敗則視為純文字
   }
 
@@ -5687,8 +5688,8 @@ async function main() {
   if (select.trim().toLowerCase() === 'all') {
     selectedNodes = nodes;
   } else {
-    const indices = select.split(',').map(s => parseInt(s.trim()) - 1);
-    selectedNodes = indices.map(idx => nodes[idx]).filter(Boolean);
+    const indices = select.split(',').map(s => parseInt(s.trim(), 10) - 1);
+    selectedNodes = indices.map(idx => nodes[idx]).filter((n): n is VlessNode => Boolean(n));
   }
 
   if (selectedNodes.length === 0) {

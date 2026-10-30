@@ -592,7 +592,7 @@ routing {
     # 2. 🛑 廣告攔截
     domain(geosite:category-ads-all) -> block
 
-    # 3. 💬 AI 服務 (100% 即時從你的 GitHub 獲取)
+    # 3. 💬 AI 服務
     ${aiRulesBody}
 
     # 4. Ⓜ️ 微軟服務

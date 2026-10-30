@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Fri Oct 30 11:17:17 UTC 2026
+Generated on: Fri Oct 30 12:02:08 UTC 2026
 
 ## File: package.json
 ````json
@@ -2154,7 +2154,7 @@ routing {
     # 2. 🛑 廣告攔截
     domain(geosite:category-ads-all) -> block
 
-    # 3. 💬 AI 服務 (100% 即時從你的 GitHub 獲取)
+    # 3. 💬 AI 服務
     ${aiRulesBody}
 
     # 4. Ⓜ️ 微軟服務

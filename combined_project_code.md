@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Fri Oct 30 16:56:03 UTC 2026
+Generated on: Fri Oct 30 16:56:55 UTC 2026
 
 ## File: package.json
 ````json
@@ -31,7 +31,7 @@ Generated on: Fri Oct 30 16:56:03 UTC 2026
 ````md
 # ⚡ CF Sub Converter Pro
 
-基於 Cloudflare Workers 的全能 Serverless 訂閱轉換與節點中樞。擁有現代深色 UI、GitHub 遠端規則即時直讀與內嵌容災架構、自訂短代碼全字元（大小寫/符號）1:1 完整保留、私密配置管理安全鎖、智慧倍率/專線分組、國旗萬國對齊系統、**Argo 隧道 2.0 自動化生成器**，以及 **OpenWrt Honk / DAE (eBPF 內核級透明代理) 與 Doona Web UI 深度適配**。支援將各類代理節點一鍵轉換為 **Sing-Box / Clash Meta (Mihomo) / Honk (DAE) / Surge 5 / Quantumult X / Loon / Base64** 格式，並提供全平台專屬喚醒協議（Deep Link）與行動條碼掃描自動導入。
+基於 Cloudflare Workers 的全能 Serverless 訂閱轉換與節點中樞。擁有現代深色 UI、GitHub 遠端規則即時直讀與內嵌容災架構、自訂短代碼全字元（大小寫/符號）1:1 完整保留、私密配置管理安全鎖、國旗萬國對齊系統、**Argo 隧道 2.0 自動化生成器**，以及 **OpenWrt Honk / DAE (eBPF 內核級透明代理) 與 Doona Web UI 深度適配**。支援將各類代理節點一鍵轉換為 **Sing-Box / Clash Meta (Mihomo) / Honk (DAE) / Surge 5 / Quantumult X / Loon / Base64** 格式，並提供全平台專屬喚醒協議（Deep Link）與行動條碼掃描自動導入。
 
 [![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sammy0101/cf-sub-converter)
 
@@ -67,7 +67,7 @@ Generated on: Fri Oct 30 16:56:03 UTC 2026
 - **Sing-Box (1.14+ 現代規範)**：
   - 完整符合現代標準，WireGuard 自動歸入頂層現代 `endpoints` 結構，徹底消除廢棄與語法錯誤。
   - 國外代理流量採用 Fake-IP 封裝網域名稱，國內/內網流量自動使用 Real-IP 直連。
-- **OpenWrt Honk / DAE (`config.dae`，新增)**：
+- **OpenWrt Honk / DAE (`config.dae`)**：
   - 一鍵生成適用於 OpenWrt Linux eBPF 內核級透明代理的完整 `/etc/honk/config.dae` 設定檔。
   - **Doona 原生 Web UI 深度整合**：自動配置 `experimental.native_api` 監聽 `0.0.0.0:9527`，區域網路手機或電腦直接開啟 `http://路由器IP:9527` 即可直觀監控即時流量與策略組。
   - **自動化訂閱對接**：配置 `subscription` 區塊直接拉取本轉換器的 Base64 訂閱，指定 `route: direct`（直連下載），並預設設定每 12 小時自動排程更新（`interval: 43200s`）。
@@ -108,21 +108,17 @@ Generated on: Fri Oct 30 16:56:03 UTC 2026
   - 若遇 GitHub 服務波動、網路逾時或 429 限流，系統自動無縫回退至內建純淨版預設模板，確保訂閱拉取 100% 成功。
 - **專屬純淨儲存**：KV 空間專門用於儲存用戶自訂短連結、私密收藏配置與 Argo 部署腳本。
 
-### 6. 🏎️ 智慧倍率與專線動態策略組
-- **倍率辨識**：自動識別節點名稱中的倍率特徵（如 `0.1x`、`0.5X`、`0.2倍`），並在 Sing-Box 與 Clash Meta 中動態建立「🏎️ 低倍率節點」策略組。
-- **專線辨識**：自動擷取 `IPLC`、`IEPL`、`專線`、`內網` 特徵，動態生成「⚡ 專線加速」策略組。
-
-### 7. 🌀 Argo 隧道 2.0 一鍵生成器
+### 6. 🌀 Argo 隧道 2.0 一鍵生成器
 - **優選 IP / 官方域名注入**：支援填入 Cloudflare Clean IP（如 `104.16.80.1`）或優選網域，自動完成連接伺服器與 SNI/Host 映射，顯著降低延遲。
 - **極簡 VPS 命令**：腳本自動上傳至 KV 快取，透過 `curl -sSL ... | bash` 極速完成部署。
 - **智慧探測與修復**：VPS 端自動探測 443 / 80 本地監聽連接埠、TLS 狀態與 Host Header 重寫。
 
-### 8. 🔍 智慧篩選、名稱替換與黃金國旗排版
+### 7. 🔍 智慧篩選、名稱替換與黃金國旗排版
 - **雙向過濾**：支援「僅保留」與「排除」規則（多組用 `|` 隔開，如 `HK|TW` 或 `5x`），內建 `x`/`X`/`×` 字符相容匹配。
 - **名稱替換**：支援 `DEL-關鍵字`（刪除）、`尋找-替換`，以及 `ALL-新名稱`（一鍵統改所有節點名稱）。
 - **黃金 22 地區國旗排序**：自動為節點補上國旗 Emoji，依亞太核心（港、台、日、星、韓）➔ 歐美主流（美、英、加、澳）順序緊密分群，並自動對重複節點編號。
 
-### 9. 📊 流量與到期日加總透傳
+### 8. 📊 流量與到期日加總透傳
 - 自動從上游多個機場擷取並加總上傳、下載與總流量，計算最近的到期時間，透過標準 `subscription-userinfo` 標頭透傳，完美點亮客戶端流量資訊條。
 
 ---
@@ -256,8 +252,6 @@ https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox
 
 | 圖示 | 策略組名稱 | 路由邏輯 |
 | :--- | :--- | :--- |
-| 🏎️ | 低倍率節點 | 自動彙整倍率 `< 1.0x` 的節點（省流專用） |
-| ⚡ | 專線加速 | 自動彙整包含 `IPLC` / `IEPL` / `專線` 的低延遲節點 |
 | 🚀 | 節點選擇 | 手動指定出站節點 / 主代理 |
 | ⚡ | 自動選擇 | URL Test 自動測速切換最低延遲節點 |
 | 💬 | AI 服務 | 針對 OpenAI / Claude / AI Studio 專屬分流 |
@@ -311,7 +305,7 @@ cf-sub-converter/
 │   ├── constants.ts      # 響應式深色 UI 模板、QR Code 生成器與內嵌緊急降級規則
 │   ├── parser.ts         # 萬能節點解析器 (Clash YAML, WireGuard, MASQUE, VLESS, ECH 動態解析)
 │   ├── generator.ts      # 多平台格式生成器 (Sing-Box, Clash Meta, Honk/DAE, Surge 5, Base64)
-│   ├── utils.ts          # 倍率與專線特徵提取、Base64 安全編碼、萬國國旗對齊演算法
+│   ├── utils.ts          # Base64 安全編碼、萬國國旗對齊演算法
 │   └── types.ts          # 嚴格 TypeScript 類型定義
 ├── argo.sh               # VPS Argo 隧道 2.0 一鍵安裝與自我修復通用腳本
 ├── Sing-Box_Rules.JSON   # GitHub 遠端 Sing-Box 混合 TUN 規則模板

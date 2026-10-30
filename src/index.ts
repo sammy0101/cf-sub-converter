@@ -15,7 +15,7 @@ import {
 } from './generator';
 import { deduplicateNodeNames, groupNodesByFlag } from './utils';
 
-const version = packageJson.version || '3.5.0';
+const version = packageJson.version || '3.7.1';
 
 function checkAuth(request: Request, env: Env): boolean {
   if (!env.PAGE_PASSWORD || env.PAGE_PASSWORD.trim() === '') {

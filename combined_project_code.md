@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Fri Oct 30 16:45:52 UTC 2026
+Generated on: Fri Oct 30 16:46:50 UTC 2026
 
 ## File: package.json
 ````json
@@ -796,7 +796,7 @@ import {
 } from './generator';
 import { deduplicateNodeNames, groupNodesByFlag } from './utils';
 
-const version = packageJson.version || '3.5.0';
+const version = packageJson.version || '3.7.1';
 
 function checkAuth(request: Request, env: Env): boolean {
   if (!env.PAGE_PASSWORD || env.PAGE_PASSWORD.trim() === '') {

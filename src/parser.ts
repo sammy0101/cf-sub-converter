@@ -337,7 +337,7 @@ function parseMasqueUri(urlStr: string): ProxyNode {
     type: 'masque',
     tag: name,
     server: parsed.hostname,
-    server_port: port,
+    server_port: parsed.port,
     private_key: privateKey,
     public_key: publicKey,
     ip: masqueConfig.localIpv4,
@@ -840,7 +840,6 @@ function parseVless(urlStr: string): ProxyNode {
     if (node.alpn) tlsObj.alpn = node.alpn;
     if (node.ech) {
       const echObj: Record<string, unknown> = { enabled: true };
-      // 只有當節點確實指定了 queryServerName，才注入 query_server_name
       if (node.echQueryServerName) {
         echObj.query_server_name = node.echQueryServerName;
       }
@@ -1368,6 +1367,17 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
     const wsPath = wsOpts?.path ? String(wsOpts.path) : undefined;
     const wsHeaders = wsOpts?.headers as Record<string, string> | undefined;
 
+    const xhttpOpts = (p['xhttp-opts'] || p['splithttp-opts']) as Record<string, unknown> | undefined;
+    const xhttpPath = xhttpOpts?.path ? String(xhttpOpts.path) : undefined;
+    const xhttpHost = xhttpOpts?.host ? String(xhttpOpts.host) : undefined;
+    const xhttpMode = xhttpOpts?.mode ? String(xhttpOpts.mode) : undefined;
+
+    const grpcOpts = p['grpc-opts'] as Record<string, unknown> | undefined;
+    const grpcServiceName = grpcOpts?.['grpc-service-name'] ? String(grpcOpts['grpc-service-name']) : undefined;
+
+    const isXhttp = network === 'xhttp' || network === 'splithttp';
+    const isGrpc = network === 'grpc';
+
     const realityOpts = p['reality-opts'] as Record<string, unknown> | undefined;
     const reality = (p.reality || realityOpts) ? {
       publicKey: String(realityOpts?.['public-key'] || ''),
@@ -1416,6 +1426,7 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
     const node: ProxyNode = {
       type: 'vless', name, server, port, uuid, tls, sni, network, flow,
       wsPath, wsHeaders, reality,
+      xhttpPath, xhttpHost, xhttpMode,
       udp: p.udp !== undefined ? Boolean(p.udp) : true,
       skipCertVerify,
       fingerprint,
@@ -1462,14 +1473,14 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
     } else if (isXhttp) {
       sb.transport = {
         type: 'splithttp',
-        path: cleanPath,
-        headers: { Host: node.xhttpHost },
-        mode: node.xhttpMode
+        path: xhttpPath || '/',
+        headers: xhttpHost ? { Host: xhttpHost } : undefined,
+        mode: xhttpMode || 'auto'
       };
     } else if (isGrpc) {
       sb.transport = {
         type: 'grpc',
-        service_name: params.get('serviceName') || ''
+        service_name: grpcServiceName || ''
       };
     }
     node.singboxObj = sb;

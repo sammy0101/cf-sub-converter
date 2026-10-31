@@ -444,7 +444,7 @@ global {
     # 綁定內網介面 (請務必確認你的路由器 LAN 網卡名稱，預設為 br-lan。多網卡可用逗號隔開)
     lan_interface: br-lan
 
-    dial_mode: domain++
+    dial_mode: domain
     auto_config_kernel_parameter: true
     data_dir: '/etc/honk'
     log_level: info

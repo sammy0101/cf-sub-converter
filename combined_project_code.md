@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Tue Nov  3 10:32:47 UTC 2026
+Generated on: Tue Nov  3 10:33:42 UTC 2026
 
 ## File: src/utils.ts
 ````ts
@@ -5076,7 +5076,7 @@ rules:
 ````json
 {
   "name": "cf-sub-converter",
-  "version": "3.7.3",
+  "version": "3.7.4",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",

@@ -523,18 +523,20 @@ group {
 # ==============================================================================
 dns {
     upstream {
-        # 預設指向 OpenWrt 本機 dnsmasq (若有自建 AdGuardHome 或 SmartDNS 亦可改為對應 IP:Port)
-        localdns: 'udp://127.0.0.1:53'
+        googledns: 'tcp+udp://8.8.8.8:53'
+        googledoh: 'https://8.8.8.8/dns-query'
+        cfdns: 'tcp+udp://1.1.1.1:53'
         cfdoh: 'https://1.1.1.1/dns-query'
-        googledns: 'tcp+udp://dns.google:53'
+        localdns: 'udp://127.0.0.1:53'
     }
     routing {
         request {
             qname(geosite:category-ads-all) -> reject
             qname(geosite:cn) -> localdns
-            fallback: cfdoh
+            fallback: googledoh
         }
         response {
+            upstream(googledoh) && ip(geoip:cn) -> localdns
             upstream(cfdoh) && ip(geoip:cn) -> localdns
             fallback: accept
         }
@@ -630,7 +632,7 @@ export function toSurge(nodes: ProxyNode[]): string {
         wgSec += `dns-server = ${wg.dns}\n`;
       }
       wgSec += `peer = (public-key = ${wg.publicKey || ''}, allowed-ips = "0.0.0.0/0, ::/0", endpoint = ${node.server}:${node.port}, keepalive = 25)\n`;
-      wgSections.push(wgSec);
+      wgSections.push(wgSections.length > 0 ? '\n' + wgSec : wgSec);
     }
 
     if (line) {

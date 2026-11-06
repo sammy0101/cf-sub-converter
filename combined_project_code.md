@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Fri Nov  6 13:34:32 UTC 2026
+Generated on: Fri Nov  6 13:40:31 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -518,6 +518,13 @@ export interface MasqueConfig {
   dns?: string[];
 }
 
+export interface RealityConfig {
+  publicKey: string;
+  shortId: string;
+  spiderX?: string;
+  supportX25519Mlkem768?: boolean;
+}
+
 export interface ProxyNode {
   type: string;
   name: string;
@@ -535,7 +542,7 @@ export interface ProxyNode {
   network?: string;
   wsPath?: string;
   wsHeaders?: Record<string, string>;
-  reality?: { publicKey: string; shortId: string };
+  reality?: RealityConfig;
   obfs?: string;
   obfsPassword?: string;
   skipCertVerify?: boolean;

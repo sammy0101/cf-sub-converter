@@ -140,7 +140,7 @@ global {
     log_file: ''
     tcp_check_url: 'https://www.gstatic.com/generate_204'
     tcp_check_http_method: HEAD
-    udp_check_dns: 'dns.google.com:53,8.8.8.8,2001:4860:4860::8888'
+    udp_check_dns: 'dns.google.com:53', '8.8.8.8', '2001:4860:4860::8888'
     check_interval: 300s
     check_tolerance: 50ms
     bootstrap_resolver: '1.1.1.1:53'

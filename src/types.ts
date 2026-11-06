@@ -25,6 +25,13 @@ export interface MasqueConfig {
   dns?: string[];
 }
 
+export interface RealityConfig {
+  publicKey: string;
+  shortId: string;
+  spiderX?: string;
+  supportX25519Mlkem768?: boolean;
+}
+
 export interface ProxyNode {
   type: string;
   name: string;
@@ -42,7 +49,7 @@ export interface ProxyNode {
   network?: string;
   wsPath?: string;
   wsHeaders?: Record<string, string>;
-  reality?: { publicKey: string; shortId: string };
+  reality?: RealityConfig;
   obfs?: string;
   obfsPassword?: string;
   skipCertVerify?: boolean;

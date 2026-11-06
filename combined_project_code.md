@@ -1,5 +1,571 @@
 # Complete Project Codebase
-Generated on: Tue Nov  3 10:33:42 UTC 2026
+Generated on: Fri Nov  6 13:32:46 UTC 2026
+
+## File: argo.sh
+````sh
+#!/bin/bash
+# Cloudflare Argo Tunnel 一鍵部署腳本 (增強版 2.0)
+# 專案網址: https://github.com/sammy0101/cf-sub-converter
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+NODE_TYPE="{{NODE_TYPE}}"
+VLESS_UUID="{{VLESS_UUID}}"
+VLESS_PATH="{{VLESS_PATH}}"
+VLESS_TYPE="{{VLESS_TYPE}}"
+VLESS_PORT="{{VLESS_PORT}}"
+NODE_NAME="{{NODE_NAME}}"
+TUNNEL_TOKEN="{{TUNNEL_TOKEN}}"
+CUSTOM_DOMAIN="{{CUSTOM_DOMAIN}}"
+VLESS_TLS="{{VLESS_TLS}}"
+ORIGIN_HOST="{{ORIGIN_HOST}}"
+
+echo -e "${GREEN}=== 開始部署 Cloudflare Argo 隧道 (${NODE_NAME}) ===${NC}"
+
+if [ "$EUID" -ne 0 ]; then
+  echo -e "${RED}錯誤: 請使用 root 權限執行此腳本！${NC}"
+  exit 1
+fi
+
+# 1. 安裝 cloudflared
+if ! command -v cloudflared &> /dev/null; then
+    echo "正在下載安裝 cloudflared..."
+    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+    chmod +x /usr/local/bin/cloudflared
+else
+    echo "cloudflared 已存在，跳過安裝。"
+fi
+
+SAFE_NODE_NAME=$(echo "$NODE_NAME" | sed 's/[^a-zA-Z0-9]/_/g')
+
+# 2. 自動探測與修正連接埠
+DETECTED_PORT="$VLESS_PORT"
+if command -v ss &> /dev/null; then
+    if ! ss -tln | grep -qE ":$VLESS_PORT([[:space:]]|$)"; then
+        echo -e "${RED}警告: 本地轉發埠 $VLESS_PORT 未監聽，正在探測...${NC}"
+        if ss -tln | grep -qE ":443([[:space:]]|$)"; then
+            echo -e "${GREEN}自動修正：轉發目標為 443 埠。${NC}"
+            DETECTED_PORT="443"
+        elif ss -tln | grep -qE ":80([[:space:]]|$)"; then
+            echo -e "${GREEN}自動修正：轉發目標為 80 埠。${NC}"
+            DETECTED_PORT="80"
+        fi
+    fi
+fi
+
+# 3. 智慧探測 TLS
+DETECTED_TLS="false"
+if curl -s -k --connect-timeout 2 "https://127.0.0.1:$DETECTED_PORT" &>/dev/null; then
+    echo "偵測到本地為 HTTPS 加密埠，開啟 TLS 轉發與 SNI 對齊。"
+    DETECTED_TLS="true"
+fi
+
+LOCAL_URL="http://127.0.0.1:$DETECTED_PORT"
+EXTRA_ARGS=""
+if [ "$DETECTED_TLS" = "true" ]; then
+    LOCAL_URL="https://127.0.0.1:$DETECTED_PORT"
+    EXTRA_ARGS="--no-tls-verify"
+fi
+
+if [ -n "$ORIGIN_HOST" ]; then
+    EXTRA_ARGS="$EXTRA_ARGS --http-host-header $ORIGIN_HOST"
+    if [ "$DETECTED_TLS" = "true" ]; then
+        EXTRA_ARGS="$EXTRA_ARGS --origin-server-name $ORIGIN_HOST"
+    fi
+fi
+
+# 4. 啟動隧道
+if [ -n "$TUNNEL_TOKEN" ]; then
+    echo -e "${GREEN}【固定隧道模式】正在啟動服務...${NC}"
+    cloudflared service uninstall &> /dev/null
+    cloudflared service install "$TUNNEL_TOKEN"
+    systemctl daemon-reload
+    systemctl enable cloudflared
+    systemctl restart cloudflared
+    echo -e "${GREEN}固定域名隧道部署完成！${NC}"
+else
+    echo -e "${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...${NC}"
+    systemctl stop cloudflared-argo-${SAFE_NODE_NAME} &> /dev/null
+    
+    cat <<EOF > /etc/systemd/system/cloudflared-argo-${SAFE_NODE_NAME}.service
+[Unit]
+Description=Cloudflare Argo Tunnel for ${NODE_NAME}
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/cloudflared tunnel --url $LOCAL_URL $EXTRA_ARGS
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable cloudflared-argo-${SAFE_NODE_NAME}
+    systemctl start cloudflared-argo-${SAFE_NODE_NAME}
+    
+    echo "正在等待 Cloudflare 分配臨時域名..."
+    TEMP_DOMAIN=""
+    for i in {1..15}; do
+        sleep 1
+        TEMP_DOMAIN=$(journalctl -u cloudflared-argo-${SAFE_NODE_NAME} -n 50 --no-pager 2>/dev/null | grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' | tail -n 1 | cut -d'/' -f3)
+        if [ -n "$TEMP_DOMAIN" ]; then
+            break
+        fi
+    done
+    
+    if [ -n "$TEMP_DOMAIN" ]; then
+        echo -e "${GREEN}獲取臨時域名成功: $TEMP_DOMAIN${NC}"
+    else
+        echo -e "${RED}超時未獲取到域名，請手動檢查 journalctl -u cloudflared-argo-${SAFE_NODE_NAME}${NC}"
+    fi
+fi
+
+````
+
+## File: package.json
+````json
+{
+  "name": "cf-sub-converter",
+  "version": "3.7.4",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "start": "wrangler dev",
+    "argo": "tsx scripts/argo-converter.ts"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240208.0",
+    "@types/js-yaml": "^4.0.9",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3",
+    "wrangler": "^3.28.1"
+  }
+}
+
+````
+
+## File: Sing-Box_Rules.JSON
+````JSON
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "http_clients": [
+    {
+      "tag": "default"
+    }
+  ],
+  "dns": {
+    "servers": [
+      {
+        "tag": "remote-dns",
+        "type": "https",
+        "server": "8.8.8.8",
+        "detour": "🚀 節點選擇"
+      },
+      {
+        "tag": "remote-cf-dns",
+        "type": "https",
+        "server": "1.1.1.1",
+        "detour": "🚀 節點選擇"
+      },
+      {
+        "tag": "system-dns",
+        "type": "local"
+      },
+      {
+        "tag": "local-dns",
+        "type": "local"
+      },
+      {
+        "tag": "fakeip-dns",
+        "type": "fakeip",
+        "inet4_range": "198.18.0.0/15"
+      }
+    ],
+    "rules": [
+      {
+        "clash_mode": "Direct",
+        "server": "system-dns"
+      },
+      {
+        "clash_mode": "Global",
+        "server": "fakeip-dns"
+      },
+      {
+        "rule_set": [
+          "rs-private"
+        ],
+        "server": "system-dns"
+      },
+      {
+        "rule_set": [
+          "rs-cn"
+        ],
+        "server": "system-dns",
+        "disable_cache": true
+      },
+      {
+        "rule_set": [
+          "rs-apple"
+        ],
+        "server": "system-dns",
+        "disable_cache": true
+      },
+      {
+        "rule_set": [
+          "rs-geolocation-!cn",
+          "rs-ai"
+        ],
+        "server": "fakeip-dns"
+      }
+    ],
+    "final": "remote-dns",
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "interface_name": "tun0",
+      "address": [
+        "172.19.0.1/30"
+      ],
+      "stack": "mixed",
+      "auto_route": true,
+      "strict_route": true
+    }
+  ],
+  "outbounds": [
+    { "type": "selector", "tag": "🚀 節點選擇", "outbounds": ["⚡ 自動選擇", "DIRECT"] },
+    { "type": "urltest", "tag": "⚡ 自動選擇", "outbounds": [], "url": "https://www.gstatic.com/generate_204", "interval": "3m", "tolerance": 50 },
+    { "type": "selector", "tag": "💬 AI 服務", "outbounds": ["⚡ 自動選擇", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🍎 蘋果服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "Ⓜ️ 微軟服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🎮 遊戲平台", "outbounds": ["DIRECT", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🌐 非中國", "outbounds": ["🚀 節點選擇", "DIRECT"] },
+    { "type": "selector", "tag": "🇨🇳 國內服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🏠 私有網絡", "outbounds": ["DIRECT"] },
+    { "type": "selector", "tag": "🐟 漏網之魚", "outbounds": ["🚀 節點選擇", "DIRECT"] },
+    { "type": "selector", "tag": "🛑 廣告攔截", "outbounds": ["REJECT", "DIRECT"] },
+    
+    { "type": "direct", "tag": "DIRECT" },
+    { "type": "block", "tag": "REJECT" }
+  ],
+  "route": {
+    "default_domain_resolver": "system-dns",
+    "default_http_client": "default",
+    "rule_set": [
+      { "type": "remote", "tag": "rs-ai", "format": "binary", "url": "https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.srs" },
+      { "type": "remote", "tag": "rs-apple", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/apple.srs" },
+      { "type": "remote", "tag": "rs-microsoft", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/microsoft.srs" },
+      { "type": "remote", "tag": "rs-steam", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/steam.srs" },
+      { "type": "remote", "tag": "rs-epicgames", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/epicgames.srs" },
+      { "type": "remote", "tag": "rs-ea", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/ea.srs" },
+      { "type": "remote", "tag": "rs-ubisoft", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/ubisoft.srs" },
+      { "type": "remote", "tag": "rs-blizzard", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/blizzard.srs" },
+      { "type": "remote", "tag": "rs-geolocation-!cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/geolocation-!cn.srs" },
+      { "type": "remote", "tag": "rs-cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs" },
+      { "type": "remote", "tag": "ip-cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/cn.srs" },
+      { "type": "remote", "tag": "rs-ads", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ads-all.srs" },
+      { "type": "remote", "tag": "rs-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/private.srs" },
+      { "type": "remote", "tag": "ip-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs" }
+    ],
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      { "protocol": "dns", "action": "hijack-dns" },
+      { "clash_mode": "Direct", "outbound": "DIRECT" },
+      { "clash_mode": "Global", "outbound": "🚀 節點選擇" },
+      { "rule_set": "rs-ads", "outbound": "🛑 廣告攔截" },
+      { "rule_set": ["rs-private", "ip-private"], "outbound": "🏠 私有網絡" },
+      { "rule_set": "rs-ai", "outbound": "💬 AI 服務" },
+      { "rule_set": "rs-microsoft", "outbound": "Ⓜ️ 微軟服務" },
+      { "rule_set": ["rs-steam", "rs-epicgames", "rs-ea", "rs-ubisoft", "rs-blizzard"], "outbound": "🎮 遊戲平台" },
+      { "rule_set": "rs-geolocation-!cn", "outbound": "🌐 非中國" },
+      { "rule_set": "rs-apple", "outbound": "🍎 蘋果服務" },
+      { "rule_set": ["rs-cn", "ip-cn"], "outbound": "🇨🇳 國內服務" },
+      { "outbound": "🐟 漏網之魚" }
+    ],
+    "auto_detect_interface": true
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "store_fakeip": true
+    },
+    "clash_api": {
+      "external_controller": "127.0.0.1:9090",
+      "external_ui": "ui",
+      "secret": "",
+      "default_mode": "rule"
+    }
+  }
+}
+````
+
+## File: Honk_Rules.DAE
+````DAE
+# ==============================================================================
+# OpenWrt Honk-Core / DAE 完整設定檔 (由 CF Sub Converter 動態產生，適配 Honk 最新規範)
+# 儲存路徑: /etc/honk/config.dae
+# 可在 GitHub 倉庫直接修改此檔案，客戶端拉取時即時生效！
+# ==============================================================================
+
+global {
+    # 綁定外網介面 (預設 auto 自動偵測。若為 PPPoE 撥接上網，可能需手動改為 pppoe-wan)
+    wan_interface: auto
+    # 綁定內網介面 (請務必確認你的路由器 LAN 網卡名稱，預設為 br-lan。多網卡可用逗號隔開)
+    lan_interface: br-lan
+
+    dial_mode: domain
+    allow_insecure: false
+    auto_config_kernel_parameter: true
+    data_dir: '/etc/honk'
+    log_level: info
+    log_file: ''
+
+    tcp_check_url: 'https://www.gstatic.com/generate_204'
+    tcp_check_http_method: HEAD
+    udp_check_dns: 'dns.google.com:53,8.8.8.8,2001:4860:4860::8888'
+    check_interval: 300s
+    check_tolerance: 50ms
+
+    # 基礎引導 DNS (用於節點與訂閱連結的初始解析)
+    bootstrap_resolver: '1.1.1.1:53'
+
+    # 【Honk 最新特性】保存成功獲取的訂閱正文到運行目錄，重啟或斷網時可離線恢復節點
+    store_subscribe: true
+
+    # 【Honk 最新特性】持有有歧義 LAN 轉發 UDP 首包，徹底消除遊戲或 UDP 連線首包丟失
+    nfqueue_enable: true
+
+    # 【Honk 最新特性】預熱與撥號預算：大訂閱基線關閉額外 UDP/TCP 預熱，保護路由器記憶體
+    udp_warm_node_count: 0
+    preconnect_node_count: 0
+}
+
+# ==============================================================================
+# 原生 Web API 與 Doona Web UI (內網瀏覽 http://<路由器IP>:9527)
+# ==============================================================================
+experimental {
+    native_api {
+        enabled: true
+        # Doona 面板監聽位址 (0.0.0.0 代表允許內網所有設備透過路由器 IP 訪問)
+        listen: '0.0.0.0:9527'
+        password_auth: true
+        config_write: true
+        ui: 'embedded'
+    }
+    cache_file {
+        enabled: true
+        store_dns: true
+    }
+}
+
+# ==============================================================================
+# 訂閱配置 (直連下載，每 12 小時自動更新)
+# ==============================================================================
+subscription {
+    {{SUB_TAG}}: '{{SUB_URL}}' {
+        route: direct
+        # 訂閱自動更新間隔 (43200 秒 = 12 小時，可自行更改)
+        interval: 43200s
+    }
+}
+
+# ==============================================================================
+# 策略分流群組 (Group)
+# ==============================================================================
+group {
+    '💬 AI 服務' {
+        policy: min_moving_avg
+    }
+
+    'Ⓜ️ 微軟服務' {
+        policy: min_moving_avg
+    }
+
+    '🎮 遊戲平台' {
+        policy: min_moving_avg
+    }
+
+    '🍎 蘋果服務' {
+        policy: min_moving_avg
+    }
+
+    '🌐 非中國' {
+        policy: min_moving_avg
+    }
+
+    # 🐟 漏網之魚專用：採用 score (綜合評分)
+    '🐟 漏網之魚' {
+        policy: score
+    }
+}
+
+# ==============================================================================
+# DNS 智慧解析 (localdns 走本機 dnsmasq，即 OpenWrt 原生 system DNS)
+# ==============================================================================
+dns {
+    # 向上游攜帶 ECS (客戶端近似網段)，改善國內 CDN 解析在地性
+    client_subnet: auto
+
+    upstream {
+        googledns: 'tcp+udp://8.8.8.8:53'
+        googledoh: 'https://8.8.8.8/dns-query'
+        cfdns: 'tcp+udp://1.1.1.1:53'
+        cfdoh: 'https://1.1.1.1/dns-query'
+        localdns: 'udp://127.0.0.1:53'
+    }
+    routing {
+        request {
+            # 拒絕 HTTPS 記錄查詢，防止客戶端因 ECH 握手異常中斷
+            qtype(https) -> reject
+            qname(geosite:category-ads-all) -> reject
+            qname(geosite:cn) -> localdns
+            fallback: googledoh
+        }
+        response {
+            # 漏網國內網域挽救：若海外 DoH 回傳中國大陸 IP，退回 localdns 重新解析以獲得最優 CDN
+            upstream(googledoh) && ip(geoip:cn) -> localdns
+            upstream(cfdoh) && ip(geoip:cn) -> localdns
+            fallback: accept
+        }
+    }
+}
+
+# ==============================================================================
+# eBPF 流量路由規則
+# ==============================================================================
+routing {
+    # 核心系統服務與 DNS 直連，防回環加固
+    pname(dnsmasq, systemd-resolved) && l4proto(udp) && dport(53) -> direct(must)
+    pname(NetworkManager, systemd-networkd, systemd-resolved, dhcpcd) -> direct
+    pname(sing-box, mihomo, frpc, einat) -> direct(must)
+
+    dip(224.0.0.0/3, 'ff00::/8') -> direct
+
+    # 1. 🏠 私有網絡 (旁路由環境採用純 direct，保留 eBPF 狀態追蹤)
+    dip(geoip:private) -> direct
+
+    # 2. 🛑 廣告攔截
+    domain(geosite:category-ads-all) -> block
+
+    # 3. 💬 AI 服務 (由轉換器動態提取注入)
+    {{AI_RULES}}
+
+    # 4. Ⓜ️ 微軟服務
+    domain(geosite:microsoft) -> 'Ⓜ️ 微軟服務'
+
+    # 5. 🎮 遊戲平台
+    domain(geosite:steam, geosite:epicgames, geosite:ea, geosite:ubisoft, geosite:blizzard) -> '🎮 遊戲平台'
+
+    # 6. 🍎 蘋果服務
+    domain(geosite:apple) -> '🍎 蘋果服務'
+
+    # 7. 🌐 非中國 (國外網站)
+    domain(geosite:geolocation-!cn) -> '🌐 非中國'
+
+    # 8. 🇨🇳 國內服務 (中國國內網域與 IP 全部直連)
+    domain(geosite:cn) -> direct
+    dip(geoip:cn) -> direct
+
+    # 9. 🐟 漏網之魚 (最終兜底)
+    fallback: '🐟 漏網之魚'
+}
+
+````
+
+## File: src/types.ts
+````ts
+export interface Env {
+  SUB_CACHE: KVNamespace;
+  PAGE_PASSWORD?: string;
+}
+
+export interface WireGuardConfig {
+  privateKey: string;
+  localAddress: string[];
+  publicKey?: string;
+  presharedKey?: string;
+  mtu?: number;
+  reserved?: number[];
+  dns?: string;
+}
+
+export interface MasqueConfig {
+  privateKey: string;
+  publicKey: string;
+  localIpv4?: string;
+  localIpv6?: string;
+  mtu?: number;
+  uri?: string;
+  sni?: string;
+  congestion_controller?: string;
+  dns?: string[];
+}
+
+export interface ProxyNode {
+  type: string;
+  name: string;
+  server: string;
+  port: number;
+  uuid?: string;
+  password?: string;
+  cipher?: string;
+  udp?: boolean;
+  tls?: boolean;
+  sni?: string;
+  alpn?: string[];
+  fingerprint?: string;
+  flow?: string;
+  network?: string;
+  wsPath?: string;
+  wsHeaders?: Record<string, string>;
+  reality?: { publicKey: string; shortId: string };
+  obfs?: string;
+  obfsPassword?: string;
+  skipCertVerify?: boolean;
+  singboxObj?: Record<string, unknown>;
+  clashObj?: Record<string, unknown>;
+  congestion_control?: string;
+  udp_relay_mode?: string;
+  // VLESS SplitHTTP (xhttp)
+  xhttpPath?: string;
+  xhttpHost?: string;
+  xhttpMode?: string;
+  // WireGuard / WARP
+  wireguard?: WireGuardConfig;
+  // Cloudflare WARP MASQUE
+  masque?: MasqueConfig;
+  // ECH (Encrypted Client Hello)
+  ech?: boolean;
+  echQueryServerName?: string;
+  echDoh?: string;
+  // 標籤特徵
+  multiplier?: number;
+  isIplc?: boolean;
+}
+
+export interface CachedTemplate {
+  content: string;
+  updatedAt: number;
+}
+
+````
 
 ## File: src/utils.ts
 ````ts
@@ -204,787 +770,6 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
     return true;
   });
 }
-
-````
-
-## File: src/index.ts
-````ts
-// src/index.ts
-// @ts-ignore
-import packageJson from '../package.json';
-import { Env, ProxyNode } from './types';
-import { HTML_PAGE } from './constants';
-import { parseContent } from './parser';
-import {
-  toSingBoxWithTemplate,
-  toClashWithTemplate,
-  toBase64,
-  toSurge,
-  toQuantumultX,
-  toLoon,
-  toHonk
-} from './generator';
-import { deduplicateNodeNames, groupNodesByFlag } from './utils';
-
-const version = packageJson.version;
-
-function checkAuth(request: Request, env: Env): boolean {
-  if (!env.PAGE_PASSWORD || env.PAGE_PASSWORD.trim() === '') {
-    return true;
-  }
-  const clientPwd = request.headers.get('X-Password') || '';
-  return clientPwd === env.PAGE_PASSWORD.trim();
-}
-
-async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
-  const allNodes: ProxyNode[] = [];
-  const trimmed = urlParam.trim();
-  if (!trimmed) return allNodes;
-
-  if (/\[Interface\]/i.test(trimmed) && /\[Peer\]/i.test(trimmed)) {
-    try {
-      const parsed = await parseContent(trimmed);
-      allNodes.push(...parsed);
-    } catch {}
-    return allNodes;
-  }
-
-  if (/["']private_key["']/i.test(trimmed) && (trimmed.includes('{') || trimmed.includes('['))) {
-    try {
-      const parsed = await parseContent(trimmed);
-      allNodes.push(...parsed);
-    } catch {}
-    return allNodes;
-  }
-
-  if (/(^|\n)\s*proxies\s*:/i.test(trimmed)) {
-    try {
-      const parsed = await parseContent(trimmed);
-      allNodes.push(...parsed);
-    } catch {}
-    return allNodes;
-  }
-
-  const inputs = urlParam.split(/[\n\r|]+/); 
-  for (const input of inputs) {
-    const t = input.trim(); 
-    if (!t) continue;
-    
-    if (t.startsWith('http')) { 
-      try { 
-        const separator = t.includes('?') ? '&' : '?';
-        const fetchUrl = `${t}${separator}t=${Date.now()}`;
-        
-        const resp = await fetch(fetchUrl, { 
-          headers: { 
-            'User-Agent': 'v2rayNG/1.8.5',
-            'Accept': '*/*'
-          } 
-        }); 
-        
-        if (resp.ok) { 
-          const text = await resp.text(); 
-          if (!text.trim().startsWith('<')) {
-            try {
-              const parsed = await parseContent(text);
-              allNodes.push(...parsed);
-            } catch {}
-          }
-        }
-      } catch {} 
-    } else { 
-      try {
-        const parsed = await parseContent(t);
-        allNodes.push(...parsed); 
-      } catch {}
-    }
-  }
-  return allNodes;
-}
-
-function safeBtoa(str: string): string {
-  try {
-    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => {
-      return String.fromCharCode(parseInt(p1, 16));
-    }));
-  } catch {
-    return btoa(str);
-  }
-}
-
-async function getArgoScriptFromGithub(node: ProxyNode, port: string, token: string, domain: string): Promise<string> {
-  const GITHUB_TEMPLATE_URL = `https://raw.githubusercontent.com/sammy0101/cf-sub-converter/main/argo.sh?t=${Date.now()}`;
-  let template = "";
-  
-  try {
-    const res = await fetch(GITHUB_TEMPLATE_URL, { headers: { 'User-Agent': 'v2rayNG/1.8.5' } });
-    if (res.ok) {
-      template = await res.text();
-    } else {
-      throw new Error("GitHub Fetch Failed");
-    }
-  } catch {
-    template = `#!/bin/bash
-if ! command -v cloudflared &> /dev/null; then
-  curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
-  chmod +x /usr/local/bin/cloudflared
-fi
-cloudflared tunnel --url http://127.0.0.1:{{VLESS_PORT}}
-`;
-  }
-
-  const vlessType = node.network || 'ws';
-  const vlessPath = node.wsPath || '/';
-  const argoNodeName = `${node.name}_Argo`;
-  const isTls = node.tls ? "true" : "false";
-  const realHost = node.wsHeaders?.Host || node.sni || node.server; 
-
-  return template
-    .replace("{{NODE_TYPE}}", node.type)
-    .replace("{{VLESS_UUID}}", node.uuid || '')
-    .replace("{{VLESS_PATH}}", vlessPath)
-    .replace("{{VLESS_TYPE}}", vlessType)
-    .replace("{{VLESS_PORT}}", port)
-    .replace("{{NODE_NAME}}", argoNodeName)
-    .replace("{{TUNNEL_TOKEN}}", token.trim())
-    .replace("{{CUSTOM_DOMAIN}}", domain.trim())
-    .replace("{{VLESS_TLS}}", isTls)
-    .replace("{{ORIGIN_HOST}}", realHost);
-}
-
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, X-Password',
-        }
-      });
-    }
-
-    if (request.method === 'GET' && url.pathname.startsWith('/argo/sh/')) {
-      const scriptId = url.pathname.split('/').pop();
-      if (env.SUB_CACHE && scriptId) {
-        const script = await env.SUB_CACHE.get(`script:${scriptId}`);
-        if (script) {
-          return new Response(script, {
-            headers: { 
-              'Content-Type': 'text/plain; charset=utf-8', 
-              'Access-Control-Allow-Origin': '*' 
-            }
-          });
-        }
-      }
-      return new Response('# 錯誤: 該腳本不存在或已過期，請重新在網頁上生成。\nexit 1\n', { 
-        status: 404,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-
-    if (request.method === 'POST' && (url.pathname === '/api/parse-vless' || url.pathname === '/api/parse-argo')) {
-      try {
-        const body = (await request.json()) as { url?: string };
-        const rawUrl = body.url || '';
-        if (!rawUrl.trim()) {
-          return new Response(JSON.stringify({ error: '請輸入有效的節點內容' }), { 
-            status: 400, 
-            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } 
-          });
-        }
-
-        const allNodes = await loadNodes(rawUrl);
-        const argoCompatibleNodes = allNodes.filter(n => n.type === 'vless' || n.type === 'vmess').map((n, idx) => ({
-          index: idx,
-          name: n.name,
-          server: n.server,
-          port: n.port,
-          type: n.type,
-          host: n.wsHeaders?.Host || n.sni || n.server
-        }));
-
-        return new Response(JSON.stringify(argoCompatibleNodes), {
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        });
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return new Response(JSON.stringify({ error: msg }), { 
-          status: 500, 
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } 
-        });
-      }
-    }
-
-    if (request.method === 'POST' && url.pathname === '/api/argo-generate') {
-      try {
-        const body = (await request.json()) as {
-          url?: string;
-          indices?: number[];
-          port?: string;
-          cleanIp?: string;
-          token?: string;
-          domain?: string;
-        };
-
-        const rawUrl = body.url || '';
-        const selectedIndices = body.indices || [];
-        const port = body.port || '8080';
-        const cleanIp = (body.cleanIp || '').trim();
-        const token = body.token || '';
-        const domain = body.domain || '';
-
-        if (!rawUrl.trim() || selectedIndices.length === 0) {
-          return new Response(JSON.stringify({ error: '無效的參數或未選擇節點' }), { 
-            status: 400, 
-            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } 
-          });
-        }
-
-        const allNodes = await loadNodes(rawUrl);
-        const compatibleNodes = allNodes.filter(n => n.type === 'vless' || n.type === 'vmess');
-        const selectedObjects = selectedIndices.map(idx => compatibleNodes[idx]).filter(Boolean);
-
-        let scripts = '';
-        const generatedNodesData: Array<{ originalIndex: number; link: string }> = [];
-
-        for (let i = 0; i < selectedObjects.length; i++) {
-          const node = selectedObjects[i];
-          const originalIndex = selectedIndices[i];
-          
-          scripts += await getArgoScriptFromGithub(node, port, token, domain) + '\n\n';
-
-          const targetDomain = (token.trim() && domain.trim()) ? domain.trim() : "請在VPS執行一鍵安裝腳本獲取臨時域名.trycloudflare.com";
-          const connectionServer = cleanIp || targetDomain;
-          const argoNodeName = `${node.name}_Argo${cleanIp ? '_優選' : ''}`;
-
-          let argoLink = '';
-          if (node.type === 'vless') {
-            argoLink = `vless://${node.uuid}@${connectionServer}:443?encryption=none&security=tls&type=${node.network || 'ws'}&host=${targetDomain}&sni=${targetDomain}&path=${node.wsPath || '/'}#${argoNodeName}`;
-          } else {
-            const vmessObj = {
-              v: "2", ps: argoNodeName, add: connectionServer, port: 443, id: node.uuid,
-              aid: 0, scy: "auto", net: node.network || 'ws', type: "none",
-              host: targetDomain, path: node.wsPath || '/', tls: "tls", sni: targetDomain
-            };
-            argoLink = 'vmess://' + safeBtoa(JSON.stringify(vmessObj));
-          }
-
-          generatedNodesData.push({ originalIndex, link: argoLink });
-        }
-
-        let scriptId = '';
-        if (env.SUB_CACHE) {
-          scriptId = crypto.randomUUID();
-          await env.SUB_CACHE.put('script:' + scriptId, scripts, { expirationTtl: 3600 });
-        }
-
-        return new Response(JSON.stringify({ 
-          scriptId, 
-          argoNodes: generatedNodesData 
-        }), {
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        });
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return new Response(JSON.stringify({ error: msg }), { 
-          status: 500, 
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } 
-        });
-      }
-    }
-
-    if (request.method === 'GET' && url.pathname === '/version') {
-      return new Response(`subconverter v${version} ${url.host} backend\n`, {
-        headers: { 
-          'Content-Type': 'text/plain; charset=utf-8', 
-          'Access-Control-Allow-Origin': '*'
-        } 
-      });
-    }
-
-    if (request.method === 'POST' && url.pathname === '/save') {
-      try {
-        const body = (await request.json()) as { path?: string; content?: string; include?: string; exclude?: string; rename?: string };
-        const cleanPath = (body.path || '').trim();
-        if (!cleanPath || !body.content) return new Response('Missing path or content', { status: 400 });
-        
-        const saveData = {
-          content: body.content,
-          include: body.include || '',
-          exclude: body.exclude || '',
-          rename: body.rename || ''
-        };
-        const jsonStr = JSON.stringify(saveData);
-
-        await env.SUB_CACHE.put(cleanPath, jsonStr);
-
-        if (cleanPath !== cleanPath.toLowerCase()) {
-          await env.SUB_CACHE.put(cleanPath.toLowerCase(), jsonStr);
-        }
-        
-        return new Response('OK', { 
-          status: 200,
-          headers: { 'Access-Control-Allow-Origin': '*' }
-        });
-      } catch {
-        return new Response('Error saving profile', { status: 500 });
-      }
-    }
-
-    const FAVS_KEY = 'favorites';
-    const getFavs = async (): Promise<Array<Record<string, string>>> => {
-      const data = await env.SUB_CACHE.get(FAVS_KEY);
-      return data ? JSON.parse(data) : [];
-    };
-    const saveFavs = async (favs: Array<Record<string, string>>): Promise<void> => {
-      await env.SUB_CACHE.put(FAVS_KEY, JSON.stringify(favs));
-    };
-
-    if (request.method === 'GET' && url.pathname === '/favs') {
-      if (!checkAuth(request, env)) {
-        return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
-          status: 401,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        });
-      }
-      const favs = await getFavs();
-      return new Response(JSON.stringify(favs), { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
-    }
-
-    if (request.method === 'POST' && url.pathname === '/favs') {
-      if (!checkAuth(request, env)) {
-        return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
-      }
-      try {
-        const body = (await request.json()) as Record<string, string>;
-        if (!body.name || !body.url) return new Response('Missing name or url', { status: 400 });
-        const favs = await getFavs();
-        favs.push({
-          name: body.name,
-          url: body.url,
-          include: body.include || '',
-          exclude: body.exclude || '',
-          rename: body.rename || ''
-        });
-        await saveFavs(favs);
-
-        const cleanName = body.name.trim();
-        const syncData = JSON.stringify({
-          content: body.url,
-          include: body.include || '',
-          exclude: body.exclude || '',
-          rename: body.rename || ''
-        });
-        await env.SUB_CACHE.put(cleanName, syncData);
-        if (cleanName !== cleanName.toLowerCase()) {
-          await env.SUB_CACHE.put(cleanName.toLowerCase(), syncData);
-        }
-
-        return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
-      } catch {
-        return new Response('Error saving favorite', { status: 500 });
-      }
-    }
-
-    if (request.method === 'PUT' && url.pathname === '/favs') {
-      if (!checkAuth(request, env)) {
-        return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
-      }
-      try {
-        const body = (await request.json()) as { index?: number; name?: string; url?: string; include?: string; exclude?: string; rename?: string };
-        if (body.index === undefined || !body.name || !body.url) return new Response('Missing data', { status: 400 });
-        const favs = await getFavs();
-        if (body.index >= 0 && body.index < favs.length) {
-          favs[body.index] = {
-            name: body.name,
-            url: body.url,
-            include: body.include || '',
-            exclude: body.exclude || '',
-            rename: body.rename || ''
-          };
-          await saveFavs(favs);
-
-          const cleanName = body.name.trim();
-          const syncData = JSON.stringify({
-            content: body.url,
-            include: body.include || '',
-            exclude: body.exclude || '',
-            rename: body.rename || ''
-          });
-          await env.SUB_CACHE.put(cleanName, syncData);
-          if (cleanName !== cleanName.toLowerCase()) {
-            await env.SUB_CACHE.put(cleanName.toLowerCase(), syncData);
-          }
-        }
-        return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
-      } catch {
-        return new Response('Error updating favorite', { status: 500 });
-      }
-    }
-
-    if (request.method === 'DELETE' && url.pathname === '/favs') {
-      if (!checkAuth(request, env)) {
-        return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
-      }
-      try {
-        const body = (await request.json()) as { index?: number };
-        if (body.index === undefined) return new Response('Missing index', { status: 400 });
-        const favs = await getFavs();
-        if (body.index >= 0 && body.index < favs.length) {
-          const removed = favs.splice(body.index, 1)[0];
-          await saveFavs(favs);
-          if (removed && removed.name) {
-            await env.SUB_CACHE.delete(removed.name.trim());
-            await env.SUB_CACHE.delete(removed.name.trim().toLowerCase());
-          }
-        }
-        return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
-      } catch {
-        return new Response('Error deleting favorite', { status: 500 });
-      }
-    }
-
-    // GET 訂閱路由
-    let urlParam = url.searchParams.get('url') || '';
-    let includeParam = url.searchParams.get('include') || '';
-    let excludeParam = url.searchParams.get('exclude') || '';
-    let renameParam = url.searchParams.get('rename') || '';
-    let nameParam = url.searchParams.get('name') || '';
-    const forceRefresh = url.searchParams.has('force') || url.searchParams.has('nocache');
-
-    const rawPath = url.pathname.replace(/^\/+/, '');
-    const path = decodeURIComponent(rawPath).trim();
-    let detectedProfileName = nameParam;
-
-    if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
-      if (!detectedProfileName) {
-        detectedProfileName = path;
-      }
-      
-      let stored = await env.SUB_CACHE.get(path);
-      
-      if (!stored && path !== path.toLowerCase()) {
-        stored = await env.SUB_CACHE.get(path.toLowerCase());
-      }
-
-      if (!stored && path !== path.toUpperCase()) {
-        stored = await env.SUB_CACHE.get(path.toUpperCase());
-      }
-
-      if (stored) { 
-        try {
-          const parsed = JSON.parse(stored);
-          if (parsed && parsed.content) {
-            urlParam = parsed.content;
-            if (!includeParam) includeParam = parsed.include || '';
-            if (!excludeParam) excludeParam = parsed.exclude || '';
-            if (!renameParam) renameParam = parsed.rename || '';
-          }
-        } catch {
-          urlParam = stored; 
-        }
-      }
-
-      if (!urlParam || urlParam.trim() === '') {
-        try {
-          const favsData = await env.SUB_CACHE.get('favorites');
-          if (favsData) {
-            const favsList = JSON.parse(favsData) as Array<Record<string, string>>;
-            const matched = favsList.find(f => 
-              f.name && f.name.trim().toLowerCase() === path.toLowerCase()
-            );
-            if (matched && matched.url) {
-              urlParam = matched.url;
-              if (!includeParam) includeParam = matched.include || '';
-              if (!excludeParam) excludeParam = matched.exclude || '';
-              if (!renameParam) renameParam = matched.rename || '';
-              detectedProfileName = matched.name;
-            }
-          }
-        } catch {}
-      }
-    }
-
-    if (!urlParam || urlParam.trim() === '') {
-      if (path === 'sub') {
-        return new Response('Error: Missing parameter "url"', { status: 400 });
-      }
-      const dynamicHtml = HTML_PAGE.replace('id="appVersionBadge">PRO</span>', `id="appVersionBadge">v${version}</span>`);
-      return new Response(dynamicHtml, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-    }
-
-    const allNodes: ProxyNode[] = [];
-    const errors: string[] = [];
-    let totalUpload = 0;
-    let totalDownload = 0;
-    let totalTotal = 0;
-    let minExpire = 0;
-    let hasTrafficInfo = false;
-
-    const trimmedParam = urlParam.trim();
-
-    if (/\[Interface\]/i.test(trimmedParam) && /\[Peer\]/i.test(trimmedParam)) {
-      try {
-        const parsed = await parseContent(trimmedParam);
-        allNodes.push(...parsed);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`[WireGuard 配置] 失敗原因: ${msg}`);
-      }
-    } 
-    else if (/["']private_key["']/i.test(trimmedParam) && (trimmedParam.includes('{') || trimmedParam.includes('['))) {
-      try {
-        const parsed = await parseContent(trimmedParam);
-        allNodes.push(...parsed);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`[MASQUE 配置] 失敗原因: ${msg}`);
-      }
-    } 
-    else if (/(^|\n)\s*proxies\s*:/i.test(trimmedParam)) {
-      try {
-        const parsed = await parseContent(trimmedParam);
-        allNodes.push(...parsed);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`[Clash YAML 配置] 失敗原因: ${msg}`);
-      }
-    }
-    else {
-      const inputs = urlParam.split(/[\n\r|]+/); 
-      for (const input of inputs) {
-        const trimmed = input.trim(); 
-        if (!trimmed) continue;
-        
-        if (trimmed.startsWith('http')) { 
-          try { 
-            const separator = trimmed.includes('?') ? '&' : '?';
-            const fetchUrl = `${trimmed}${separator}t=${Date.now()}`;
-            const resp = await fetch(fetchUrl, { headers: { 'User-Agent': 'v2rayNG/1.8.5' } }); 
-            
-            if (resp.ok) { 
-              const text = await resp.text(); 
-              const userInfo = resp.headers.get('subscription-userinfo');
-              if (userInfo) {
-                hasTrafficInfo = true;
-                const uploadMatch = userInfo.match(/upload=(\d+)/i);
-                const downloadMatch = userInfo.match(/download=(\d+)/i);
-                const totalMatch = userInfo.match(/total=(\d+)/i);
-                const expireMatch = userInfo.match(/expire=(\d+)/i);
-
-                totalUpload += uploadMatch ? parseInt(uploadMatch[1], 10) : 0;
-                totalDownload += downloadMatch ? parseInt(downloadMatch[1], 10) : 0;
-                totalTotal += totalMatch ? parseInt(totalMatch[1], 10) : 0;
-                
-                const expireVal = expireMatch ? parseInt(expireMatch[1], 10) : 0;
-                if (expireVal > 0) {
-                  if (minExpire === 0 || expireVal < minExpire) minExpire = expireVal; 
-                }
-              }
-
-              if (!text.trim().startsWith('<')) {
-                try {
-                  const parsed = await parseContent(text);
-                  allNodes.push(...parsed);
-                } catch {}
-              }
-            }
-          } catch {} 
-        } else { 
-          try {
-            const parsed = await parseContent(trimmed);
-            allNodes.push(...parsed); 
-          } catch {}
-        }
-      }
-    }
-
-    if (allNodes.length === 0) {
-      const errorMsg = errors.length > 0 ? errors.join('\n') : '未解析到任何有效節點。';
-      return new Response(errorMsg, { status: 400 });
-    }
-
-    let filteredNodes = allNodes;
-
-    if (renameParam) {
-      const rules = renameParam.split('|');
-      for (const rule of rules) {
-        const trimmedRule = rule.trim();
-        if (!trimmedRule) continue;
-
-        if (trimmedRule.startsWith('DEL-')) {
-          const search = trimmedRule.substring(4); 
-          if (search) {
-            filteredNodes.forEach(node => {
-              if (node.name) node.name = node.name.split(search).join('');
-            });
-          }
-        } else if (trimmedRule.includes('-')) {
-          const idx = trimmedRule.indexOf('-');
-          const search = trimmedRule.substring(0, idx).trim();
-          const replace = trimmedRule.substring(idx + 1).trim();
-          
-          if (search && replace !== undefined) {
-            if (search.toUpperCase() === 'ALL') {
-              filteredNodes.forEach(node => { node.name = replace; });
-            } else {
-              filteredNodes.forEach(node => {
-                if (node.name) node.name = node.name.split(search).join(replace);
-              });
-            }
-          }
-        }
-      }
-    }
-
-    const buildFilterRegex = (param: string): RegExp => {
-      const parts = param.split('|').map(part => {
-        const trimmed = part.trim();
-        if (!trimmed) return '';
-        const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        return escaped.replace(/[xXｘＸ×]/g, '[xXｘＸ×]');
-      }).filter(Boolean);
-      return new RegExp(parts.join('|'), 'i');
-    };
-
-    if (includeParam) {
-      const includeRegex = buildFilterRegex(includeParam);
-      filteredNodes = filteredNodes.filter(node => includeRegex.test(node.name));
-    }
-
-    if (excludeParam) {
-      const excludeRegex = buildFilterRegex(excludeParam);
-      filteredNodes = filteredNodes.filter(node => !excludeRegex.test(node.name));
-    }
-
-    const sortedNodes = groupNodesByFlag(filteredNodes);
-    const uniqueNodes = deduplicateNodeNames(sortedNodes);
-
-    let target = url.searchParams.get('target');
-
-    if (!target) {
-      const ua = (request.headers.get('User-Agent') || '').toLowerCase();
-      if (ua.includes('clash') || ua.includes('mihomo') || ua.includes('stash') || ua.includes('surfboard')) {
-        target = 'clash';
-      } else if (ua.includes('sing-box') || ua.includes('singbox') || ua.includes('hiddify')) {
-        target = 'singbox';
-      } else if (ua.includes('surge')) {
-        target = 'surge';
-      } else if (ua.includes('quantumult')) {
-        target = 'quanx';
-      } else if (ua.includes('loon')) {
-        target = 'loon';
-      } else if (ua.includes('honk') || ua.includes('dae')) {
-        target = 'honk';
-      } else if (ua.includes('v2ray') || ua.includes('shadowrocket')) {
-        target = 'base64';
-      }
-    }
-
-    const finalProfileName = detectedProfileName || 'subscription';
-
-    if (!target) {
-      const host = `https://${url.host}`;
-      const encodedUrl = encodeURIComponent(urlParam);
-      let filterQuery = '';
-      if (includeParam) filterQuery += `&include=${encodeURIComponent(includeParam)}`;
-      if (excludeParam) filterQuery += `&exclude=${encodeURIComponent(excludeParam)}`;
-      if (renameParam) filterQuery += `&rename=${encodeURIComponent(renameParam)}`;
-      if (detectedProfileName) filterQuery += `&name=${encodeURIComponent(detectedProfileName)}`;
-
-      const htmlInfo = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>轉換完成</title><style>body{background:#0f172a;color:#f8fafc;font-family:sans-serif;padding:40px;text-align:center;}a{display:inline-block;margin:10px;padding:12px 24px;background:#3b82f6;color:#fff;text-decoration:none;border-radius:8px;}</style></head>
-<body>
-  <h1>⚡ 成功轉換 ${uniqueNodes.length} 個節點</h1>
-  <div>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=clash">Clash Meta (YAML)</a>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=singbox">Sing-Box (JSON)</a>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=surge">Surge 5</a>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=quanx">Quantumult X</a>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=loon">Loon</a>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=base64">Base64</a>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=honk">Honk / dae (config.dae)</a>
-  </div>
-</body></html>`;
-      return new Response(htmlInfo, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-    }
-
-    let result = '';
-    let contentType = 'text/plain';
-    let fileExt = '.txt';
-
-    try {
-      if (target === 'clash') {
-        result = await toClashWithTemplate(uniqueNodes, env, forceRefresh);
-        contentType = 'text/yaml';
-        fileExt = '.yaml';
-      } else if (target === 'surge') {
-        result = toSurge(uniqueNodes);
-        contentType = 'text/plain';
-        fileExt = '.conf';
-      } else if (target === 'quanx' || target === 'qx') {
-        result = toQuantumultX(uniqueNodes);
-        contentType = 'text/plain';
-        fileExt = '.txt';
-      } else if (target === 'loon') {
-        result = toLoon(uniqueNodes);
-        contentType = 'text/plain';
-        fileExt = '.conf';
-      } else if (target === 'honk' || target === 'dae') {
-        const host = `https://${url.host}`;
-        let base64SubUrl = `${host}/?url=${encodeURIComponent(urlParam)}&target=base64`;
-        if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
-          base64SubUrl = `${host}/${encodeURIComponent(path)}?target=base64`;
-        }
-        if (includeParam) base64SubUrl += `&include=${encodeURIComponent(includeParam)}`;
-        if (excludeParam) base64SubUrl += `&exclude=${encodeURIComponent(excludeParam)}`;
-        if (renameParam) base64SubUrl += `&rename=${encodeURIComponent(renameParam)}`;
-        
-        result = await toHonk(uniqueNodes, base64SubUrl, finalProfileName);
-        contentType = 'text/plain';
-        fileExt = '.dae';
-      } else if (target === 'base64') {
-        result = toBase64(uniqueNodes);
-        contentType = 'text/plain';
-        fileExt = '.txt';
-      } else {
-        result = await toSingBoxWithTemplate(uniqueNodes, env, forceRefresh);
-        contentType = 'application/json';
-        fileExt = '.json';
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return new Response(`轉換配置失敗: ${msg}`, {
-        status: 500,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-
-    const filenameAscii = `${finalProfileName.replace(/[^a-zA-Z0-9_-]/g, '_')}${fileExt}`;
-    const filenameUtf8 = encodeURIComponent(`${finalProfileName}${fileExt}`);
-
-    const responseHeaders: Record<string, string> = {
-      'Content-Type': `${contentType}; charset=utf-8`, 
-      'Access-Control-Allow-Origin': '*', 
-      'Access-Control-Expose-Headers': 'Content-Disposition, Profile-Title, Subscription-Title, Profile-Update-Interval, subscription-userinfo',
-      'Cache-Control': 'no-store, no-cache, must-revalidate',
-      'Content-Disposition': `inline; filename="${filenameAscii}"; filename*=UTF-8''${filenameUtf8}`,
-      'Profile-Title': finalProfileName,
-      'Subscription-Title': finalProfileName,
-      'profile-update-interval': '3600',
-    };
-
-    if (hasTrafficInfo) {
-      let userInfoHeader = `upload=${totalUpload}; download=${totalDownload}; total=${totalTotal}`;
-      if (minExpire > 0) userInfoHeader += `; expire=${minExpire}`;
-      responseHeaders['subscription-userinfo'] = userInfoHeader;
-    }
-
-    return new Response(result, { headers: responseHeaders });
-  }
-};
 
 ````
 
@@ -3483,81 +3268,784 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
 
 ````
 
-## File: src/types.ts
+## File: src/index.ts
 ````ts
-export interface Env {
-  SUB_CACHE: KVNamespace;
-  PAGE_PASSWORD?: string;
+// src/index.ts
+// @ts-ignore
+import packageJson from '../package.json';
+import { Env, ProxyNode } from './types';
+import { HTML_PAGE } from './constants';
+import { parseContent } from './parser';
+import {
+  toSingBoxWithTemplate,
+  toClashWithTemplate,
+  toBase64,
+  toSurge,
+  toQuantumultX,
+  toLoon,
+  toHonk
+} from './generator';
+import { deduplicateNodeNames, groupNodesByFlag } from './utils';
+
+const version = packageJson.version;
+
+function checkAuth(request: Request, env: Env): boolean {
+  if (!env.PAGE_PASSWORD || env.PAGE_PASSWORD.trim() === '') {
+    return true;
+  }
+  const clientPwd = request.headers.get('X-Password') || '';
+  return clientPwd === env.PAGE_PASSWORD.trim();
 }
 
-export interface WireGuardConfig {
-  privateKey: string;
-  localAddress: string[];
-  publicKey?: string;
-  presharedKey?: string;
-  mtu?: number;
-  reserved?: number[];
-  dns?: string;
+async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
+  const allNodes: ProxyNode[] = [];
+  const trimmed = urlParam.trim();
+  if (!trimmed) return allNodes;
+
+  if (/\[Interface\]/i.test(trimmed) && /\[Peer\]/i.test(trimmed)) {
+    try {
+      const parsed = await parseContent(trimmed);
+      allNodes.push(...parsed);
+    } catch {}
+    return allNodes;
+  }
+
+  if (/["']private_key["']/i.test(trimmed) && (trimmed.includes('{') || trimmed.includes('['))) {
+    try {
+      const parsed = await parseContent(trimmed);
+      allNodes.push(...parsed);
+    } catch {}
+    return allNodes;
+  }
+
+  if (/(^|\n)\s*proxies\s*:/i.test(trimmed)) {
+    try {
+      const parsed = await parseContent(trimmed);
+      allNodes.push(...parsed);
+    } catch {}
+    return allNodes;
+  }
+
+  const inputs = urlParam.split(/[\n\r|]+/); 
+  for (const input of inputs) {
+    const t = input.trim(); 
+    if (!t) continue;
+    
+    if (t.startsWith('http')) { 
+      try { 
+        const separator = t.includes('?') ? '&' : '?';
+        const fetchUrl = `${t}${separator}t=${Date.now()}`;
+        
+        const resp = await fetch(fetchUrl, { 
+          headers: { 
+            'User-Agent': 'v2rayNG/1.8.5',
+            'Accept': '*/*'
+          } 
+        }); 
+        
+        if (resp.ok) { 
+          const text = await resp.text(); 
+          if (!text.trim().startsWith('<')) {
+            try {
+              const parsed = await parseContent(text);
+              allNodes.push(...parsed);
+            } catch {}
+          }
+        }
+      } catch {} 
+    } else { 
+      try {
+        const parsed = await parseContent(t);
+        allNodes.push(...parsed); 
+      } catch {}
+    }
+  }
+  return allNodes;
 }
 
-export interface MasqueConfig {
-  privateKey: string;
-  publicKey: string;
-  localIpv4?: string;
-  localIpv6?: string;
-  mtu?: number;
-  uri?: string;
-  sni?: string;
-  congestion_controller?: string;
-  dns?: string[];
+function safeBtoa(str: string): string {
+  try {
+    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => {
+      return String.fromCharCode(parseInt(p1, 16));
+    }));
+  } catch {
+    return btoa(str);
+  }
 }
 
-export interface ProxyNode {
-  type: string;
-  name: string;
-  server: string;
-  port: number;
-  uuid?: string;
-  password?: string;
-  cipher?: string;
-  udp?: boolean;
-  tls?: boolean;
-  sni?: string;
-  alpn?: string[];
-  fingerprint?: string;
-  flow?: string;
-  network?: string;
-  wsPath?: string;
-  wsHeaders?: Record<string, string>;
-  reality?: { publicKey: string; shortId: string };
-  obfs?: string;
-  obfsPassword?: string;
-  skipCertVerify?: boolean;
-  singboxObj?: Record<string, unknown>;
-  clashObj?: Record<string, unknown>;
-  congestion_control?: string;
-  udp_relay_mode?: string;
-  // VLESS SplitHTTP (xhttp)
-  xhttpPath?: string;
-  xhttpHost?: string;
-  xhttpMode?: string;
-  // WireGuard / WARP
-  wireguard?: WireGuardConfig;
-  // Cloudflare WARP MASQUE
-  masque?: MasqueConfig;
-  // ECH (Encrypted Client Hello)
-  ech?: boolean;
-  echQueryServerName?: string;
-  echDoh?: string;
-  // 標籤特徵
-  multiplier?: number;
-  isIplc?: boolean;
+async function getArgoScriptFromGithub(node: ProxyNode, port: string, token: string, domain: string): Promise<string> {
+  const GITHUB_TEMPLATE_URL = `https://raw.githubusercontent.com/sammy0101/cf-sub-converter/main/argo.sh?t=${Date.now()}`;
+  let template = "";
+  
+  try {
+    const res = await fetch(GITHUB_TEMPLATE_URL, { headers: { 'User-Agent': 'v2rayNG/1.8.5' } });
+    if (res.ok) {
+      template = await res.text();
+    } else {
+      throw new Error("GitHub Fetch Failed");
+    }
+  } catch {
+    template = `#!/bin/bash
+if ! command -v cloudflared &> /dev/null; then
+  curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+  chmod +x /usr/local/bin/cloudflared
+fi
+cloudflared tunnel --url http://127.0.0.1:{{VLESS_PORT}}
+`;
+  }
+
+  const vlessType = node.network || 'ws';
+  const vlessPath = node.wsPath || '/';
+  const argoNodeName = `${node.name}_Argo`;
+  const isTls = node.tls ? "true" : "false";
+  const realHost = node.wsHeaders?.Host || node.sni || node.server; 
+
+  return template
+    .replace("{{NODE_TYPE}}", node.type)
+    .replace("{{VLESS_UUID}}", node.uuid || '')
+    .replace("{{VLESS_PATH}}", vlessPath)
+    .replace("{{VLESS_TYPE}}", vlessType)
+    .replace("{{VLESS_PORT}}", port)
+    .replace("{{NODE_NAME}}", argoNodeName)
+    .replace("{{TUNNEL_TOKEN}}", token.trim())
+    .replace("{{CUSTOM_DOMAIN}}", domain.trim())
+    .replace("{{VLESS_TLS}}", isTls)
+    .replace("{{ORIGIN_HOST}}", realHost);
 }
 
-export interface CachedTemplate {
-  content: string;
-  updatedAt: number;
-}
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, X-Password',
+        }
+      });
+    }
+
+    if (request.method === 'GET' && url.pathname.startsWith('/argo/sh/')) {
+      const scriptId = url.pathname.split('/').pop();
+      if (env.SUB_CACHE && scriptId) {
+        const script = await env.SUB_CACHE.get(`script:${scriptId}`);
+        if (script) {
+          return new Response(script, {
+            headers: { 
+              'Content-Type': 'text/plain; charset=utf-8', 
+              'Access-Control-Allow-Origin': '*' 
+            }
+          });
+        }
+      }
+      return new Response('# 錯誤: 該腳本不存在或已過期，請重新在網頁上生成。\nexit 1\n', { 
+        status: 404,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+
+    if (request.method === 'POST' && (url.pathname === '/api/parse-vless' || url.pathname === '/api/parse-argo')) {
+      try {
+        const body = (await request.json()) as { url?: string };
+        const rawUrl = body.url || '';
+        if (!rawUrl.trim()) {
+          return new Response(JSON.stringify({ error: '請輸入有效的節點內容' }), { 
+            status: 400, 
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } 
+          });
+        }
+
+        const allNodes = await loadNodes(rawUrl);
+        const argoCompatibleNodes = allNodes.filter(n => n.type === 'vless' || n.type === 'vmess').map((n, idx) => ({
+          index: idx,
+          name: n.name,
+          server: n.server,
+          port: n.port,
+          type: n.type,
+          host: n.wsHeaders?.Host || n.sni || n.server
+        }));
+
+        return new Response(JSON.stringify(argoCompatibleNodes), {
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return new Response(JSON.stringify({ error: msg }), { 
+          status: 500, 
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } 
+        });
+      }
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/argo-generate') {
+      try {
+        const body = (await request.json()) as {
+          url?: string;
+          indices?: number[];
+          port?: string;
+          cleanIp?: string;
+          token?: string;
+          domain?: string;
+        };
+
+        const rawUrl = body.url || '';
+        const selectedIndices = body.indices || [];
+        const port = body.port || '8080';
+        const cleanIp = (body.cleanIp || '').trim();
+        const token = body.token || '';
+        const domain = body.domain || '';
+
+        if (!rawUrl.trim() || selectedIndices.length === 0) {
+          return new Response(JSON.stringify({ error: '無效的參數或未選擇節點' }), { 
+            status: 400, 
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } 
+          });
+        }
+
+        const allNodes = await loadNodes(rawUrl);
+        const compatibleNodes = allNodes.filter(n => n.type === 'vless' || n.type === 'vmess');
+        const selectedObjects = selectedIndices.map(idx => compatibleNodes[idx]).filter(Boolean);
+
+        let scripts = '';
+        const generatedNodesData: Array<{ originalIndex: number; link: string }> = [];
+
+        for (let i = 0; i < selectedObjects.length; i++) {
+          const node = selectedObjects[i];
+          const originalIndex = selectedIndices[i];
+          
+          scripts += await getArgoScriptFromGithub(node, port, token, domain) + '\n\n';
+
+          const targetDomain = (token.trim() && domain.trim()) ? domain.trim() : "請在VPS執行一鍵安裝腳本獲取臨時域名.trycloudflare.com";
+          const connectionServer = cleanIp || targetDomain;
+          const argoNodeName = `${node.name}_Argo${cleanIp ? '_優選' : ''}`;
+
+          let argoLink = '';
+          if (node.type === 'vless') {
+            argoLink = `vless://${node.uuid}@${connectionServer}:443?encryption=none&security=tls&type=${node.network || 'ws'}&host=${targetDomain}&sni=${targetDomain}&path=${node.wsPath || '/'}#${argoNodeName}`;
+          } else {
+            const vmessObj = {
+              v: "2", ps: argoNodeName, add: connectionServer, port: 443, id: node.uuid,
+              aid: 0, scy: "auto", net: node.network || 'ws', type: "none",
+              host: targetDomain, path: node.wsPath || '/', tls: "tls", sni: targetDomain
+            };
+            argoLink = 'vmess://' + safeBtoa(JSON.stringify(vmessObj));
+          }
+
+          generatedNodesData.push({ originalIndex, link: argoLink });
+        }
+
+        let scriptId = '';
+        if (env.SUB_CACHE) {
+          scriptId = crypto.randomUUID();
+          await env.SUB_CACHE.put('script:' + scriptId, scripts, { expirationTtl: 3600 });
+        }
+
+        return new Response(JSON.stringify({ 
+          scriptId, 
+          argoNodes: generatedNodesData 
+        }), {
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return new Response(JSON.stringify({ error: msg }), { 
+          status: 500, 
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } 
+        });
+      }
+    }
+
+    if (request.method === 'GET' && url.pathname === '/version') {
+      return new Response(`subconverter v${version} ${url.host} backend\n`, {
+        headers: { 
+          'Content-Type': 'text/plain; charset=utf-8', 
+          'Access-Control-Allow-Origin': '*'
+        } 
+      });
+    }
+
+    if (request.method === 'POST' && url.pathname === '/save') {
+      try {
+        const body = (await request.json()) as { path?: string; content?: string; include?: string; exclude?: string; rename?: string };
+        const cleanPath = (body.path || '').trim();
+        if (!cleanPath || !body.content) return new Response('Missing path or content', { status: 400 });
+        
+        const saveData = {
+          content: body.content,
+          include: body.include || '',
+          exclude: body.exclude || '',
+          rename: body.rename || ''
+        };
+        const jsonStr = JSON.stringify(saveData);
+
+        await env.SUB_CACHE.put(cleanPath, jsonStr);
+
+        if (cleanPath !== cleanPath.toLowerCase()) {
+          await env.SUB_CACHE.put(cleanPath.toLowerCase(), jsonStr);
+        }
+        
+        return new Response('OK', { 
+          status: 200,
+          headers: { 'Access-Control-Allow-Origin': '*' }
+        });
+      } catch {
+        return new Response('Error saving profile', { status: 500 });
+      }
+    }
+
+    const FAVS_KEY = 'favorites';
+    const getFavs = async (): Promise<Array<Record<string, string>>> => {
+      const data = await env.SUB_CACHE.get(FAVS_KEY);
+      return data ? JSON.parse(data) : [];
+    };
+    const saveFavs = async (favs: Array<Record<string, string>>): Promise<void> => {
+      await env.SUB_CACHE.put(FAVS_KEY, JSON.stringify(favs));
+    };
+
+    if (request.method === 'GET' && url.pathname === '/favs') {
+      if (!checkAuth(request, env)) {
+        return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+      const favs = await getFavs();
+      return new Response(JSON.stringify(favs), { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
+    }
+
+    if (request.method === 'POST' && url.pathname === '/favs') {
+      if (!checkAuth(request, env)) {
+        return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
+      }
+      try {
+        const body = (await request.json()) as Record<string, string>;
+        if (!body.name || !body.url) return new Response('Missing name or url', { status: 400 });
+        const favs = await getFavs();
+        favs.push({
+          name: body.name,
+          url: body.url,
+          include: body.include || '',
+          exclude: body.exclude || '',
+          rename: body.rename || ''
+        });
+        await saveFavs(favs);
+
+        const cleanName = body.name.trim();
+        const syncData = JSON.stringify({
+          content: body.url,
+          include: body.include || '',
+          exclude: body.exclude || '',
+          rename: body.rename || ''
+        });
+        await env.SUB_CACHE.put(cleanName, syncData);
+        if (cleanName !== cleanName.toLowerCase()) {
+          await env.SUB_CACHE.put(cleanName.toLowerCase(), syncData);
+        }
+
+        return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
+      } catch {
+        return new Response('Error saving favorite', { status: 500 });
+      }
+    }
+
+    if (request.method === 'PUT' && url.pathname === '/favs') {
+      if (!checkAuth(request, env)) {
+        return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
+      }
+      try {
+        const body = (await request.json()) as { index?: number; name?: string; url?: string; include?: string; exclude?: string; rename?: string };
+        if (body.index === undefined || !body.name || !body.url) return new Response('Missing data', { status: 400 });
+        const favs = await getFavs();
+        if (body.index >= 0 && body.index < favs.length) {
+          favs[body.index] = {
+            name: body.name,
+            url: body.url,
+            include: body.include || '',
+            exclude: body.exclude || '',
+            rename: body.rename || ''
+          };
+          await saveFavs(favs);
+
+          const cleanName = body.name.trim();
+          const syncData = JSON.stringify({
+            content: body.url,
+            include: body.include || '',
+            exclude: body.exclude || '',
+            rename: body.rename || ''
+          });
+          await env.SUB_CACHE.put(cleanName, syncData);
+          if (cleanName !== cleanName.toLowerCase()) {
+            await env.SUB_CACHE.put(cleanName.toLowerCase(), syncData);
+          }
+        }
+        return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
+      } catch {
+        return new Response('Error updating favorite', { status: 500 });
+      }
+    }
+
+    if (request.method === 'DELETE' && url.pathname === '/favs') {
+      if (!checkAuth(request, env)) {
+        return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
+      }
+      try {
+        const body = (await request.json()) as { index?: number };
+        if (body.index === undefined) return new Response('Missing index', { status: 400 });
+        const favs = await getFavs();
+        if (body.index >= 0 && body.index < favs.length) {
+          const removed = favs.splice(body.index, 1)[0];
+          await saveFavs(favs);
+          if (removed && removed.name) {
+            await env.SUB_CACHE.delete(removed.name.trim());
+            await env.SUB_CACHE.delete(removed.name.trim().toLowerCase());
+          }
+        }
+        return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
+      } catch {
+        return new Response('Error deleting favorite', { status: 500 });
+      }
+    }
+
+    // GET 訂閱路由
+    let urlParam = url.searchParams.get('url') || '';
+    let includeParam = url.searchParams.get('include') || '';
+    let excludeParam = url.searchParams.get('exclude') || '';
+    let renameParam = url.searchParams.get('rename') || '';
+    let nameParam = url.searchParams.get('name') || '';
+    const forceRefresh = url.searchParams.has('force') || url.searchParams.has('nocache');
+
+    const rawPath = url.pathname.replace(/^\/+/, '');
+    const path = decodeURIComponent(rawPath).trim();
+    let detectedProfileName = nameParam;
+
+    if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
+      if (!detectedProfileName) {
+        detectedProfileName = path;
+      }
+      
+      let stored = await env.SUB_CACHE.get(path);
+      
+      if (!stored && path !== path.toLowerCase()) {
+        stored = await env.SUB_CACHE.get(path.toLowerCase());
+      }
+
+      if (!stored && path !== path.toUpperCase()) {
+        stored = await env.SUB_CACHE.get(path.toUpperCase());
+      }
+
+      if (stored) { 
+        try {
+          const parsed = JSON.parse(stored);
+          if (parsed && parsed.content) {
+            urlParam = parsed.content;
+            if (!includeParam) includeParam = parsed.include || '';
+            if (!excludeParam) excludeParam = parsed.exclude || '';
+            if (!renameParam) renameParam = parsed.rename || '';
+          }
+        } catch {
+          urlParam = stored; 
+        }
+      }
+
+      if (!urlParam || urlParam.trim() === '') {
+        try {
+          const favsData = await env.SUB_CACHE.get('favorites');
+          if (favsData) {
+            const favsList = JSON.parse(favsData) as Array<Record<string, string>>;
+            const matched = favsList.find(f => 
+              f.name && f.name.trim().toLowerCase() === path.toLowerCase()
+            );
+            if (matched && matched.url) {
+              urlParam = matched.url;
+              if (!includeParam) includeParam = matched.include || '';
+              if (!excludeParam) excludeParam = matched.exclude || '';
+              if (!renameParam) renameParam = matched.rename || '';
+              detectedProfileName = matched.name;
+            }
+          }
+        } catch {}
+      }
+    }
+
+    if (!urlParam || urlParam.trim() === '') {
+      if (path === 'sub') {
+        return new Response('Error: Missing parameter "url"', { status: 400 });
+      }
+      const dynamicHtml = HTML_PAGE.replace('id="appVersionBadge">PRO</span>', `id="appVersionBadge">v${version}</span>`);
+      return new Response(dynamicHtml, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    }
+
+    const allNodes: ProxyNode[] = [];
+    const errors: string[] = [];
+    let totalUpload = 0;
+    let totalDownload = 0;
+    let totalTotal = 0;
+    let minExpire = 0;
+    let hasTrafficInfo = false;
+
+    const trimmedParam = urlParam.trim();
+
+    if (/\[Interface\]/i.test(trimmedParam) && /\[Peer\]/i.test(trimmedParam)) {
+      try {
+        const parsed = await parseContent(trimmedParam);
+        allNodes.push(...parsed);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`[WireGuard 配置] 失敗原因: ${msg}`);
+      }
+    } 
+    else if (/["']private_key["']/i.test(trimmedParam) && (trimmedParam.includes('{') || trimmedParam.includes('['))) {
+      try {
+        const parsed = await parseContent(trimmedParam);
+        allNodes.push(...parsed);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`[MASQUE 配置] 失敗原因: ${msg}`);
+      }
+    } 
+    else if (/(^|\n)\s*proxies\s*:/i.test(trimmedParam)) {
+      try {
+        const parsed = await parseContent(trimmedParam);
+        allNodes.push(...parsed);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`[Clash YAML 配置] 失敗原因: ${msg}`);
+      }
+    }
+    else {
+      const inputs = urlParam.split(/[\n\r|]+/); 
+      for (const input of inputs) {
+        const trimmed = input.trim(); 
+        if (!trimmed) continue;
+        
+        if (trimmed.startsWith('http')) { 
+          try { 
+            const separator = trimmed.includes('?') ? '&' : '?';
+            const fetchUrl = `${trimmed}${separator}t=${Date.now()}`;
+            const resp = await fetch(fetchUrl, { headers: { 'User-Agent': 'v2rayNG/1.8.5' } }); 
+            
+            if (resp.ok) { 
+              const text = await resp.text(); 
+              const userInfo = resp.headers.get('subscription-userinfo');
+              if (userInfo) {
+                hasTrafficInfo = true;
+                const uploadMatch = userInfo.match(/upload=(\d+)/i);
+                const downloadMatch = userInfo.match(/download=(\d+)/i);
+                const totalMatch = userInfo.match(/total=(\d+)/i);
+                const expireMatch = userInfo.match(/expire=(\d+)/i);
+
+                totalUpload += uploadMatch ? parseInt(uploadMatch[1], 10) : 0;
+                totalDownload += downloadMatch ? parseInt(downloadMatch[1], 10) : 0;
+                totalTotal += totalMatch ? parseInt(totalMatch[1], 10) : 0;
+                
+                const expireVal = expireMatch ? parseInt(expireMatch[1], 10) : 0;
+                if (expireVal > 0) {
+                  if (minExpire === 0 || expireVal < minExpire) minExpire = expireVal; 
+                }
+              }
+
+              if (!text.trim().startsWith('<')) {
+                try {
+                  const parsed = await parseContent(text);
+                  allNodes.push(...parsed);
+                } catch {}
+              }
+            }
+          } catch {} 
+        } else { 
+          try {
+            const parsed = await parseContent(trimmed);
+            allNodes.push(...parsed); 
+          } catch {}
+        }
+      }
+    }
+
+    if (allNodes.length === 0) {
+      const errorMsg = errors.length > 0 ? errors.join('\n') : '未解析到任何有效節點。';
+      return new Response(errorMsg, { status: 400 });
+    }
+
+    let filteredNodes = allNodes;
+
+    if (renameParam) {
+      const rules = renameParam.split('|');
+      for (const rule of rules) {
+        const trimmedRule = rule.trim();
+        if (!trimmedRule) continue;
+
+        if (trimmedRule.startsWith('DEL-')) {
+          const search = trimmedRule.substring(4); 
+          if (search) {
+            filteredNodes.forEach(node => {
+              if (node.name) node.name = node.name.split(search).join('');
+            });
+          }
+        } else if (trimmedRule.includes('-')) {
+          const idx = trimmedRule.indexOf('-');
+          const search = trimmedRule.substring(0, idx).trim();
+          const replace = trimmedRule.substring(idx + 1).trim();
+          
+          if (search && replace !== undefined) {
+            if (search.toUpperCase() === 'ALL') {
+              filteredNodes.forEach(node => { node.name = replace; });
+            } else {
+              filteredNodes.forEach(node => {
+                if (node.name) node.name = node.name.split(search).join(replace);
+              });
+            }
+          }
+        }
+      }
+    }
+
+    const buildFilterRegex = (param: string): RegExp => {
+      const parts = param.split('|').map(part => {
+        const trimmed = part.trim();
+        if (!trimmed) return '';
+        const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return escaped.replace(/[xXｘＸ×]/g, '[xXｘＸ×]');
+      }).filter(Boolean);
+      return new RegExp(parts.join('|'), 'i');
+    };
+
+    if (includeParam) {
+      const includeRegex = buildFilterRegex(includeParam);
+      filteredNodes = filteredNodes.filter(node => includeRegex.test(node.name));
+    }
+
+    if (excludeParam) {
+      const excludeRegex = buildFilterRegex(excludeParam);
+      filteredNodes = filteredNodes.filter(node => !excludeRegex.test(node.name));
+    }
+
+    const sortedNodes = groupNodesByFlag(filteredNodes);
+    const uniqueNodes = deduplicateNodeNames(sortedNodes);
+
+    let target = url.searchParams.get('target');
+
+    if (!target) {
+      const ua = (request.headers.get('User-Agent') || '').toLowerCase();
+      if (ua.includes('clash') || ua.includes('mihomo') || ua.includes('stash') || ua.includes('surfboard')) {
+        target = 'clash';
+      } else if (ua.includes('sing-box') || ua.includes('singbox') || ua.includes('hiddify')) {
+        target = 'singbox';
+      } else if (ua.includes('surge')) {
+        target = 'surge';
+      } else if (ua.includes('quantumult')) {
+        target = 'quanx';
+      } else if (ua.includes('loon')) {
+        target = 'loon';
+      } else if (ua.includes('honk') || ua.includes('dae')) {
+        target = 'honk';
+      } else if (ua.includes('v2ray') || ua.includes('shadowrocket')) {
+        target = 'base64';
+      }
+    }
+
+    const finalProfileName = detectedProfileName || 'subscription';
+
+    if (!target) {
+      const host = `https://${url.host}`;
+      const encodedUrl = encodeURIComponent(urlParam);
+      let filterQuery = '';
+      if (includeParam) filterQuery += `&include=${encodeURIComponent(includeParam)}`;
+      if (excludeParam) filterQuery += `&exclude=${encodeURIComponent(excludeParam)}`;
+      if (renameParam) filterQuery += `&rename=${encodeURIComponent(renameParam)}`;
+      if (detectedProfileName) filterQuery += `&name=${encodeURIComponent(detectedProfileName)}`;
+
+      const htmlInfo = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>轉換完成</title><style>body{background:#0f172a;color:#f8fafc;font-family:sans-serif;padding:40px;text-align:center;}a{display:inline-block;margin:10px;padding:12px 24px;background:#3b82f6;color:#fff;text-decoration:none;border-radius:8px;}</style></head>
+<body>
+  <h1>⚡ 成功轉換 ${uniqueNodes.length} 個節點</h1>
+  <div>
+    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=clash">Clash Meta (YAML)</a>
+    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=singbox">Sing-Box (JSON)</a>
+    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=surge">Surge 5</a>
+    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=quanx">Quantumult X</a>
+    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=loon">Loon</a>
+    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=base64">Base64</a>
+    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=honk">Honk / dae (config.dae)</a>
+  </div>
+</body></html>`;
+      return new Response(htmlInfo, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    }
+
+    let result = '';
+    let contentType = 'text/plain';
+    let fileExt = '.txt';
+
+    try {
+      if (target === 'clash') {
+        result = await toClashWithTemplate(uniqueNodes, env, forceRefresh);
+        contentType = 'text/yaml';
+        fileExt = '.yaml';
+      } else if (target === 'surge') {
+        result = toSurge(uniqueNodes);
+        contentType = 'text/plain';
+        fileExt = '.conf';
+      } else if (target === 'quanx' || target === 'qx') {
+        result = toQuantumultX(uniqueNodes);
+        contentType = 'text/plain';
+        fileExt = '.txt';
+      } else if (target === 'loon') {
+        result = toLoon(uniqueNodes);
+        contentType = 'text/plain';
+        fileExt = '.conf';
+      } else if (target === 'honk' || target === 'dae') {
+        const host = `https://${url.host}`;
+        let base64SubUrl = `${host}/?url=${encodeURIComponent(urlParam)}&target=base64`;
+        if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
+          base64SubUrl = `${host}/${encodeURIComponent(path)}?target=base64`;
+        }
+        if (includeParam) base64SubUrl += `&include=${encodeURIComponent(includeParam)}`;
+        if (excludeParam) base64SubUrl += `&exclude=${encodeURIComponent(excludeParam)}`;
+        if (renameParam) base64SubUrl += `&rename=${encodeURIComponent(renameParam)}`;
+        
+        result = await toHonk(uniqueNodes, base64SubUrl, finalProfileName);
+        contentType = 'text/plain';
+        fileExt = '.dae';
+      } else if (target === 'base64') {
+        result = toBase64(uniqueNodes);
+        contentType = 'text/plain';
+        fileExt = '.txt';
+      } else {
+        result = await toSingBoxWithTemplate(uniqueNodes, env, forceRefresh);
+        contentType = 'application/json';
+        fileExt = '.json';
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return new Response(`轉換配置失敗: ${msg}`, {
+        status: 500,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+
+    const filenameAscii = `${finalProfileName.replace(/[^a-zA-Z0-9_-]/g, '_')}${fileExt}`;
+    const filenameUtf8 = encodeURIComponent(`${finalProfileName}${fileExt}`);
+
+    const responseHeaders: Record<string, string> = {
+      'Content-Type': `${contentType}; charset=utf-8`, 
+      'Access-Control-Allow-Origin': '*', 
+      'Access-Control-Expose-Headers': 'Content-Disposition, Profile-Title, Subscription-Title, Profile-Update-Interval, subscription-userinfo',
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      'Content-Disposition': `inline; filename="${filenameAscii}"; filename*=UTF-8''${filenameUtf8}`,
+      'Profile-Title': finalProfileName,
+      'Subscription-Title': finalProfileName,
+      'profile-update-interval': '3600',
+    };
+
+    if (hasTrafficInfo) {
+      let userInfoHeader = `upload=${totalUpload}; download=${totalDownload}; total=${totalTotal}`;
+      if (minExpire > 0) userInfoHeader += `; expire=${minExpire}`;
+      responseHeaders['subscription-userinfo'] = userInfoHeader;
+    }
+
+    return new Response(result, { headers: responseHeaders });
+  }
+};
 
 ````
 
@@ -4643,133 +5131,6 @@ export const HTML_PAGE = `<!DOCTYPE html>
 
 ````
 
-## File: argo.sh
-````sh
-#!/bin/bash
-# Cloudflare Argo Tunnel 一鍵部署腳本 (增強版 2.0)
-# 專案網址: https://github.com/sammy0101/cf-sub-converter
-
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-NC='\033[0m'
-
-NODE_TYPE="{{NODE_TYPE}}"
-VLESS_UUID="{{VLESS_UUID}}"
-VLESS_PATH="{{VLESS_PATH}}"
-VLESS_TYPE="{{VLESS_TYPE}}"
-VLESS_PORT="{{VLESS_PORT}}"
-NODE_NAME="{{NODE_NAME}}"
-TUNNEL_TOKEN="{{TUNNEL_TOKEN}}"
-CUSTOM_DOMAIN="{{CUSTOM_DOMAIN}}"
-VLESS_TLS="{{VLESS_TLS}}"
-ORIGIN_HOST="{{ORIGIN_HOST}}"
-
-echo -e "${GREEN}=== 開始部署 Cloudflare Argo 隧道 (${NODE_NAME}) ===${NC}"
-
-if [ "$EUID" -ne 0 ]; then
-  echo -e "${RED}錯誤: 請使用 root 權限執行此腳本！${NC}"
-  exit 1
-fi
-
-# 1. 安裝 cloudflared
-if ! command -v cloudflared &> /dev/null; then
-    echo "正在下載安裝 cloudflared..."
-    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
-    chmod +x /usr/local/bin/cloudflared
-else
-    echo "cloudflared 已存在，跳過安裝。"
-fi
-
-SAFE_NODE_NAME=$(echo "$NODE_NAME" | sed 's/[^a-zA-Z0-9]/_/g')
-
-# 2. 自動探測與修正連接埠
-DETECTED_PORT="$VLESS_PORT"
-if command -v ss &> /dev/null; then
-    if ! ss -tln | grep -qE ":$VLESS_PORT([[:space:]]|$)"; then
-        echo -e "${RED}警告: 本地轉發埠 $VLESS_PORT 未監聽，正在探測...${NC}"
-        if ss -tln | grep -qE ":443([[:space:]]|$)"; then
-            echo -e "${GREEN}自動修正：轉發目標為 443 埠。${NC}"
-            DETECTED_PORT="443"
-        elif ss -tln | grep -qE ":80([[:space:]]|$)"; then
-            echo -e "${GREEN}自動修正：轉發目標為 80 埠。${NC}"
-            DETECTED_PORT="80"
-        fi
-    fi
-fi
-
-# 3. 智慧探測 TLS
-DETECTED_TLS="false"
-if curl -s -k --connect-timeout 2 "https://127.0.0.1:$DETECTED_PORT" &>/dev/null; then
-    echo "偵測到本地為 HTTPS 加密埠，開啟 TLS 轉發與 SNI 對齊。"
-    DETECTED_TLS="true"
-fi
-
-LOCAL_URL="http://127.0.0.1:$DETECTED_PORT"
-EXTRA_ARGS=""
-if [ "$DETECTED_TLS" = "true" ]; then
-    LOCAL_URL="https://127.0.0.1:$DETECTED_PORT"
-    EXTRA_ARGS="--no-tls-verify"
-fi
-
-if [ -n "$ORIGIN_HOST" ]; then
-    EXTRA_ARGS="$EXTRA_ARGS --http-host-header $ORIGIN_HOST"
-    if [ "$DETECTED_TLS" = "true" ]; then
-        EXTRA_ARGS="$EXTRA_ARGS --origin-server-name $ORIGIN_HOST"
-    fi
-fi
-
-# 4. 啟動隧道
-if [ -n "$TUNNEL_TOKEN" ]; then
-    echo -e "${GREEN}【固定隧道模式】正在啟動服務...${NC}"
-    cloudflared service uninstall &> /dev/null
-    cloudflared service install "$TUNNEL_TOKEN"
-    systemctl daemon-reload
-    systemctl enable cloudflared
-    systemctl restart cloudflared
-    echo -e "${GREEN}固定域名隧道部署完成！${NC}"
-else
-    echo -e "${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...${NC}"
-    systemctl stop cloudflared-argo-${SAFE_NODE_NAME} &> /dev/null
-    
-    cat <<EOF > /etc/systemd/system/cloudflared-argo-${SAFE_NODE_NAME}.service
-[Unit]
-Description=Cloudflare Argo Tunnel for ${NODE_NAME}
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/cloudflared tunnel --url $LOCAL_URL $EXTRA_ARGS
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    systemctl daemon-reload
-    systemctl enable cloudflared-argo-${SAFE_NODE_NAME}
-    systemctl start cloudflared-argo-${SAFE_NODE_NAME}
-    
-    echo "正在等待 Cloudflare 分配臨時域名..."
-    TEMP_DOMAIN=""
-    for i in {1..15}; do
-        sleep 1
-        TEMP_DOMAIN=$(journalctl -u cloudflared-argo-${SAFE_NODE_NAME} -n 50 --no-pager 2>/dev/null | grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' | tail -n 1 | cut -d'/' -f3)
-        if [ -n "$TEMP_DOMAIN" ]; then
-            break
-        fi
-    done
-    
-    if [ -n "$TEMP_DOMAIN" ]; then
-        echo -e "${GREEN}獲取臨時域名成功: $TEMP_DOMAIN${NC}"
-    else
-        echo -e "${RED}超時未獲取到域名，請手動檢查 journalctl -u cloudflared-argo-${SAFE_NODE_NAME}${NC}"
-    fi
-fi
-
-````
-
 ## File: Clash_Rules.YAML
 ````YAML
 port: 7890
@@ -5070,32 +5431,6 @@ rules:
   - RULE-SET,cn,🇨🇳 國內服務
   - RULE-SET,cn-ip,🇨🇳 國內服務,no-resolve
   - MATCH,🐟 漏網之魚
-````
-
-## File: package.json
-````json
-{
-  "name": "cf-sub-converter",
-  "version": "3.7.4",
-  "private": true,
-  "scripts": {
-    "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
-    "start": "wrangler dev",
-    "argo": "tsx scripts/argo-converter.ts"
-  },
-  "dependencies": {
-    "js-yaml": "^4.1.0"
-  },
-  "devDependencies": {
-    "@cloudflare/workers-types": "^4.20240208.0",
-    "@types/js-yaml": "^4.0.9",
-    "tsx": "^4.7.1",
-    "typescript": "^5.3.3",
-    "wrangler": "^3.28.1"
-  }
-}
-
 ````
 
 ## File: README.md
@@ -5731,54 +6066,6 @@ main();
 
 ````
 
-## File: .github/workflows/deploy.yml
-````yml
-# .github/workflows/deploy.yml
-name: Deploy to Cloudflare Workers
-
-on:
-  # 1. 當推送到 main 或 master 分支時自動執行
-  push:
-    branches:
-      - main
-      - master
-  
-  # 2. 保留手動執行按鈕
-  workflow_dispatch:
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    name: Deploy
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-      
-      # 已將 Node.js 環境升級至 Node 24 以消除棄用警告
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          # 暫時移除 cache: 'npm'，避免因缺少 package-lock.json 報錯
-
-      # 替換成相容無鎖定檔的普通安裝（加入 --prefer-offline 稍微加速）
-      - name: Install dependencies
-        run: npm install --prefer-offline
-
-      # 替換 KV ID
-      - name: Inject KV ID from Secrets
-        run: |
-          sed -i 's/KV_ID_PLACEHOLDER/${{ secrets.CF_KV_ID }}/g' wrangler.toml
-
-      # 部署步驟
-      - name: Deploy
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-
-````
-
 ## File: .github/workflows/combine-code.yml
 ````yml
 name: Generate All Codebase to MD
@@ -5860,165 +6147,51 @@ jobs:
 
 ````
 
-## File: Sing-Box_Rules.JSON
-````JSON
-{
-  "log": {
-    "level": "info",
-    "timestamp": true
-  },
-  "http_clients": [
-    {
-      "tag": "default"
-    }
-  ],
-  "dns": {
-    "servers": [
-      {
-        "tag": "remote-dns",
-        "type": "https",
-        "server": "8.8.8.8",
-        "detour": "🚀 節點選擇"
-      },
-      {
-        "tag": "remote-cf-dns",
-        "type": "https",
-        "server": "1.1.1.1",
-        "detour": "🚀 節點選擇"
-      },
-      {
-        "tag": "system-dns",
-        "type": "local"
-      },
-      {
-        "tag": "local-dns",
-        "type": "local"
-      },
-      {
-        "tag": "fakeip-dns",
-        "type": "fakeip",
-        "inet4_range": "198.18.0.0/15"
-      }
-    ],
-    "rules": [
-      {
-        "clash_mode": "Direct",
-        "server": "system-dns"
-      },
-      {
-        "clash_mode": "Global",
-        "server": "fakeip-dns"
-      },
-      {
-        "rule_set": [
-          "rs-private"
-        ],
-        "server": "system-dns"
-      },
-      {
-        "rule_set": [
-          "rs-cn"
-        ],
-        "server": "system-dns",
-        "disable_cache": true
-      },
-      {
-        "rule_set": [
-          "rs-apple"
-        ],
-        "server": "system-dns",
-        "disable_cache": true
-      },
-      {
-        "rule_set": [
-          "rs-geolocation-!cn",
-          "rs-ai"
-        ],
-        "server": "fakeip-dns"
-      }
-    ],
-    "final": "remote-dns",
-    "strategy": "ipv4_only"
-  },
-  "inbounds": [
-    {
-      "type": "tun",
-      "tag": "tun-in",
-      "interface_name": "tun0",
-      "address": [
-        "172.19.0.1/30"
-      ],
-      "stack": "mixed",
-      "auto_route": true,
-      "strict_route": true
-    }
-  ],
-  "outbounds": [
-    { "type": "selector", "tag": "🚀 節點選擇", "outbounds": ["⚡ 自動選擇", "DIRECT"] },
-    { "type": "urltest", "tag": "⚡ 自動選擇", "outbounds": [], "url": "https://www.gstatic.com/generate_204", "interval": "3m", "tolerance": 50 },
-    { "type": "selector", "tag": "💬 AI 服務", "outbounds": ["⚡ 自動選擇", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🍎 蘋果服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "Ⓜ️ 微軟服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🎮 遊戲平台", "outbounds": ["DIRECT", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🌐 非中國", "outbounds": ["🚀 節點選擇", "DIRECT"] },
-    { "type": "selector", "tag": "🇨🇳 國內服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🏠 私有網絡", "outbounds": ["DIRECT"] },
-    { "type": "selector", "tag": "🐟 漏網之魚", "outbounds": ["🚀 節點選擇", "DIRECT"] },
-    { "type": "selector", "tag": "🛑 廣告攔截", "outbounds": ["REJECT", "DIRECT"] },
-    
-    { "type": "direct", "tag": "DIRECT" },
-    { "type": "block", "tag": "REJECT" }
-  ],
-  "route": {
-    "default_domain_resolver": "system-dns",
-    "default_http_client": "default",
-    "rule_set": [
-      { "type": "remote", "tag": "rs-ai", "format": "binary", "url": "https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.srs" },
-      { "type": "remote", "tag": "rs-apple", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/apple.srs" },
-      { "type": "remote", "tag": "rs-microsoft", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/microsoft.srs" },
-      { "type": "remote", "tag": "rs-steam", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/steam.srs" },
-      { "type": "remote", "tag": "rs-epicgames", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/epicgames.srs" },
-      { "type": "remote", "tag": "rs-ea", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/ea.srs" },
-      { "type": "remote", "tag": "rs-ubisoft", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/ubisoft.srs" },
-      { "type": "remote", "tag": "rs-blizzard", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/blizzard.srs" },
-      { "type": "remote", "tag": "rs-geolocation-!cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/geolocation-!cn.srs" },
-      { "type": "remote", "tag": "rs-cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs" },
-      { "type": "remote", "tag": "ip-cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/cn.srs" },
-      { "type": "remote", "tag": "rs-ads", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ads-all.srs" },
-      { "type": "remote", "tag": "rs-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/private.srs" },
-      { "type": "remote", "tag": "ip-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs" }
-    ],
-    "rules": [
-      {
-        "action": "sniff"
-      },
-      { "protocol": "dns", "action": "hijack-dns" },
-      { "clash_mode": "Direct", "outbound": "DIRECT" },
-      { "clash_mode": "Global", "outbound": "🚀 節點選擇" },
-      { "rule_set": "rs-ads", "outbound": "🛑 廣告攔截" },
-      { "rule_set": ["rs-private", "ip-private"], "outbound": "🏠 私有網絡" },
-      { "rule_set": "rs-ai", "outbound": "💬 AI 服務" },
-      { "rule_set": "rs-microsoft", "outbound": "Ⓜ️ 微軟服務" },
-      { "rule_set": ["rs-steam", "rs-epicgames", "rs-ea", "rs-ubisoft", "rs-blizzard"], "outbound": "🎮 遊戲平台" },
-      { "rule_set": "rs-geolocation-!cn", "outbound": "🌐 非中國" },
-      { "rule_set": "rs-apple", "outbound": "🍎 蘋果服務" },
-      { "rule_set": ["rs-cn", "ip-cn"], "outbound": "🇨🇳 國內服務" },
-      { "outbound": "🐟 漏網之魚" }
-    ],
-    "auto_detect_interface": true
-  },
-  "experimental": {
-    "cache_file": {
-      "enabled": true,
-      "store_fakeip": true
-    },
-    "clash_api": {
-      "external_controller": "127.0.0.1:9090",
-      "external_ui": "ui",
-      "secret": "",
-      "default_mode": "rule"
-    }
-  }
-}
+## File: .github/workflows/deploy.yml
+````yml
+# .github/workflows/deploy.yml
+name: Deploy to Cloudflare Workers
+
+on:
+  # 1. 當推送到 main 或 master 分支時自動執行
+  push:
+    branches:
+      - main
+      - master
+  
+  # 2. 保留手動執行按鈕
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      # 已將 Node.js 環境升級至 Node 24 以消除棄用警告
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          # 暫時移除 cache: 'npm'，避免因缺少 package-lock.json 報錯
+
+      # 替換成相容無鎖定檔的普通安裝（加入 --prefer-offline 稍微加速）
+      - name: Install dependencies
+        run: npm install --prefer-offline
+
+      # 替換 KV ID
+      - name: Inject KV ID from Secrets
+        run: |
+          sed -i 's/KV_ID_PLACEHOLDER/${{ secrets.CF_KV_ID }}/g' wrangler.toml
+
+      # 部署步驟
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+
 ````
 

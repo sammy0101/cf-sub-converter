@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Fri Nov  6 13:40:31 UTC 2026
+Generated on: Fri Nov  6 13:40:53 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -2172,9 +2172,17 @@ function parseVless(urlStr: string): ProxyNode {
   };
 
   if (security === 'reality') {
+    const pbk = params.get('pbk') || '';
+    const sid = params.get('sid') || '';
+    const spx = params.get('spx') || params.get('spider-x') || params.get('spiderX') || '';
+    const mlkemParam = params.get('support-x25519mlkem768') || params.get('mlkem768') || params.get('pqc');
+    const supportMlkem = mlkemParam !== null ? (mlkemParam !== '0' && mlkemParam !== 'false') : true;
+
     node.reality = {
-      publicKey: params.get('pbk') || '',
-      shortId: params.get('sid') || ''
+      publicKey: pbk,
+      shortId: sid,
+      spiderX: spx || undefined,
+      supportX25519Mlkem768: supportMlkem
     };
     if (!node.reality.publicKey) throw new Error(`[VLESS] Reality 節點 [${name}] 缺少 pbk (公鑰)`);
     if (!node.sni) node.sni = node.server;
@@ -2271,7 +2279,15 @@ function parseVless(urlStr: string): ProxyNode {
   if (node.flow) cl.flow = node.flow; 
   if (node.reality) {
     cl.reality = true;
-    cl['reality-opts'] = { 'public-key': node.reality.publicKey, 'short-id': node.reality.shortId };
+    const realityOpts: Record<string, unknown> = {
+      'public-key': node.reality.publicKey,
+      'short-id': node.reality.shortId,
+      'support-x25519mlkem768': node.reality.supportX25519Mlkem768 !== false
+    };
+    if (node.reality.spiderX) {
+      realityOpts['spider-x'] = node.reality.spiderX;
+    }
+    cl['reality-opts'] = realityOpts;
   }
 
   if (node.network === 'ws') {
@@ -2366,7 +2382,7 @@ function parseWireGuard(urlStr: string): ProxyNode {
     mtu,
     udp: true,
     'remote-dns-resolve': true,
-    dns: dnsList
+    dns: dnsArray
   };
 
   return node;
@@ -2751,7 +2767,11 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
     const realityOpts = p['reality-opts'] as Record<string, unknown> | undefined;
     const reality = (p.reality || realityOpts) ? {
       publicKey: String(realityOpts?.['public-key'] || ''),
-      shortId: String(realityOpts?.['short-id'] || '')
+      shortId: String(realityOpts?.['short-id'] || ''),
+      spiderX: realityOpts?.['spider-x'] ? String(realityOpts['spider-x']) : undefined,
+      supportX25519Mlkem768: realityOpts?.['support-x25519mlkem768'] !== undefined 
+        ? Boolean(realityOpts['support-x25519mlkem768']) 
+        : true
     } : undefined;
 
     const echOpts = p['ech-opts'] as Record<string, unknown> | undefined;
@@ -2791,6 +2811,18 @@ function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNo
     clashObjCopy.network = network;
     if (!alpn) {
       delete clashObjCopy.alpn;
+    }
+
+    if (reality) {
+      const ro = { ...(clashObjCopy['reality-opts'] as Record<string, unknown> || {}) };
+      ro['public-key'] = reality.publicKey;
+      ro['short-id'] = reality.shortId;
+      if (reality.spiderX) ro['spider-x'] = reality.spiderX;
+      if (ro['support-x25519mlkem768'] === undefined) {
+        ro['support-x25519mlkem768'] = true;
+      }
+      clashObjCopy['reality-opts'] = ro;
+      clashObjCopy.reality = true;
     }
 
     const node: ProxyNode = {

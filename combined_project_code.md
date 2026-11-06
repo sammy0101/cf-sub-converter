@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Fri Nov  6 13:42:14 UTC 2026
+Generated on: Fri Nov  6 13:50:19 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -339,7 +339,8 @@ global {
 
     tcp_check_url: 'https://www.gstatic.com/generate_204'
     tcp_check_http_method: HEAD
-    udp_check_dns: 'dns.google.com:53,8.8.8.8,2001:4860:4860::8888'
+    # 【已修復】個別獨立加上引號，符合 Honk 現代列表語法
+    udp_check_dns: 'dns.google.com:53', '8.8.8.8', '2001:4860:4860::8888'
     check_interval: 300s
     check_tolerance: 50ms
 

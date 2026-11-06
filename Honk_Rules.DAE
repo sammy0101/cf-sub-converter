@@ -1,0 +1,168 @@
+# ==============================================================================
+# OpenWrt Honk-Core / DAE 完整設定檔 (由 CF Sub Converter 動態產生，適配 Honk 最新規範)
+# 儲存路徑: /etc/honk/config.dae
+# 可在 GitHub 倉庫直接修改此檔案，客戶端拉取時即時生效！
+# ==============================================================================
+
+global {
+    # 綁定外網介面 (預設 auto 自動偵測。若為 PPPoE 撥接上網，可能需手動改為 pppoe-wan)
+    wan_interface: auto
+    # 綁定內網介面 (請務必確認你的路由器 LAN 網卡名稱，預設為 br-lan。多網卡可用逗號隔開)
+    lan_interface: br-lan
+
+    dial_mode: domain
+    allow_insecure: false
+    auto_config_kernel_parameter: true
+    data_dir: '/etc/honk'
+    log_level: info
+    log_file: ''
+
+    tcp_check_url: 'https://www.gstatic.com/generate_204'
+    tcp_check_http_method: HEAD
+    udp_check_dns: 'dns.google.com:53,8.8.8.8,2001:4860:4860::8888'
+    check_interval: 300s
+    check_tolerance: 50ms
+
+    # 基礎引導 DNS (用於節點與訂閱連結的初始解析)
+    bootstrap_resolver: '1.1.1.1:53'
+
+    # 【Honk 最新特性】保存成功獲取的訂閱正文到運行目錄，重啟或斷網時可離線恢復節點
+    store_subscribe: true
+
+    # 【Honk 最新特性】持有有歧義 LAN 轉發 UDP 首包，徹底消除遊戲或 UDP 連線首包丟失
+    nfqueue_enable: true
+
+    # 【Honk 最新特性】預熱與撥號預算：大訂閱基線關閉額外 UDP/TCP 預熱，保護路由器記憶體
+    udp_warm_node_count: 0
+    preconnect_node_count: 0
+}
+
+# ==============================================================================
+# 原生 Web API 與 Doona Web UI (內網瀏覽 http://<路由器IP>:9527)
+# ==============================================================================
+experimental {
+    native_api {
+        enabled: true
+        # Doona 面板監聽位址 (0.0.0.0 代表允許內網所有設備透過路由器 IP 訪問)
+        listen: '0.0.0.0:9527'
+        password_auth: true
+        config_write: true
+        ui: 'embedded'
+    }
+    cache_file {
+        enabled: true
+        store_dns: true
+    }
+}
+
+# ==============================================================================
+# 訂閱配置 (直連下載，每 12 小時自動更新)
+# ==============================================================================
+subscription {
+    {{SUB_TAG}}: '{{SUB_URL}}' {
+        route: direct
+        # 訂閱自動更新間隔 (43200 秒 = 12 小時，可自行更改)
+        interval: 43200s
+    }
+}
+
+# ==============================================================================
+# 策略分流群組 (Group)
+# ==============================================================================
+group {
+    '💬 AI 服務' {
+        policy: min_moving_avg
+    }
+
+    'Ⓜ️ 微軟服務' {
+        policy: min_moving_avg
+    }
+
+    '🎮 遊戲平台' {
+        policy: min_moving_avg
+    }
+
+    '🍎 蘋果服務' {
+        policy: min_moving_avg
+    }
+
+    '🌐 非中國' {
+        policy: min_moving_avg
+    }
+
+    # 🐟 漏網之魚專用：採用 score (綜合評分)
+    '🐟 漏網之魚' {
+        policy: score
+    }
+}
+
+# ==============================================================================
+# DNS 智慧解析 (localdns 走本機 dnsmasq，即 OpenWrt 原生 system DNS)
+# ==============================================================================
+dns {
+    # 向上游攜帶 ECS (客戶端近似網段)，改善國內 CDN 解析在地性
+    client_subnet: auto
+
+    upstream {
+        googledns: 'tcp+udp://8.8.8.8:53'
+        googledoh: 'https://8.8.8.8/dns-query'
+        cfdns: 'tcp+udp://1.1.1.1:53'
+        cfdoh: 'https://1.1.1.1/dns-query'
+        localdns: 'udp://127.0.0.1:53'
+    }
+    routing {
+        request {
+            # 拒絕 HTTPS 記錄查詢，防止客戶端因 ECH 握手異常中斷
+            qtype(https) -> reject
+            qname(geosite:category-ads-all) -> reject
+            qname(geosite:cn) -> localdns
+            fallback: googledoh
+        }
+        response {
+            # 漏網國內網域挽救：若海外 DoH 回傳中國大陸 IP，退回 localdns 重新解析以獲得最優 CDN
+            upstream(googledoh) && ip(geoip:cn) -> localdns
+            upstream(cfdoh) && ip(geoip:cn) -> localdns
+            fallback: accept
+        }
+    }
+}
+
+# ==============================================================================
+# eBPF 流量路由規則
+# ==============================================================================
+routing {
+    # 核心系統服務與 DNS 直連，防回環加固
+    pname(dnsmasq, systemd-resolved) && l4proto(udp) && dport(53) -> direct(must)
+    pname(NetworkManager, systemd-networkd, systemd-resolved, dhcpcd) -> direct
+    pname(sing-box, mihomo, frpc, einat) -> direct(must)
+
+    dip(224.0.0.0/3, 'ff00::/8') -> direct
+
+    # 1. 🏠 私有網絡 (旁路由環境採用純 direct，保留 eBPF 狀態追蹤)
+    dip(geoip:private) -> direct
+
+    # 2. 🛑 廣告攔截
+    domain(geosite:category-ads-all) -> block
+
+    # 3. 💬 AI 服務 (由轉換器動態提取注入)
+    {{AI_RULES}}
+
+    # 4. Ⓜ️ 微軟服務
+    domain(geosite:microsoft) -> 'Ⓜ️ 微軟服務'
+
+    # 5. 🎮 遊戲平台
+    domain(geosite:steam, geosite:epicgames, geosite:ea, geosite:ubisoft, geosite:blizzard) -> '🎮 遊戲平台'
+
+    # 6. 🍎 蘋果服務
+    domain(geosite:apple) -> '🍎 蘋果服務'
+
+    # 7. 🌐 非中國 (國外網站)
+    domain(geosite:geolocation-!cn) -> '🌐 非中國'
+
+    # 8. 🇨🇳 國內服務 (中國國內網域與 IP 全部直連)
+    domain(geosite:cn) -> direct
+    dip(geoip:cn) -> direct
+
+    # 9. 🐟 漏網之魚 (最終兜底)
+    fallback: '🐟 漏網之魚'
+}

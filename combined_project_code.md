@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Fri Nov  6 13:40:53 UTC 2026
+Generated on: Fri Nov  6 13:41:37 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -821,7 +821,11 @@ export function toRawLinks(nodes: ProxyNode[]): string {
             params.set('ech', '1');
           }
         }
-        if (node.reality) { params.set('pbk', node.reality.publicKey); params.set('sid', node.reality.shortId); }
+        if (node.reality) {
+          params.set('pbk', node.reality.publicKey);
+          params.set('sid', node.reality.shortId);
+          if (node.reality.spiderX) params.set('spx', node.reality.spiderX);
+        }
         if (node.network === 'ws') { if (node.wsPath) params.set('path', node.wsPath); if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host); }
         if (node.network === 'xhttp' || node.network === 'splithttp') {
           if (node.xhttpPath) params.set('path', node.xhttpPath);

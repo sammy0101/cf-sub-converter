@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Fri Nov  6 13:32:46 UTC 2026
+Generated on: Fri Nov  6 13:33:20 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -4054,7 +4054,8 @@ export default {
 // src/constants.ts
 export const REMOTE_CONFIG = {
   singbox: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Sing-Box_Rules.JSON',
-  clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML'
+  clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML',
+  honk: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Honk_Rules.DAE'
 };
 
 // 方案 B1 內嵌緊急降級模板 (純 IPv4 純淨版，100% 合法 JSON)
@@ -4174,6 +4175,118 @@ rules:
   - RULE-SET,category-ads-all,🛑 廣告攔截
   - GEOIP,CN,DIRECT
   - MATCH,🚀 節點選擇
+`;
+
+export const FALLBACK_HONK_RULES = `# ==============================================================================
+# OpenWrt Honk-Core / DAE 完整設定檔 (降級應急模板)
+# 儲存路徑: /etc/honk/config.dae
+# ==============================================================================
+
+global {
+    wan_interface: auto
+    lan_interface: br-lan
+    dial_mode: domain
+    allow_insecure: false
+    auto_config_kernel_parameter: true
+    data_dir: '/etc/honk'
+    log_level: info
+    log_file: ''
+    tcp_check_url: 'https://www.gstatic.com/generate_204'
+    tcp_check_http_method: HEAD
+    udp_check_dns: 'dns.google.com:53,8.8.8.8,2001:4860:4860::8888'
+    check_interval: 300s
+    check_tolerance: 50ms
+    bootstrap_resolver: '1.1.1.1:53'
+    store_subscribe: true
+    nfqueue_enable: true
+    udp_warm_node_count: 0
+    preconnect_node_count: 0
+}
+
+experimental {
+    native_api {
+        enabled: true
+        listen: '0.0.0.0:9527'
+        password_auth: true
+        config_write: true
+        ui: 'embedded'
+    }
+    cache_file {
+        enabled: true
+        store_dns: true
+    }
+}
+
+subscription {
+    {{SUB_TAG}}: '{{SUB_URL}}' {
+        route: direct
+        interval: 43200s
+    }
+}
+
+group {
+    '💬 AI 服務' {
+        policy: min_moving_avg
+    }
+    'Ⓜ️ 微軟服務' {
+        policy: min_moving_avg
+    }
+    '🎮 遊戲平台' {
+        policy: min_moving_avg
+    }
+    '🍎 蘋果服務' {
+        policy: min_moving_avg
+    }
+    '🌐 非中國' {
+        policy: min_moving_avg
+    }
+    '🐟 漏網之魚' {
+        policy: score
+    }
+}
+
+dns {
+    client_subnet: auto
+    upstream {
+        googledns: 'tcp+udp://8.8.8.8:53'
+        googledoh: 'https://8.8.8.8/dns-query'
+        cfdns: 'tcp+udp://1.1.1.1:53'
+        cfdoh: 'https://1.1.1.1/dns-query'
+        localdns: 'udp://127.0.0.1:53'
+    }
+    routing {
+        request {
+            qtype(https) -> reject
+            qname(geosite:category-ads-all) -> reject
+            qname(geosite:cn) -> localdns
+            fallback: googledoh
+        }
+        response {
+            upstream(googledoh) && ip(geoip:cn) -> localdns
+            upstream(cfdoh) && ip(geoip:cn) -> localdns
+            fallback: accept
+        }
+    }
+}
+
+routing {
+    pname(dnsmasq, systemd-resolved) && l4proto(udp) && dport(53) -> direct(must)
+    pname(NetworkManager, systemd-networkd, systemd-resolved, dhcpcd) -> direct
+    pname(sing-box, mihomo, frpc, einat) -> direct(must)
+    dip(224.0.0.0/3, 'ff00::/8') -> direct
+    dip(geoip:private) -> direct
+    domain(geosite:category-ads-all) -> block
+
+    {{AI_RULES}}
+
+    domain(geosite:microsoft) -> 'Ⓜ️ 微軟服務'
+    domain(geosite:steam, geosite:epicgames, geosite:ea, geosite:ubisoft, geosite:blizzard) -> '🎮 遊戲平台'
+    domain(geosite:apple) -> '🍎 蘋果服務'
+    domain(geosite:geolocation-!cn) -> '🌐 非中國'
+    domain(geosite:cn) -> direct
+    dip(geoip:cn) -> direct
+    fallback: '🐟 漏網之魚'
+}
 `;
 
 export const HTML_PAGE = `<!DOCTYPE html>

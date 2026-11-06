@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Fri Nov  6 13:33:20 UTC 2026
+Generated on: Fri Nov  6 13:34:01 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -778,7 +778,7 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
 // src/generator.ts
 import yaml from 'js-yaml';
 import { Env, ProxyNode } from './types';
-import { REMOTE_CONFIG, FALLBACK_SINGBOX_RULES, FALLBACK_CLASH_RULES } from './constants';
+import { REMOTE_CONFIG, FALLBACK_SINGBOX_RULES, FALLBACK_CLASH_RULES, FALLBACK_HONK_RULES } from './constants';
 import { utf8ToBase64 } from './utils';
 
 function isIpAddress(str: string): boolean {
@@ -1185,10 +1185,10 @@ export async function toClashWithTemplate(nodes: ProxyNode[], _env?: Env, _force
   return yaml.dump(config, { indent: 2, noRefs: true });
 }
 
-// --- Honk / DAE (config.dae) 配置生成 ---
+// --- Honk / DAE (Honk_Rules.DAE) 遠端解耦配置生成 ---
 export async function toHonk(nodes: ProxyNode[], subUrl?: string, profileName?: string): Promise<string> {
   const AI_DAE_URL = 'https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.dae';
-  let aiRulesBody = '';
+  let aiRulesBody = "domain(geosite:openai, geosite:anthropic) -> '💬 AI 服務'";
   
   try {
     const aiResp = await fetch(`${AI_DAE_URL}?t=${Date.now()}`, {
@@ -1199,163 +1199,18 @@ export async function toHonk(nodes: ProxyNode[], subUrl?: string, profileName?: 
       if (text.includes('domain(')) {
         aiRulesBody = text.replace(/->\s*proxy/g, "-> '💬 AI 服務'").trim();
       }
-    } else {
-      throw new Error(`GitHub HTTP ${aiResp.status}`);
     }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(`無法動態獲取遠端 AI 規則檔案 (${AI_DAE_URL}): ${msg}`);
-  }
+  } catch {}
 
   const finalSubTag = (profileName || 'My_Sub').replace(/[^a-zA-Z0-9_-]/g, '_');
   const targetSubUrl = subUrl || 'https://sub.myvs.dpdns.org/EDT?target=base64';
 
-  return `# ==============================================================================
-# OpenWrt Honk-Core / DAE 完整設定檔 (由 CF Sub Converter 動態產生)
-# 儲存路徑: /etc/honk/config.dae
-# ==============================================================================
+  const template = await fetchTemplateDirect(REMOTE_CONFIG.honk, FALLBACK_HONK_RULES);
 
-global {
-    # 綁定外網介面 (預設 auto 自動偵測。若為 PPPoE 撥接上網，可能需手動改為 pppoe-wan)
-    wan_interface: auto
-    # 綁定內網介面 (請務必確認你的路由器 LAN 網卡名稱，預設為 br-lan。多網卡可用逗號隔開)
-    lan_interface: br-lan
-
-    dial_mode: domain
-    auto_config_kernel_parameter: true
-    data_dir: '/etc/honk'
-    log_level: info
-    log_file: ''
-
-    tcp_check_url: 'https://www.gstatic.com/generate_204'
-    tcp_check_http_method: HEAD
-    check_interval: 300s
-    check_tolerance: 50ms
-
-    # 基礎引導 DNS (用於節點與訂閱連結的初始解析)
-    bootstrap_resolver: '1.1.1.1:53'
-}
-
-# ==============================================================================
-# 原生 Web API 與 Doona Web UI (內網瀏覽 http://<路由器IP>:9527)
-# ==============================================================================
-experimental {
-    native_api {
-        enabled: true
-        # Doona 面板監聽位址 (0.0.0.0 代表允許內網所有設備透過路由器 IP 訪問)
-        listen: '0.0.0.0:9527'
-        password_auth: true
-        config_write: true
-        ui: 'embedded'
-    }
-    cache_file {
-        enabled: true
-        store_dns: true
-    }
-}
-
-# ==============================================================================
-# 訂閱配置 (直連下載，每 12 小時自動更新)
-# ==============================================================================
-subscription {
-    ${finalSubTag}: '${targetSubUrl}' {
-        route: direct
-        # 訂閱自動更新間隔 (43200 秒 = 12 小時，可自行更改)
-        interval: 43200s
-    }
-}
-
-# ==============================================================================
-# 策略分流群組 (Group)
-# ==============================================================================
-group {
-    '💬 AI 服務' {
-        policy: min_moving_avg
-    }
-
-    'Ⓜ️ 微軟服務' {
-        policy: min_moving_avg
-    }
-
-    '🎮 遊戲平台' {
-        policy: min_moving_avg
-    }
-
-    '🍎 蘋果服務' {
-        policy: min_moving_avg
-    }
-
-    '🌐 非中國' {
-        policy: min_moving_avg
-    }
-
-    # 🐟 漏網之魚專用：採用 score (綜合評分)
-    '🐟 漏網之魚' {
-        policy: score
-    }
-}
-
-# ==============================================================================
-# DNS 智慧解析 (localdns 走本機 dnsmasq，即 OpenWrt 原生 system DNS)
-# ==============================================================================
-dns {
-    upstream {
-        googledns: 'tcp+udp://8.8.8.8:53'
-        googledoh: 'https://8.8.8.8/dns-query'
-        cfdns: 'tcp+udp://1.1.1.1:53'
-        cfdoh: 'https://1.1.1.1/dns-query'
-        localdns: 'udp://127.0.0.1:53'
-    }
-    routing {
-        request {
-            qname(geosite:category-ads-all) -> reject
-            qname(geosite:cn) -> localdns
-            fallback: googledoh
-        }
-        response {
-            upstream(googledoh) && ip(geoip:cn) -> localdns
-            upstream(cfdoh) && ip(geoip:cn) -> localdns
-            fallback: accept
-        }
-    }
-}
-
-# ==============================================================================
-# eBPF 流量路由規則
-# ==============================================================================
-routing {
-    pname(NetworkManager, systemd-resolved, dnsmasq) -> direct(must)
-    dip(224.0.0.0/3, 'ff00::/8') -> direct
-
-    # 1. 🏠 私有網絡
-    dip(geoip:private) -> direct
-
-    # 2. 🛑 廣告攔截
-    domain(geosite:category-ads-all) -> block
-
-    # 3. 💬 AI 服務
-    ${aiRulesBody}
-
-    # 4. Ⓜ️ 微軟服務
-    domain(geosite:microsoft) -> 'Ⓜ️ 微軟服務'
-
-    # 5. 🎮 遊戲平台
-    domain(geosite:steam, geosite:epicgames, geosite:ea, geosite:ubisoft, geosite:blizzard) -> '🎮 遊戲平台'
-
-    # 6. 🍎 蘋果服務
-    domain(geosite:apple) -> '🍎 蘋果服務'
-
-    # 7. 🌐 非中國 (國外網站)
-    domain(geosite:geolocation-!cn) -> '🌐 非中國'
-
-    # 8. 🇨🇳 國內服務 (中國國內網域與 IP 全部直連)
-    domain(geosite:cn) -> direct
-    dip(geoip:cn) -> direct
-
-    # 9. 🐟 漏網之魚 (最終兜底)
-    fallback: '🐟 漏網之魚'
-}
-`;
+  return template
+    .replace(/{{SUB_TAG}}/g, finalSubTag)
+    .replace(/{{SUB_URL}}/g, targetSubUrl)
+    .replace(/{{AI_RULES}}/g, aiRulesBody);
 }
 
 // --- Surge 5 配置生成 ---

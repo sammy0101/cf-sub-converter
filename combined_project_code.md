@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Fri Nov  6 13:34:01 UTC 2026
+Generated on: Fri Nov  6 13:34:32 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -5443,6 +5443,7 @@ rules:
   - 國外代理流量採用 Fake-IP 封裝網域名稱，國內/內網流量自動使用 Real-IP 直連。
 - **OpenWrt Honk / DAE (`config.dae`)**：
   - 一鍵生成適用於 OpenWrt Linux eBPF 內核級透明代理的完整 `/etc/honk/config.dae` 設定檔。
+  - **遠端模板解耦與即時更新**：完整支援獨立遠端模板 `Honk_Rules.DAE`，直接在 GitHub 修改即可即時生效。
   - **Doona 原生 Web UI 深度整合**：自動配置 `experimental.native_api` 監聽 `0.0.0.0:9527`，區域網路手機或電腦直接開啟 `http://路由器IP:9527` 即可直觀監控即時流量與策略組。
   - **自動化訂閱對接**：配置 `subscription` 區塊直接拉取本轉換器的 Base64 訂閱，指定 `route: direct`（直連下載），並預設設定每 12 小時自動排程更新（`interval: 43200s`）。
   - **旁路由（雙網關）專屬優化**：私有網段規則採用純 `dip(geoip:private) -> direct`（排除 `must`），徹底消除同網段主旁路由非對稱路由（Asymmetric Routing）導致的 DNS 癱瘓問題。
@@ -5475,8 +5476,8 @@ rules:
 
 ### 5. 🛡️ 99.99% GitHub 模板即時直讀與雙重容災架構 (Zero Downtime)
 - **GitHub 遠端直讀 (零 KV 模板冗餘)**：
-  - 遠端規則模板直接向 GitHub 倉庫請求最新內容，徹底移除寫入 KV 之 `tpl:singbox` 與 `tpl:clash` 鍵值，邊緣資料庫乾淨純粹。
-  - 修改 GitHub 上的規則模板後，客戶端更新立即生效，無需手動清除快取。
+  - 遠端規則模板直接向 GitHub 倉庫請求最新內容（支援 `Sing-Box_Rules.JSON`、`Clash_Rules.YAML` 與 `Honk_Rules.DAE`），徹底移除寫入 KV 之 `tpl:*` 鍵值，邊緣資料庫乾淨純粹。
+  - 修改 GitHub 上的規則模板後，客戶端更新立即生效，無需手動清除快取或重新部署 Worker。
 - **雙重容災降級保證**：
   - 請求流程為：`GitHub 即時獲取` ➔ `內嵌應急模板兜底`。
   - 若遇 GitHub 服務波動、網路逾時或 429 限流，系統自動無縫回退至內建純淨版預設模板，確保訂閱拉取 100% 成功。
@@ -5684,6 +5685,7 @@ cf-sub-converter/
 ├── argo.sh               # VPS Argo 隧道 2.0 一鍵安裝與自我修復通用腳本
 ├── Sing-Box_Rules.JSON   # GitHub 遠端 Sing-Box 混合 TUN 規則模板
 ├── Clash_Rules.YAML      # GitHub 遠端 Clash Meta (Mihomo) 規則模板
+├── Honk_Rules.DAE        # GitHub 遠端 OpenWrt Honk / DAE 完整規則模板
 ├── wrangler.toml         # Cloudflare Workers 配置檔
 └── .github/workflows/
     └── deploy.yml        # GitHub Actions 自動化部署工作流

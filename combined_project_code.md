@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Mon Nov  9 10:39:44 UTC 2026
+Generated on: Mon Nov  9 10:40:08 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -3963,7 +3963,7 @@ export const REMOTE_CONFIG = {
   honk: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Honk_Rules.DAE'
 };
 
-// 方案 B1 內嵌緊急降級模板 (純 IPv4 純淨版，100% 合法 JSON)
+// 方案 B1 內嵌緊急降級模板 (純 IPv4 純淨版，已修正 Fake-IP 查詢過濾)
 export const FALLBACK_SINGBOX_RULES = JSON.stringify({
   log: { level: "info" },
   http_clients: [
@@ -3982,6 +3982,7 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
       { rule_set: ["rs-cn"], server: "system-dns", disable_cache: true },
       { rule_set: ["rs-apple"], server: "system-dns", disable_cache: true },
       {
+        query_type: ["A", "AAAA"],
         rule_set: [
           "rs-geolocation-!cn",
           "rs-ai"
@@ -4130,23 +4131,23 @@ subscription {
 }
 
 group {
-    '💬 AI 服務' {
-        policy: min_moving_avg
+    AI {
+        policy: selector
     }
-    'Ⓜ️ 微軟服務' {
-        policy: min_moving_avg
+    Microsoft {
+        policy: selector
     }
-    '🎮 遊戲平台' {
-        policy: min_moving_avg
+    Game {
+        policy: selector
     }
-    '🍎 蘋果服務' {
-        policy: min_moving_avg
+    Apple {
+        policy: selector
     }
-    '🌐 非中國' {
-        policy: min_moving_avg
+    Global {
+        policy: selector
     }
-    '🐟 漏網之魚' {
-        policy: score
+    Fallback {
+        policy: selector
     }
 }
 
@@ -4184,13 +4185,13 @@ routing {
 
     {{AI_RULES}}
 
-    domain(geosite:microsoft) -> 'Ⓜ️ 微軟服務'
-    domain(geosite:steam, geosite:epicgames, geosite:ea, geosite:ubisoft, geosite:blizzard) -> '🎮 遊戲平台'
-    domain(geosite:apple) -> '🍎 蘋果服務'
-    domain(geosite:geolocation-!cn) -> '🌐 非中國'
+    domain(geosite:microsoft) -> Microsoft
+    domain(geosite:steam, geosite:epicgames, geosite:ea, geosite:ubisoft, geosite:blizzard) -> Game
+    domain(geosite:apple) -> Apple
+    domain(geosite:geolocation-!cn) -> Global
     domain(geosite:cn) -> direct
     dip(geoip:cn) -> direct
-    fallback: '🐟 漏網之魚'
+    fallback: Fallback
 }
 `;
 

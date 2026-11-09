@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Fri Nov  6 13:50:42 UTC 2026
+Generated on: Mon Nov  9 10:39:44 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -201,6 +201,7 @@ fi
       },
       {
         "clash_mode": "Global",
+        "query_type": ["A", "AAAA"],
         "server": "fakeip-dns"
       },
       {
@@ -224,6 +225,10 @@ fi
         "disable_cache": true
       },
       {
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
         "rule_set": [
           "rs-geolocation-!cn",
           "rs-ai"
@@ -314,6 +319,7 @@ fi
     }
   }
 }
+
 ````
 
 ## File: Honk_Rules.DAE

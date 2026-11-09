@@ -43,6 +43,7 @@
       },
       {
         "clash_mode": "Global",
+        "query_type": ["A", "AAAA"],
         "server": "fakeip-dns"
       },
       {
@@ -66,6 +67,10 @@
         "disable_cache": true
       },
       {
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
         "rule_set": [
           "rs-geolocation-!cn",
           "rs-ai"

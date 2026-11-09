@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Mon Nov  9 10:41:22 UTC 2026
+Generated on: Mon Nov  9 11:19:27 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -5207,18 +5207,56 @@ dns:
   fake-ip-filter-mode: blacklist
   respect-rules: true
   fake-ip-filter:
+    # 1. 本地局域網與保留頂級域
     - '*.lan'
-    - '*.local'
+    - '*.localdomain'
+    - '*.example'
+    - '*.invalid'
     - '*.localhost'
+    - '*.test'
+    - '*.local'
     - '*.home.arpa'
+    # 2. 網絡連通性測試 (NCSI / 門戶認證)
+    - '*.msftconnecttest.com'
+    - '*.msftncsi.com'
+    - 'msftconnecttest.com'
+    - 'msftncsi.com'
     - 'captive.apple.com'
-    - 'time.apple.com'
-    - 'time.*.apple.com'
+    - 'connectivitycheck.gstatic.com'
+    - 'connectivitycheck.platform.hicloud.com'
+    - 'detectportal.firefox.com'
+    - '+.market.xiaomi.com'
+    # 3. NTP 時間同步服務
     - 'time.*.com'
     - 'time.*.gov'
     - 'time.*.edu.cn'
+    - 'time.*.apple.com'
+    - 'time.apple.com'
+    - 'time-ios.apple.com'
     - 'ntp.*.com'
     - '+.pool.ntp.org'
+    # 4. 主機遊戲聯機與 STUN NAT 穿透
+    - 'stun.*.*'
+    - 'stun.*.*.*'
+    - '+.stun.*.*'
+    - '+.stun.*.*.*'
+    - '*.srv.nintendo.net'
+    - '*.stun.playstation.net'
+    - '+.playstation.net'
+    - '+.playstation.com'
+    - '+.sonyentertainmentnetwork.com'
+    - 'xbox.*.microsoft.com'
+    - '*.xboxlive.com'
+    - '*.battlenet.com.cn'
+    - '*.wotblitz.cn'
+    - '*.wggames.cn'
+    - '*.wowsblitz.cn'
+    # 5. Aethersailor 專屬推薦：Google Play 商店更新防轉圈
+    - '+.services.googleapis.cn'
+    - '+.googleapis.cn'
+    - '+.xn--ngstr-lra8j.com'
+    - 'clientservices.googleapis.com'
+    # 6. 規則集直連 (國內域名與私有網段返回真實 IP)
     - 'rule-set:cn'
     - 'rule-set:private'
     - 'rule-set:apple'
@@ -5450,6 +5488,7 @@ rules:
   - RULE-SET,cn,🇨🇳 國內服務
   - RULE-SET,cn-ip,🇨🇳 國內服務,no-resolve
   - MATCH,🐟 漏網之魚
+
 ````
 
 ## File: README.md

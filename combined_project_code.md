@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Mon Nov  9 11:19:52 UTC 2026
+Generated on: Tue Nov 10 10:20:08 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -1034,18 +1034,26 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], _env?: Env, _for
 
       for (const [domain, dohUrl] of dohMap.entries()) {
         let serverHost = dohUrl;
+        let serverPath = '/dns-query';
         try {
           const u = new URL(dohUrl);
           serverHost = u.hostname;
+          serverPath = u.pathname || '/dns-query';
         } catch {}
 
         const tag = `ech-doh-${domain.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
         if (!config.dns.servers.some((s: Record<string, unknown>) => s.tag === tag)) {
-          config.dns.servers.push({
+          // 【核心修復】攜帶 domain_resolver: 'system-dns'，徹底消除 missing domain resolver 報錯
+          const dnsServerObj: Record<string, unknown> = {
             tag,
             type: 'https',
-            server: serverHost
-          });
+            server: serverHost,
+            domain_resolver: 'system-dns'
+          };
+          if (serverPath && serverPath !== '/') {
+            dnsServerObj.path = serverPath;
+          }
+          config.dns.servers.push(dnsServerObj);
         }
 
         const alreadyExists = config.dns.rules.some((r: Record<string, unknown>) => {
@@ -1061,6 +1069,17 @@ export async function toSingBoxWithTemplate(nodes: ProxyNode[], _env?: Env, _for
           });
         }
       }
+    }
+
+    // 【全域防禦】遍歷所有 DNS 伺服器，若伺服器地址為網域且未宣告解析器，自動補齊以符合 Sing-Box 1.14+ 規範
+    if (Array.isArray(config.dns.servers)) {
+      config.dns.servers.forEach((s: Record<string, unknown>) => {
+        if (s.server && typeof s.server === 'string' && !isIpAddress(s.server)) {
+          if (!s.domain_resolver) {
+            s.domain_resolver = 'system-dns';
+          }
+        }
+      });
     }
   }
 
@@ -1206,7 +1225,7 @@ export async function toClashWithTemplate(nodes: ProxyNode[], _env?: Env, _force
 // --- Honk / DAE (Honk_Rules.DAE) 遠端解耦配置生成 ---
 export async function toHonk(nodes: ProxyNode[], subUrl?: string, profileName?: string): Promise<string> {
   const AI_DAE_URL = 'https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.dae';
-  let aiRulesBody = "domain(geosite:openai, geosite:anthropic) -> '💬 AI 服務'";
+  let aiRulesBody = "domain(geosite:openai, geosite:anthropic) -> AI";
   
   try {
     const aiResp = await fetch(`${AI_DAE_URL}?t=${Date.now()}`, {
@@ -1215,7 +1234,7 @@ export async function toHonk(nodes: ProxyNode[], subUrl?: string, profileName?: 
     if (aiResp.ok) {
       const text = await aiResp.text();
       if (text.includes('domain(')) {
-        aiRulesBody = text.replace(/->\s*proxy/g, "-> '💬 AI 服務'").trim();
+        aiRulesBody = text.replace(/->\s*proxy/g, "-> AI").trim();
       }
     }
   } catch {}

@@ -78,3 +78,22 @@ export interface CachedTemplate {
   content: string;
   updatedAt: number;
 }
+
+export type OperationLogAction =
+  | '獲取訂閱'
+  | '登入後台'
+  | '登入失敗'
+  | '新增配置'
+  | '修改配置'
+  | '刪除配置'
+  | '儲存短連結';
+
+export interface OperationLogEntry {
+  time: string;
+  ip: string;
+  region: string;
+  asn: string;
+  action: OperationLogAction;
+  url: string;
+  ua: string;
+}

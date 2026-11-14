@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sat Nov 14 17:25:02 UTC 2026
+Generated on: Sat Nov 14 17:26:19 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -4466,6 +4466,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       --primary: #3b82f6;
       --primary-hover: #2563eb;
       --success: #10b981;
+      --warning: #f59e0b;
       --danger: #ef4444;
       --radius-sm: 6px;
       --radius-md: 10px;
@@ -4503,7 +4504,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
     }
     .btn-primary { background-color: var(--primary); color: white; width: 100%; padding: 1rem; font-size: 1.05rem; }
     .btn-primary:hover { background-color: var(--primary-hover); }
-    .btn-icon { background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border); padding: 0.6rem; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s; }
+    .btn-icon { background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border); padding: 0.6rem; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; justify-content: center; }
     .btn-icon:hover { background: var(--bg-hover); color: var(--primary); border-color: var(--text-muted); }
     .btn-ghost { background: transparent; color: var(--text-muted); padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.85rem;}
     .btn-ghost:hover { background: var(--bg-hover); color: var(--text-main); }
@@ -4567,6 +4568,42 @@ export const HTML_PAGE = `<!DOCTYPE html>
     }
     .lock-form .btn { width: 100% !important; padding: 0.7rem; font-size: 0.92rem; font-weight: 600; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
 
+    /* 操作日誌樣式 */
+    .logs-table-wrap { width: 100%; overflow-x: auto; border-radius: var(--radius-sm); }
+    .logs-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left; }
+    .logs-table th {
+      color: var(--text-muted); font-weight: 600; padding: 0.7rem 0.75rem;
+      border-bottom: 1px solid var(--border); background: rgba(15, 23, 42, 0.45); white-space: nowrap;
+    }
+    .logs-table td {
+      padding: 0.7rem 0.75rem; border-bottom: 1px solid rgba(51, 65, 85, 0.55);
+      color: var(--text-main); vertical-align: middle;
+    }
+    .logs-table tr:last-child td { border-bottom: none; }
+    .logs-table tr:hover td { background: rgba(51, 65, 85, 0.25); }
+    .logs-mono { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: #cbd5e1; }
+    .logs-url-cell { max-width: 260px; word-break: break-all; font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; color: #cbd5e1; }
+    .logs-ua-cell { max-width: 220px; word-break: break-word; font-size: 0.76rem; color: var(--text-muted); }
+    .log-badge {
+      display: inline-block; padding: 3px 10px; border-radius: 6px;
+      font-size: 0.76rem; font-weight: 600; white-space: nowrap; color: #ffffff;
+    }
+    .log-badge-sub { background-color: var(--success); }
+    .log-badge-login { background-color: var(--warning); }
+    .log-badge-fail { background-color: var(--danger); }
+    .log-badge-edit { background-color: var(--primary); }
+
+    .logs-footer {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 1rem; margin-top: 1.25rem; flex-wrap: wrap;
+    }
+    .logs-note { font-size: 0.8rem; color: var(--text-muted); }
+    .logs-modal-content { max-width: 1080px !important; width: 95% !important; padding: 1.5rem 1.75rem !important; }
+    .logs-modal-scroll {
+      max-height: 62vh; overflow: auto; border: 1px solid var(--border);
+      border-radius: var(--radius-md); background: var(--bg-app);
+    }
+
     @keyframes shake {
       0%, 100% { transform: translateX(0); }
       20%, 60% { transform: translateX(-6px); }
@@ -4595,6 +4632,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       .result-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
       .result-actions .btn-icon { height: 38px; display: flex; justify-content: center; align-items: center; }
       .lock-card { padding: 1.5rem 1rem; }
+      .logs-footer { flex-direction: column; align-items: stretch; }
     }
   </style>
 </head>
@@ -4838,6 +4876,43 @@ export const HTML_PAGE = `<!DOCTYPE html>
       
       <div id="favGrid"></div>
     </section>
+
+    <!-- 查看操作日誌 (需通過 PAGE_PASSWORD 驗證且環境變數已設定時才顯示內容) -->
+    <section class="panel" id="logsPanel" style="display: none;">
+      <div class="panel-header" style="margin-bottom: 0;">
+        <h2 class="panel-title">
+          <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          📋 查看操作日誌
+        </h2>
+        <button class="btn-icon" id="toggleLogsBtn" onclick="toggleLogsCollapse()" title="收合 / 展開">
+          <svg id="toggleLogsIcon" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </button>
+      </div>
+      <div id="logsBody" style="margin-top: 1.25rem;">
+        <div id="logsTableContainer"></div>
+        <div class="logs-footer" id="logsFooter">
+          <span class="logs-note">因為 KV 空間與 Workers CPU 限制，只保留最新 200 筆操作日誌，超過該數量會自動清理最舊的日誌記錄。</span>
+          <button class="btn btn-primary" style="width: auto; padding: 0.65rem 1.4rem; font-size: 0.9rem; box-shadow: 0 0 18px rgba(59, 130, 246, 0.35);" onclick="openLogsModal()">全部日誌</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- 全部日誌彈窗 -->
+  <div class="modal-overlay" id="logsModal">
+    <div class="modal-content logs-modal-content">
+      <div class="panel-header" style="margin-bottom: 1rem;">
+        <h3 class="panel-title" style="font-size: 1.15rem;">
+          📋 所有操作日誌
+        </h3>
+        <button class="btn-icon" onclick="closeLogsModal()" title="關閉" style="border: none; background: transparent; font-size: 1.1rem;">✕</button>
+      </div>
+      <div class="logs-modal-scroll" id="allLogsTableContainer"></div>
+      <div class="modal-footer" style="margin-top: 1.25rem; justify-content: space-between; flex-wrap: wrap;">
+        <button class="btn btn-ghost btn-danger" onclick="clearLogs()" style="border-color: rgba(239, 68, 68, 0.4); color: var(--danger);">🗑️ 清空日誌</button>
+        <button class="btn btn-primary" onclick="closeLogsModal()" style="width: auto; padding: 0.65rem 2.2rem; background: var(--warning);">關閉</button>
+      </div>
+    </div>
   </div>
 
   <div class="modal-overlay" id="modal">
@@ -4862,8 +4937,20 @@ export const HTML_PAGE = `<!DOCTYPE html>
 
   <script>
     var favs = [];
+    var operationLogs = [];
     var isFavLocked = false;
+    var isLogsCollapsed = false;
     var parsedArgoNodesCache = [];
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
 
     function getStoredPwd() {
       return localStorage.getItem('sub_fav_pwd') || '';
@@ -4926,6 +5013,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
         if (resp.status === 401) {
           isFavLocked = true;
           renderLockScreen();
+          hideLogsPanel();
           return;
         }
         if (resp.ok) {
@@ -4933,12 +5021,167 @@ export const HTML_PAGE = `<!DOCTYPE html>
             favs = data;
             isFavLocked = false;
             renderFavs();
+            loadLogs();
           });
         } else {
           renderErrorScreen('載入配置失敗');
         }
-      }).catch(function(e) {
+      }).catch(function() {
         renderErrorScreen('網路連線失敗');
+      });
+    }
+
+    function hideLogsPanel() {
+      operationLogs = [];
+      var panel = document.getElementById('logsPanel');
+      if (panel) panel.style.display = 'none';
+      closeLogsModal();
+    }
+
+    function loadLogs() {
+      var pwd = getStoredPwd();
+      var panel = document.getElementById('logsPanel');
+      var container = document.getElementById('logsTableContainer');
+      var footer = document.getElementById('logsFooter');
+
+      fetch('/logs', {
+        headers: { 'X-Password': pwd }
+      }).then(function(resp) {
+        if (resp.status === 403) {
+          panel.style.display = 'block';
+          footer.style.display = 'none';
+          container.innerHTML = '<div class="empty-state" style="padding: 1.5rem;">🔒 未設定管理密碼 (PAGE_PASSWORD)，基於隱私保護，操作日誌功能預設禁用。<br>請至 Cloudflare Workers 設定 PAGE_PASSWORD 環境變數即可自動啟用。</div>';
+          return;
+        }
+        if (resp.status === 401) {
+          hideLogsPanel();
+          return;
+        }
+        if (resp.ok) {
+          resp.json().then(function(data) {
+            operationLogs = Array.isArray(data) ? data : [];
+            panel.style.display = 'block';
+            footer.style.display = 'flex';
+            renderCompactLogs();
+          });
+        }
+      }).catch(function() {
+        hideLogsPanel();
+      });
+    }
+
+    function getLogBadgeClass(action) {
+      if (action === '獲取訂閱') return 'log-badge log-badge-sub';
+      if (action === '登入後台') return 'log-badge log-badge-login';
+      if (action === '登入失敗') return 'log-badge log-badge-fail';
+      return 'log-badge log-badge-edit';
+    }
+
+    function renderCompactLogs() {
+      var container = document.getElementById('logsTableContainer');
+      if (!operationLogs || operationLogs.length === 0) {
+        container.innerHTML = '<div class="empty-state" style="padding: 1.5rem;">尚無任何操作日誌記錄</div>';
+        return;
+      }
+
+      var previewLogs = operationLogs.slice(0, 5);
+      var html = '<div class="logs-table-wrap"><table class="logs-table">' +
+        '<thead><tr>' +
+          '<th>時間 (UTC+8)</th>' +
+          '<th>IP</th>' +
+          '<th>地區</th>' +
+          '<th>操作</th>' +
+        '</tr></thead><tbody>';
+
+      for (var i = 0; i < previewLogs.length; i++) {
+        var item = previewLogs[i];
+        html += '<tr>' +
+          '<td class="logs-mono" style="white-space:nowrap;">' + escapeHtml(item.time) + '</td>' +
+          '<td class="logs-mono">' + escapeHtml(item.ip) + '</td>' +
+          '<td>' + escapeHtml(item.region) + '</td>' +
+          '<td><span class="' + getLogBadgeClass(item.action) + '">' + escapeHtml(item.action) + '</span></td>' +
+        '</tr>';
+      }
+
+      html += '</tbody></table></div>';
+      container.innerHTML = html;
+    }
+
+    function renderAllLogsModal() {
+      var container = document.getElementById('allLogsTableContainer');
+      if (!operationLogs || operationLogs.length === 0) {
+        container.innerHTML = '<div class="empty-state" style="border: none;">目前沒有任何操作日誌記錄</div>';
+        return;
+      }
+
+      var html = '<table class="logs-table">' +
+        '<thead><tr>' +
+          '<th>時間 (UTC+8)</th>' +
+          '<th>IP</th>' +
+          '<th>地區</th>' +
+          '<th>ASN</th>' +
+          '<th>操作</th>' +
+          '<th>URL</th>' +
+          '<th>UA</th>' +
+        '</tr></thead><tbody>';
+
+      for (var i = 0; i < operationLogs.length; i++) {
+        var item = operationLogs[i];
+        html += '<tr>' +
+          '<td class="logs-mono" style="white-space:nowrap;">' + escapeHtml(item.time) + '</td>' +
+          '<td class="logs-mono" style="white-space:nowrap;">' + escapeHtml(item.ip) + '</td>' +
+          '<td style="white-space:nowrap;">' + escapeHtml(item.region) + '</td>' +
+          '<td class="logs-mono" style="min-width:140px;">' + escapeHtml(item.asn) + '</td>' +
+          '<td><span class="' + getLogBadgeClass(item.action) + '">' + escapeHtml(item.action) + '</span></td>' +
+          '<td class="logs-url-cell">' + escapeHtml(item.url) + '</td>' +
+          '<td class="logs-ua-cell">' + escapeHtml(item.ua) + '</td>' +
+        '</tr>';
+      }
+
+      html += '</tbody></table>';
+      container.innerHTML = html;
+    }
+
+    function toggleLogsCollapse() {
+      isLogsCollapsed = !isLogsCollapsed;
+      var body = document.getElementById('logsBody');
+      var icon = document.getElementById('toggleLogsIcon');
+      if (isLogsCollapsed) {
+        body.style.display = 'none';
+        icon.style.transform = 'rotate(-90deg)';
+      } else {
+        body.style.display = 'block';
+        icon.style.transform = 'rotate(0deg)';
+      }
+    }
+
+    function openLogsModal() {
+      loadLogs();
+      renderAllLogsModal();
+      document.getElementById('logsModal').classList.add('show');
+    }
+
+    function closeLogsModal() {
+      document.getElementById('logsModal').classList.remove('show');
+    }
+
+    function clearLogs() {
+      if (!confirm('確定要清空所有操作日誌嗎？此動作無法復原。')) return;
+      var pwd = getStoredPwd();
+      fetch('/logs', {
+        method: 'DELETE',
+        headers: { 'X-Password': pwd }
+      }).then(function(resp) {
+        if (resp.ok) {
+          operationLogs = [];
+          renderCompactLogs();
+          renderAllLogsModal();
+          showToast('🗑️ 已清空所有操作日誌');
+        } else {
+          showToast('清空失敗：密碼錯誤或未授權', false);
+        }
+      }).catch(function(e) {
+        showToast('清空失敗: ' + e.message, false);
       });
     }
 
@@ -4955,13 +5198,13 @@ export const HTML_PAGE = `<!DOCTYPE html>
             '<path d="M7 11V7a5 5 0 0 1 10 0v4"></path>' +
           '</svg>' +
         '</div>' +
-        '<div class="lock-title">私密配置已鎖定</div>' +
+        '<div class="lock-title">私密配置與操作日誌已鎖定</div>' +
         '<div class="lock-desc">此區域受管理密碼保護，請輸入密碼解鎖</div>' +
         '<div class="lock-form">' +
           '<input type="password" id="lockPwdInput" placeholder="請輸入管理密碼..." onkeydown="if(event.key===\\'Enter\\') unlockFavs()">' +
           '<button class="btn btn-primary" onclick="unlockFavs()">' +
             '<svg viewBox="0 0 24 24" style="width:16px;height:16px;margin-right:4px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>' +
-            '解鎖配置' +
+            '解鎖配置與日誌' +
           '</button>' +
         '</div>' +
       '</div>';
@@ -4969,7 +5212,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
 
     function renderErrorScreen(msg) {
       document.getElementById('favHeaderActions').innerHTML = '';
-      document.getElementById('favGrid').innerHTML = '<div class="empty-state">' + msg + '</div>';
+      document.getElementById('favGrid').innerHTML = '<div class="empty-state">' + escapeHtml(msg) + '</div>';
     }
 
     function unlockFavs() {
@@ -4983,7 +5226,10 @@ export const HTML_PAGE = `<!DOCTYPE html>
       showToast('正在驗證密碼...');
       
       fetch('/favs', {
-        headers: { 'X-Password': pwd }
+        headers: {
+          'X-Password': pwd,
+          'X-Login-Attempt': '1'
+        }
       }).then(function(resp) {
         if (resp.ok) {
           localStorage.setItem('sub_fav_pwd', pwd);
@@ -4991,6 +5237,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
             favs = data;
             isFavLocked = false;
             renderFavs();
+            loadLogs();
             showToast('🔓 解鎖成功！已記住登入狀態');
           });
         } else {
@@ -5014,8 +5261,9 @@ export const HTML_PAGE = `<!DOCTYPE html>
     function lockFavs() {
       localStorage.removeItem('sub_fav_pwd');
       isFavLocked = true;
+      hideLogsPanel();
       renderLockScreen();
-      showToast('🔒 已鎖定配置清單');
+      showToast('🔒 已鎖定配置清單與日誌');
     }
     
     function renderFavs() {
@@ -5040,16 +5288,16 @@ export const HTML_PAGE = `<!DOCTYPE html>
       var html = '';
       for (var i = 0; i < favs.length; i++) {
         var f = favs[i];
-        var includeBadge = f.include ? '<span class="badge" style="background: rgba(16, 185, 129, 0.1); color: var(--success); border-color: rgba(16, 185, 129, 0.2); margin-right: 4px;">保: ' + f.include + '</span>' : '';
-        var excludeBadge = f.exclude ? '<span class="badge" style="background: rgba(239, 68, 68, 0.1); color: var(--danger); border-color: rgba(239, 68, 68, 0.2); margin-right: 4px;">排: ' + f.exclude + '</span>' : '';
-        var renameBadge = f.rename ? '<span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--primary); border-color: rgba(59, 130, 246, 0.2)">替: ' + f.rename + '</span>' : '';
+        var includeBadge = f.include ? '<span class="badge" style="background: rgba(16, 185, 129, 0.1); color: var(--success); border-color: rgba(16, 185, 129, 0.2); margin-right: 4px;">保: ' + escapeHtml(f.include) + '</span>' : '';
+        var excludeBadge = f.exclude ? '<span class="badge" style="background: rgba(239, 68, 68, 0.1); color: var(--danger); border-color: rgba(239, 68, 68, 0.2); margin-right: 4px;">排: ' + escapeHtml(f.exclude) + '</span>' : '';
+        var renameBadge = f.rename ? '<span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--primary); border-color: rgba(59, 130, 246, 0.2)">替: ' + escapeHtml(f.rename) + '</span>' : '';
 
         html += '<div class="fav-card" onclick="useFav(' + i + ')">' +
           '<div class="fav-title">' +
             '<svg viewBox="0 0 24 24" style="width:16px;height:16px;color:var(--primary)"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>' +
-            f.name +
+            escapeHtml(f.name) +
           '</div>' +
-          '<div class="fav-url">' + f.url + '</div>' +
+          '<div class="fav-url">' + escapeHtml(f.url) + '</div>' +
           '<div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;">' +
             includeBadge + excludeBadge + renameBadge +
           '</div>' +
@@ -5115,7 +5363,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       var url = document.getElementById('favUrl').value.trim();
       var include = document.getElementById('favInclude').value.trim();
       var exclude = document.getElementById('favExclude').value.trim();
-      var rename = document.getElementById('renameKeywords').value.trim();
+      var rename = document.getElementById('favRename').value.trim();
       if (!name || !url) return showToast('請完整填寫名稱與節點內容', false);
 
       var editIndex = document.getElementById('modal').dataset.edit;
@@ -5194,6 +5442,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
             throw new Error('伺服器儲存失敗: HTTP ' + resp.status);
           }
           proceed(host + '/' + encodeURIComponent(shortCode));
+          if (!isFavLocked) loadLogs();
         }).catch(function(err) {
           showToast('短連結儲存失敗，請確認 KV 綁定: ' + err.message, false);
         });
@@ -5262,7 +5511,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       var win = window.open('', '_blank', 'width=460,height=600');
       if (!win) return showToast('請允許瀏覽器開啟彈出視窗', false);
 
-      var qrHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + displayTitle + '</title>' +
+      var qrHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + escapeHtml(displayTitle) + '</title>' +
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">' +
         '<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\\/script>' +
         '<style>' +
@@ -5277,10 +5526,10 @@ export const HTML_PAGE = `<!DOCTYPE html>
           '.btn-ghost:hover { background: #1e293b; color: white; }' +
         '</style>' +
         '</head><body>' +
-        '<h2>' + displayTitle + '</h2>' +
+        '<h2>' + escapeHtml(displayTitle) + '</h2>' +
         '<p>使用手機相機或對應客戶端掃描二維碼</p>' +
         '<div id="qrcode"></div>' +
-        '<a href="' + deepLink + '" class="btn">🚀 一鍵打開並導入 ' + clientName + '</a>' +
+        '<a href="' + escapeHtml(deepLink) + '" class="btn">🚀 一鍵打開並導入 ' + escapeHtml(clientName) + '</a>' +
         '<button onclick="window.close()" class="btn btn-ghost">關閉視窗</button>' +
         '<script>' +
           'new QRCode(document.getElementById("qrcode"), {' +
@@ -5319,8 +5568,8 @@ export const HTML_PAGE = `<!DOCTYPE html>
         for (var i = 0; i < nodes.length; i++) {
           var n = nodes[i];
           html += '<label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer;">' +
-            '<input type="checkbox" name="argoNodeIdx" value="' + n.index + '" data-port="' + n.port + '" ' + (i === 0 ? 'checked' : '') + ' onchange="updateArgoPort(this)">' +
-            '<span>' + n.name + ' (' + n.server + ':' + n.port + ', ' + n.type + ')</span>' +
+            '<input type="checkbox" name="argoNodeIdx" value="' + n.index + '" data-port="' + escapeHtml(n.port) + '" ' + (i === 0 ? 'checked' : '') + ' onchange="updateArgoPort(this)">' +
+            '<span>' + escapeHtml(n.name) + ' (' + escapeHtml(n.server) + ':' + escapeHtml(n.port) + ', ' + escapeHtml(n.type) + ')</span>' +
           '</label>';
         }
         listEl.innerHTML = html;

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sat Nov 14 17:24:06 UTC 2026
+Generated on: Sat Nov 14 17:25:02 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -3216,7 +3216,7 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
 // src/index.ts
 // @ts-ignore
 import packageJson from '../package.json';
-import { Env, ProxyNode } from './types';
+import { Env, ProxyNode, OperationLogAction, OperationLogEntry } from './types';
 import { HTML_PAGE } from './constants';
 import { parseContent } from './parser';
 import {
@@ -3232,12 +3232,114 @@ import { deduplicateNodeNames, groupNodesByFlag } from './utils';
 
 const version = packageJson.version;
 
+const LOGS_KEY = 'operation_logs';
+const MAX_LOGS = 200;
+
+interface CfProperties {
+  country?: string;
+  city?: string;
+  asn?: number;
+  asOrganization?: string;
+}
+
+function hasPasswordConfigured(env: Env): boolean {
+  return Boolean(env.PAGE_PASSWORD && env.PAGE_PASSWORD.trim() !== '');
+}
+
 function checkAuth(request: Request, env: Env): boolean {
-  if (!env.PAGE_PASSWORD || env.PAGE_PASSWORD.trim() === '') {
+  if (!hasPasswordConfigured(env)) {
     return true;
   }
   const clientPwd = request.headers.get('X-Password') || '';
-  return clientPwd === env.PAGE_PASSWORD.trim();
+  return clientPwd === env.PAGE_PASSWORD!.trim();
+}
+
+function formatUtc8Time(date = new Date()): string {
+  const utc8 = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+  const y = utc8.getUTCFullYear();
+  const m = String(utc8.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(utc8.getUTCDate()).padStart(2, '0');
+  const hh = String(utc8.getUTCHours()).padStart(2, '0');
+  const mm = String(utc8.getUTCMinutes()).padStart(2, '0');
+  const ss = String(utc8.getUTCSeconds()).padStart(2, '0');
+  return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
+}
+
+function sanitizeLogUrl(rawUrl: string): string {
+  try {
+    const u = new URL(rawUrl);
+    const urlVal = u.searchParams.get('url');
+    if (urlVal && urlVal.length > 48) {
+      u.searchParams.set('url', urlVal.slice(0, 48) + '...');
+    }
+    const result = u.toString();
+    return result.length > 160 ? result.slice(0, 157) + '...' : result;
+  } catch {
+    return rawUrl.length > 160 ? rawUrl.slice(0, 157) + '...' : rawUrl;
+  }
+}
+
+function getClientMeta(request: Request): { ip: string; region: string; asn: string; ua: string } {
+  const ip =
+    request.headers.get('CF-Connecting-IP') ||
+    request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() ||
+    'Unknown';
+  const cf = (request as unknown as { cf?: CfProperties }).cf;
+  const country = cf?.country ? String(cf.country) : '';
+  const city = cf?.city ? String(cf.city) : '';
+  const region = [country, city].filter(Boolean).join(' ') || 'Unknown';
+  const asnNum = cf?.asn ? `AS${cf.asn}` : '';
+  const asOrg = cf?.asOrganization ? String(cf.asOrganization) : '';
+  const asn = [asnNum, asOrg].filter(Boolean).join(' ') || 'Unknown';
+  const rawUa = request.headers.get('User-Agent') || 'Unknown';
+  const ua = rawUa.length > 150 ? rawUa.slice(0, 147) + '...' : rawUa;
+  return { ip, region, asn, ua };
+}
+
+async function appendOperationLog(
+  request: Request,
+  env: Env,
+  action: OperationLogAction
+): Promise<void> {
+  if (!env.SUB_CACHE) return;
+  try {
+    const meta = getClientMeta(request);
+    const entry: OperationLogEntry = {
+      time: formatUtc8Time(),
+      ip: meta.ip,
+      region: meta.region,
+      asn: meta.asn,
+      action,
+      url: sanitizeLogUrl(request.url),
+      ua: meta.ua
+    };
+    const raw = await env.SUB_CACHE.get(LOGS_KEY);
+    let logs: OperationLogEntry[] = [];
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        logs = parsed as OperationLogEntry[];
+      }
+    }
+    logs.unshift(entry);
+    if (logs.length > MAX_LOGS) {
+      logs.length = MAX_LOGS;
+    }
+    await env.SUB_CACHE.put(LOGS_KEY, JSON.stringify(logs));
+  } catch {}
+}
+
+function scheduleLog(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext | undefined,
+  action: OperationLogAction
+): void {
+  if (ctx && typeof ctx.waitUntil === 'function') {
+    ctx.waitUntil(appendOperationLog(request, env, action));
+  } else {
+    void appendOperationLog(request, env, action);
+  }
 }
 
 async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
@@ -3357,7 +3459,7 @@ cloudflared tunnel --url http://127.0.0.1:{{VLESS_PORT}}
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (request.method === 'OPTIONS') {
@@ -3365,7 +3467,7 @@ export default {
         headers: {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, X-Password',
+          'Access-Control-Allow-Headers': 'Content-Type, X-Password, X-Login-Attempt',
         }
       });
     }
@@ -3528,6 +3630,8 @@ export default {
         if (cleanPath !== cleanPath.toLowerCase()) {
           await env.SUB_CACHE.put(cleanPath.toLowerCase(), jsonStr);
         }
+
+        scheduleLog(request, env, ctx, '儲存短連結');
         
         return new Response('OK', { 
           status: 200,
@@ -3536,6 +3640,55 @@ export default {
       } catch {
         return new Response('Error saving profile', { status: 500 });
       }
+    }
+
+    // --- 操作日誌 API (Fail-Closed: 未設定 PAGE_PASSWORD 預設禁止公開讀取) ---
+    if (request.method === 'GET' && url.pathname === '/logs') {
+      if (!hasPasswordConfigured(env)) {
+        return new Response(JSON.stringify({ error: '未設定管理密碼 (PAGE_PASSWORD)，日誌 API 預設禁止公開讀取', unconfigured: true }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+      if (!checkAuth(request, env)) {
+        if ((request.headers.get('X-Password') || '').trim() !== '') {
+          scheduleLog(request, env, ctx, '登入失敗');
+        }
+        return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+      const raw = env.SUB_CACHE ? await env.SUB_CACHE.get(LOGS_KEY) : null;
+      const logs: OperationLogEntry[] = raw ? (JSON.parse(raw) as OperationLogEntry[]) : [];
+      return new Response(JSON.stringify(logs), {
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+
+    if (request.method === 'DELETE' && url.pathname === '/logs') {
+      if (!hasPasswordConfigured(env)) {
+        return new Response(JSON.stringify({ error: '未設定 PAGE_PASSWORD，禁止操作', unconfigured: true }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+      if (!checkAuth(request, env)) {
+        if ((request.headers.get('X-Password') || '').trim() !== '') {
+          scheduleLog(request, env, ctx, '登入失敗');
+        }
+        return new Response(JSON.stringify({ error: '未授權' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+      if (env.SUB_CACHE) {
+        await env.SUB_CACHE.put(LOGS_KEY, '[]');
+      }
+      return new Response('OK', {
+        status: 200,
+        headers: { 'Access-Control-Allow-Origin': '*' }
+      });
     }
 
     const FAVS_KEY = 'favorites';
@@ -3549,10 +3702,16 @@ export default {
 
     if (request.method === 'GET' && url.pathname === '/favs') {
       if (!checkAuth(request, env)) {
+        if ((request.headers.get('X-Password') || '').trim() !== '') {
+          scheduleLog(request, env, ctx, '登入失敗');
+        }
         return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
           status: 401,
           headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
         });
+      }
+      if (hasPasswordConfigured(env) && request.headers.get('X-Login-Attempt') === '1') {
+        scheduleLog(request, env, ctx, '登入後台');
       }
       const favs = await getFavs();
       return new Response(JSON.stringify(favs), { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
@@ -3560,6 +3719,9 @@ export default {
 
     if (request.method === 'POST' && url.pathname === '/favs') {
       if (!checkAuth(request, env)) {
+        if ((request.headers.get('X-Password') || '').trim() !== '') {
+          scheduleLog(request, env, ctx, '登入失敗');
+        }
         return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
       }
       try {
@@ -3587,6 +3749,8 @@ export default {
           await env.SUB_CACHE.put(cleanName.toLowerCase(), syncData);
         }
 
+        scheduleLog(request, env, ctx, '新增配置');
+
         return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
       } catch {
         return new Response('Error saving favorite', { status: 500 });
@@ -3595,6 +3759,9 @@ export default {
 
     if (request.method === 'PUT' && url.pathname === '/favs') {
       if (!checkAuth(request, env)) {
+        if ((request.headers.get('X-Password') || '').trim() !== '') {
+          scheduleLog(request, env, ctx, '登入失敗');
+        }
         return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
       }
       try {
@@ -3622,6 +3789,8 @@ export default {
           if (cleanName !== cleanName.toLowerCase()) {
             await env.SUB_CACHE.put(cleanName.toLowerCase(), syncData);
           }
+
+          scheduleLog(request, env, ctx, '修改配置');
         }
         return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
       } catch {
@@ -3631,6 +3800,9 @@ export default {
 
     if (request.method === 'DELETE' && url.pathname === '/favs') {
       if (!checkAuth(request, env)) {
+        if ((request.headers.get('X-Password') || '').trim() !== '') {
+          scheduleLog(request, env, ctx, '登入失敗');
+        }
         return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
       }
       try {
@@ -3644,6 +3816,7 @@ export default {
             await env.SUB_CACHE.delete(removed.name.trim());
             await env.SUB_CACHE.delete(removed.name.trim().toLowerCase());
           }
+          scheduleLog(request, env, ctx, '刪除配置');
         }
         return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
       } catch {
@@ -3891,6 +4064,8 @@ export default {
     const finalProfileName = detectedProfileName || 'subscription';
 
     if (!target) {
+      scheduleLog(request, env, ctx, '獲取訂閱');
+
       const host = `https://${url.host}`;
       const encodedUrl = encodeURIComponent(urlParam);
       let filterQuery = '';
@@ -3965,6 +4140,8 @@ export default {
         headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
       });
     }
+
+    scheduleLog(request, env, ctx, '獲取訂閱');
 
     const filenameAscii = `${finalProfileName.replace(/[^a-zA-Z0-9_-]/g, '_')}${fileExt}`;
     const filenameUtf8 = encodeURIComponent(`${finalProfileName}${fileExt}`);

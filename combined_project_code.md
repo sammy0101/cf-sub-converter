@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sat Nov 14 17:36:45 UTC 2026
+Generated on: Sat Nov 14 17:38:25 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -4906,9 +4906,14 @@ export const HTML_PAGE = `<!DOCTYPE html>
           <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
           📋 查看操作日誌
         </h2>
-        <button class="btn-icon" id="toggleLogsBtn" onclick="toggleLogsCollapse()" title="收合 / 展開">
-          <svg id="toggleLogsIcon" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
-        </button>
+        <div style="display: flex; gap: 6px; align-items: center;">
+          <button class="btn-icon" id="refreshLogsBtn" onclick="refreshLogsNow()" title="立即刷新日誌">
+            <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+          </button>
+          <button class="btn-icon" id="toggleLogsBtn" onclick="toggleLogsCollapse()" title="收合 / 展開">
+            <svg id="toggleLogsIcon" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </button>
+        </div>
       </div>
       <div id="logsBody" style="margin-top: 1.25rem;">
         <div id="logsTableContainer"></div>
@@ -4927,7 +4932,10 @@ export const HTML_PAGE = `<!DOCTYPE html>
         <h3 class="panel-title" style="font-size: 1.15rem;">
           📋 所有操作日誌
         </h3>
-        <button class="btn-icon" onclick="closeLogsModal()" title="關閉" style="border: none; background: transparent; font-size: 1.1rem;">✕</button>
+        <div style="display: flex; gap: 6px; align-items: center;">
+          <button class="btn-icon" onclick="refreshLogsNow()" title="立即刷新" style="border: none; background: transparent;">🔄</button>
+          <button class="btn-icon" onclick="closeLogsModal()" title="關閉" style="border: none; background: transparent; font-size: 1.1rem;">✕</button>
+        </div>
       </div>
       <div class="logs-modal-scroll" id="allLogsTableContainer"></div>
       <div class="modal-footer" style="margin-top: 1.25rem; justify-content: space-between; flex-wrap: wrap;">
@@ -4961,6 +4969,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
     var favs = [];
     var operationLogs = [];
     var isFavLocked = false;
+    var isLogsUnconfigured = false;
     var isLogsCollapsed = false;
     var parsedArgoNodesCache = [];
 
@@ -5027,10 +5036,15 @@ export const HTML_PAGE = `<!DOCTYPE html>
       document.getElementById('modal').classList.remove('show');
     }
 
-    function loadFavs() {
+    function loadFavs(isInitialLogin) {
       var pwd = getStoredPwd();
-      fetch('/favs', {
-        headers: { 'X-Password': pwd }
+      var reqHeaders = { 'X-Password': pwd };
+      if (isInitialLogin && pwd) {
+        reqHeaders['X-Login-Attempt'] = '1';
+      }
+
+      fetch('/favs?t=' + Date.now(), {
+        headers: reqHeaders
       }).then(function(resp) {
         if (resp.status === 401) {
           isFavLocked = true;
@@ -5060,16 +5074,17 @@ export const HTML_PAGE = `<!DOCTYPE html>
       closeLogsModal();
     }
 
-    function loadLogs() {
+    function loadLogs(showSuccessToast) {
       var pwd = getStoredPwd();
       var panel = document.getElementById('logsPanel');
       var container = document.getElementById('logsTableContainer');
       var footer = document.getElementById('logsFooter');
 
-      fetch('/logs', {
+      fetch('/logs?t=' + Date.now(), {
         headers: { 'X-Password': pwd }
       }).then(function(resp) {
         if (resp.status === 403) {
+          isLogsUnconfigured = true;
           panel.style.display = 'block';
           footer.style.display = 'none';
           container.innerHTML = '<div class="empty-state" style="padding: 1.5rem;">🔒 未設定管理密碼 (PAGE_PASSWORD)，基於隱私保護，操作日誌功能預設禁用。<br>請至 Cloudflare Workers 設定 PAGE_PASSWORD 環境變數即可自動啟用。</div>';
@@ -5080,16 +5095,27 @@ export const HTML_PAGE = `<!DOCTYPE html>
           return;
         }
         if (resp.ok) {
+          isLogsUnconfigured = false;
           resp.json().then(function(data) {
             operationLogs = Array.isArray(data) ? data : [];
             panel.style.display = 'block';
             footer.style.display = 'flex';
             renderCompactLogs();
+            if (document.getElementById('logsModal').classList.contains('show')) {
+              renderAllLogsModal();
+            }
+            if (showSuccessToast) {
+              showToast('🔄 已同步最新操作日誌');
+            }
           });
         }
       }).catch(function() {
         hideLogsPanel();
       });
+    }
+
+    function refreshLogsNow() {
+      loadLogs(true);
     }
 
     function getLogBadgeClass(action) {
@@ -5178,9 +5204,9 @@ export const HTML_PAGE = `<!DOCTYPE html>
     }
 
     function openLogsModal() {
-      loadLogs();
       renderAllLogsModal();
       document.getElementById('logsModal').classList.add('show');
+      loadLogs();
     }
 
     function closeLogsModal() {
@@ -5247,7 +5273,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
 
       showToast('正在驗證密碼...');
       
-      fetch('/favs', {
+      fetch('/favs?t=' + Date.now(), {
         headers: {
           'X-Password': pwd,
           'X-Login-Attempt': '1'
@@ -5370,7 +5396,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
         body: JSON.stringify({ index: index }) 
       }).then(function(resp) {
         if (resp.ok) {
-          loadFavs();
+          loadFavs(false);
           showToast('已成功刪除配置');
         } else {
           showToast('刪除失敗：未授權或密碼錯誤', false);
@@ -5412,7 +5438,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
       }).then(function(resp) {
         if (resp.ok) {
           closeModal();
-          loadFavs();
+          loadFavs(false);
           showToast('配置儲存成功！');
         } else {
           showToast('儲存失敗：密碼錯誤或未授權', false);
@@ -5464,7 +5490,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
             throw new Error('伺服器儲存失敗: HTTP ' + resp.status);
           }
           proceed(host + '/' + encodeURIComponent(shortCode));
-          if (!isFavLocked) loadLogs();
+          if (!isFavLocked && !isLogsUnconfigured) loadLogs();
         }).catch(function(err) {
           showToast('短連結儲存失敗，請確認 KV 綁定: ' + err.message, false);
         });
@@ -5659,8 +5685,20 @@ export const HTML_PAGE = `<!DOCTYPE html>
     }
 
     window.addEventListener('DOMContentLoaded', function() {
-      loadFavs();
+      loadFavs(true);
     });
+
+    document.addEventListener('visibilitychange', function() {
+      if (!document.hidden && !isFavLocked && !isLogsUnconfigured) {
+        loadLogs();
+      }
+    });
+
+    setInterval(function() {
+      if (!document.hidden && !isFavLocked && !isLogsUnconfigured) {
+        loadLogs();
+      }
+    }, 15000);
   </script>
 </body>
 </html>

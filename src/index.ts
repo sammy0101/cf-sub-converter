@@ -416,7 +416,7 @@ export default {
           await env.SUB_CACHE.put(cleanPath.toLowerCase(), jsonStr);
         }
 
-        scheduleLog(request, env, ctx, '儲存短連結');
+        await appendOperationLog(request, env, '儲存短連結');
         
         return new Response('OK', { 
           status: 200,
@@ -432,22 +432,34 @@ export default {
       if (!hasPasswordConfigured(env)) {
         return new Response(JSON.stringify({ error: '未設定管理密碼 (PAGE_PASSWORD)，日誌 API 預設禁止公開讀取', unconfigured: true }), {
           status: 403,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+            'Access-Control-Allow-Origin': '*'
+          }
         });
       }
       if (!checkAuth(request, env)) {
         if ((request.headers.get('X-Password') || '').trim() !== '') {
-          scheduleLog(request, env, ctx, '登入失敗');
+          await appendOperationLog(request, env, '登入失敗');
         }
         return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
           status: 401,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+            'Access-Control-Allow-Origin': '*'
+          }
         });
       }
       const raw = env.SUB_CACHE ? await env.SUB_CACHE.get(LOGS_KEY) : null;
       const logs: OperationLogEntry[] = raw ? (JSON.parse(raw) as OperationLogEntry[]) : [];
       return new Response(JSON.stringify(logs), {
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Access-Control-Allow-Origin': '*'
+        }
       });
     }
 
@@ -460,7 +472,7 @@ export default {
       }
       if (!checkAuth(request, env)) {
         if ((request.headers.get('X-Password') || '').trim() !== '') {
-          scheduleLog(request, env, ctx, '登入失敗');
+          await appendOperationLog(request, env, '登入失敗');
         }
         return new Response(JSON.stringify({ error: '未授權' }), {
           status: 401,
@@ -488,24 +500,34 @@ export default {
     if (request.method === 'GET' && url.pathname === '/favs') {
       if (!checkAuth(request, env)) {
         if ((request.headers.get('X-Password') || '').trim() !== '') {
-          scheduleLog(request, env, ctx, '登入失敗');
+          await appendOperationLog(request, env, '登入失敗');
         }
         return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
           status: 401,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+            'Access-Control-Allow-Origin': '*'
+          }
         });
       }
       if (hasPasswordConfigured(env) && request.headers.get('X-Login-Attempt') === '1') {
-        scheduleLog(request, env, ctx, '登入後台');
+        await appendOperationLog(request, env, '登入後台');
       }
       const favs = await getFavs();
-      return new Response(JSON.stringify(favs), { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
+      return new Response(JSON.stringify(favs), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
     }
 
     if (request.method === 'POST' && url.pathname === '/favs') {
       if (!checkAuth(request, env)) {
         if ((request.headers.get('X-Password') || '').trim() !== '') {
-          scheduleLog(request, env, ctx, '登入失敗');
+          await appendOperationLog(request, env, '登入失敗');
         }
         return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
       }
@@ -534,7 +556,7 @@ export default {
           await env.SUB_CACHE.put(cleanName.toLowerCase(), syncData);
         }
 
-        scheduleLog(request, env, ctx, '新增配置');
+        await appendOperationLog(request, env, '新增配置');
 
         return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
       } catch {
@@ -545,7 +567,7 @@ export default {
     if (request.method === 'PUT' && url.pathname === '/favs') {
       if (!checkAuth(request, env)) {
         if ((request.headers.get('X-Password') || '').trim() !== '') {
-          scheduleLog(request, env, ctx, '登入失敗');
+          await appendOperationLog(request, env, '登入失敗');
         }
         return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
       }
@@ -575,7 +597,7 @@ export default {
             await env.SUB_CACHE.put(cleanName.toLowerCase(), syncData);
           }
 
-          scheduleLog(request, env, ctx, '修改配置');
+          await appendOperationLog(request, env, '修改配置');
         }
         return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
       } catch {
@@ -586,7 +608,7 @@ export default {
     if (request.method === 'DELETE' && url.pathname === '/favs') {
       if (!checkAuth(request, env)) {
         if ((request.headers.get('X-Password') || '').trim() !== '') {
-          scheduleLog(request, env, ctx, '登入失敗');
+          await appendOperationLog(request, env, '登入失敗');
         }
         return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
       }
@@ -601,7 +623,7 @@ export default {
             await env.SUB_CACHE.delete(removed.name.trim());
             await env.SUB_CACHE.delete(removed.name.trim().toLowerCase());
           }
-          scheduleLog(request, env, ctx, '刪除配置');
+          await appendOperationLog(request, env, '刪除配置');
         }
         return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
       } catch {

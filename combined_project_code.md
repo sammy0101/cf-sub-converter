@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sat Nov 14 17:38:25 UTC 2026
+Generated on: Sat Nov 14 17:41:16 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -128,11 +128,159 @@ fi
 
 ````
 
+## File: .github/workflows/deploy.yml
+````yml
+# .github/workflows/deploy.yml
+name: Deploy to Cloudflare Workers
+
+on:
+  # 1. 當推送到 main 或 master 分支時自動執行
+  push:
+    branches:
+      - main
+      - master
+  
+  # 2. 保留手動執行按鈕
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      # 已將 Node.js 環境升級至 Node 24 以消除棄用警告
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          # 暫時移除 cache: 'npm'，避免因缺少 package-lock.json 報錯
+
+      # 替換成相容無鎖定檔的普通安裝（加入 --prefer-offline 稍微加速）
+      - name: Install dependencies
+        run: npm install --prefer-offline
+
+      # 替換 KV ID
+      - name: Inject KV ID from Secrets
+        run: |
+          sed -i 's/KV_ID_PLACEHOLDER/${{ secrets.CF_KV_ID }}/g' wrangler.toml
+
+      # 部署步驟
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+
+````
+
+## File: .github/workflows/combine-code.yml
+````yml
+name: Generate All Codebase to MD
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'combined_project_code.md' # 避免此檔案自身更新引發無限循環
+  workflow_dispatch: # 支援在 GitHub 網頁上手動觸發執行
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Combine All Files into MD
+        run: |
+          OUT_FILE="combined_project_code.md"
+          echo "# Complete Project Codebase" > "$OUT_FILE"
+          echo "Generated on: $(date)" >> "$OUT_FILE"
+          echo "" >> "$OUT_FILE"
+
+          # 遍歷專案內的所有檔案，排除依賴、Git 歷史、打包產物及二進位檔案
+          find . -type f \
+            -not -path "*/node_modules/*" \
+            -not -path "*/.git/*" \
+            -not -path "*/dist/*" \
+            -not -name "package-lock.json" \
+            -not -name "yarn.lock" \
+            -not -name "pnpm-lock.yaml" \
+            -not -name "$OUT_FILE" \
+            -not -name "*.png" \
+            -not -name "*.jpg" \
+            -not -name "*.jpeg" \
+            -not -name "*.gif" \
+            -not -name "*.ico" \
+            -not -name "*.woff*" \
+            -not -name "*.ttf" | while read -r file; do
+              
+              # 取得相對路徑與副檔名
+              rel_path="${file#./}"
+              ext="${file##*.}"
+              
+              # 如果無副檔名，清除變數避免格式混亂
+              if [ "$ext" = "$rel_path" ]; then
+                ext=""
+              fi
+              
+              # 寫入檔案標題
+              echo "## File: $rel_path" >> "$OUT_FILE"
+              # 使用四個反單引號（````）包裹，防止內部程式碼的三個反單引號造成排版衝突
+              echo "\`\`\`\`$ext" >> "$OUT_FILE"
+              cat "$file" >> "$OUT_FILE"
+              echo "" >> "$OUT_FILE"
+              echo "\`\`\`\`" >> "$OUT_FILE"
+              echo "" >> "$OUT_FILE"
+          done
+
+      - name: Commit and Push changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add combined_project_code.md
+          
+          if git diff --staged --quiet; then
+            echo "No changes in codebase."
+          else
+            git commit -m "docs: auto-generate complete codebase [skip ci]"
+            git push origin main
+          fi
+
+````
+
+## File: wrangler.toml
+````toml
+name = "my-sub-converter"
+main = "src/index.ts"
+compatibility_date = "2024-04-01"
+
+[placement]
+mode = "smart"
+
+[[kv_namespaces]]
+binding = "SUB_CACHE"
+id = "KV_ID_PLACEHOLDER"
+
+[vars]
+# 💥 私密管理密碼（選填）：設定後將保護「已儲存的配置」管理區域，避免他人檢視或竄改
+# PAGE_PASSWORD = "your_secret_password"
+
+````
+
 ## File: package.json
 ````json
 {
   "name": "cf-sub-converter",
-  "version": "3.7.7",
+  "version": "3.8.0",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",
@@ -154,655 +302,662 @@ fi
 
 ````
 
-## File: Sing-Box_Rules.JSON
-````JSON
-{
-  "log": {
-    "level": "info",
-    "timestamp": true
-  },
-  "http_clients": [
-    {
-      "tag": "default"
-    }
-  ],
-  "dns": {
-    "servers": [
-      {
-        "tag": "remote-dns",
-        "type": "https",
-        "server": "8.8.8.8",
-        "detour": "🚀 節點選擇"
-      },
-      {
-        "tag": "remote-cf-dns",
-        "type": "https",
-        "server": "1.1.1.1",
-        "detour": "🚀 節點選擇"
-      },
-      {
-        "tag": "system-dns",
-        "type": "local"
-      },
-      {
-        "tag": "local-dns",
-        "type": "local"
-      },
-      {
-        "tag": "fakeip-dns",
-        "type": "fakeip",
-        "inet4_range": "198.18.0.0/15"
-      }
-    ],
-    "rules": [
-      {
-        "clash_mode": "Direct",
-        "server": "system-dns"
-      },
-      {
-        "clash_mode": "Global",
-        "query_type": ["A", "AAAA"],
-        "server": "fakeip-dns"
-      },
-      {
-        "rule_set": [
-          "rs-private"
-        ],
-        "server": "system-dns"
-      },
-      {
-        "rule_set": [
-          "rs-cn"
-        ],
-        "server": "system-dns",
-        "disable_cache": true
-      },
-      {
-        "rule_set": [
-          "rs-apple"
-        ],
-        "server": "system-dns",
-        "disable_cache": true
-      },
-      {
-        "query_type": [
-          "A",
-          "AAAA"
-        ],
-        "rule_set": [
-          "rs-geolocation-!cn",
-          "rs-ai"
-        ],
-        "server": "fakeip-dns"
-      }
-    ],
-    "final": "remote-dns",
-    "strategy": "ipv4_only"
-  },
-  "inbounds": [
-    {
-      "type": "tun",
-      "tag": "tun-in",
-      "interface_name": "tun0",
-      "address": [
-        "172.19.0.1/30"
-      ],
-      "stack": "mixed",
-      "auto_route": true,
-      "strict_route": true
-    }
-  ],
-  "outbounds": [
-    { "type": "selector", "tag": "🚀 節點選擇", "outbounds": ["⚡ 自動選擇", "DIRECT"] },
-    { "type": "urltest", "tag": "⚡ 自動選擇", "outbounds": [], "url": "https://www.gstatic.com/generate_204", "interval": "3m", "tolerance": 50 },
-    { "type": "selector", "tag": "💬 AI 服務", "outbounds": ["⚡ 自動選擇", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🍎 蘋果服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "Ⓜ️ 微軟服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🎮 遊戲平台", "outbounds": ["DIRECT", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🌐 非中國", "outbounds": ["🚀 節點選擇", "DIRECT"] },
-    { "type": "selector", "tag": "🇨🇳 國內服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🏠 私有網絡", "outbounds": ["DIRECT"] },
-    { "type": "selector", "tag": "🐟 漏網之魚", "outbounds": ["🚀 節點選擇", "DIRECT"] },
-    { "type": "selector", "tag": "🛑 廣告攔截", "outbounds": ["REJECT", "DIRECT"] },
-    
-    { "type": "direct", "tag": "DIRECT" },
-    { "type": "block", "tag": "REJECT" }
-  ],
-  "route": {
-    "default_domain_resolver": "system-dns",
-    "default_http_client": "default",
-    "rule_set": [
-      { "type": "remote", "tag": "rs-ai", "format": "binary", "url": "https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.srs" },
-      { "type": "remote", "tag": "rs-apple", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/apple.srs" },
-      { "type": "remote", "tag": "rs-microsoft", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/microsoft.srs" },
-      { "type": "remote", "tag": "rs-steam", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/steam.srs" },
-      { "type": "remote", "tag": "rs-epicgames", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/epicgames.srs" },
-      { "type": "remote", "tag": "rs-ea", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/ea.srs" },
-      { "type": "remote", "tag": "rs-ubisoft", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/ubisoft.srs" },
-      { "type": "remote", "tag": "rs-blizzard", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/blizzard.srs" },
-      { "type": "remote", "tag": "rs-geolocation-!cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/geolocation-!cn.srs" },
-      { "type": "remote", "tag": "rs-cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs" },
-      { "type": "remote", "tag": "ip-cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/cn.srs" },
-      { "type": "remote", "tag": "rs-ads", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ads-all.srs" },
-      { "type": "remote", "tag": "rs-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/private.srs" },
-      { "type": "remote", "tag": "ip-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs" }
-    ],
-    "rules": [
-      {
-        "action": "sniff"
-      },
-      { "protocol": "dns", "action": "hijack-dns" },
-      { "clash_mode": "Direct", "outbound": "DIRECT" },
-      { "clash_mode": "Global", "outbound": "🚀 節點選擇" },
-      { "rule_set": "rs-ads", "outbound": "🛑 廣告攔截" },
-      { "rule_set": ["rs-private", "ip-private"], "outbound": "🏠 私有網絡" },
-      { "rule_set": "rs-ai", "outbound": "💬 AI 服務" },
-      { "rule_set": "rs-microsoft", "outbound": "Ⓜ️ 微軟服務" },
-      { "rule_set": ["rs-steam", "rs-epicgames", "rs-ea", "rs-ubisoft", "rs-blizzard"], "outbound": "🎮 遊戲平台" },
-      { "rule_set": "rs-geolocation-!cn", "outbound": "🌐 非中國" },
-      { "rule_set": "rs-apple", "outbound": "🍎 蘋果服務" },
-      { "rule_set": ["rs-cn", "ip-cn"], "outbound": "🇨🇳 國內服務" },
-      { "outbound": "🐟 漏網之魚" }
-    ],
-    "auto_detect_interface": true
-  },
-  "experimental": {
-    "cache_file": {
-      "enabled": true,
-      "store_fakeip": true
-    },
-    "clash_api": {
-      "external_controller": "127.0.0.1:9090",
-      "external_ui": "ui",
-      "secret": "",
-      "default_mode": "rule"
-    }
-  }
-}
-
-````
-
-## File: Honk_Rules.DAE
-````DAE
-# ==============================================================================
-# OpenWrt Honk-Core / DAE 完整設定檔 (由 CF Sub Converter 動態產生，適配 Honk 最新規範)
-# 儲存路徑: /etc/honk/config.dae
-# 可在 GitHub 倉庫直接修改此檔案，客戶端拉取時即時生效！
-# ==============================================================================
-
-global {
-    # 綁定外網介面 (預設 auto 自動偵測。若為 PPPoE 撥接上網，可能需手動改為 pppoe-wan)
-    wan_interface: auto
-    # 綁定內網介面 (請務必確認你的路由器 LAN 網卡名稱，預設為 br-lan。多網卡可用逗號隔開)
-    lan_interface: br-lan
-
-    dial_mode: domain
-    allow_insecure: false
-    auto_config_kernel_parameter: true
-    data_dir: '/etc/honk'
-    log_level: info
-    log_file: ''
-
-    tcp_check_url: 'https://www.gstatic.com/generate_204'
-    tcp_check_http_method: HEAD
-    # 【已修復】個別獨立加上引號，符合 Honk 現代列表語法
-    udp_check_dns: 'dns.google.com:53', '8.8.8.8', '2001:4860:4860::8888'
-    check_interval: 300s
-    check_tolerance: 50ms
-
-    # 基礎引導 DNS (用於節點與訂閱連結的初始解析)
-    bootstrap_resolver: '1.1.1.1:53'
-
-    # 【Honk 最新特性】保存成功獲取的訂閱正文到運行目錄，重啟或斷網時可離線恢復節點
-    store_subscribe: true
-
-    # 【Honk 最新特性】持有有歧義 LAN 轉發 UDP 首包，徹底消除遊戲或 UDP 連線首包丟失
-    nfqueue_enable: true
-
-    # 【Honk 最新特性】預熱與撥號預算：大訂閱基線關閉額外 UDP/TCP 預熱，保護路由器記憶體
-    udp_warm_node_count: 0
-    preconnect_node_count: 0
-}
-
-# ==============================================================================
-# 原生 Web API 與 Doona Web UI (內網瀏覽 http://<路由器IP>:9527)
-# ==============================================================================
-experimental {
-    native_api {
-        enabled: true
-        # Doona 面板監聽位址 (0.0.0.0 代表允許內網所有設備透過路由器 IP 訪問)
-        listen: '0.0.0.0:9527'
-        password_auth: true
-        config_write: true
-        ui: 'embedded'
-    }
-    cache_file {
-        enabled: true
-        store_dns: true
-    }
-}
-
-# ==============================================================================
-# 訂閱配置 (直連下載，每 12 小時自動更新)
-# ==============================================================================
-subscription {
-    {{SUB_TAG}}: '{{SUB_URL}}' {
-        route: direct
-        # 訂閱自動更新間隔 (43200 秒 = 12 小時，可自行更改)
-        interval: 43200s
-    }
-}
-
-# ==============================================================================
-# 策略分流群組 (Group)
-# ==============================================================================
-group {
-    '💬 AI 服務' {
-        policy: min_moving_avg
-    }
-
-    'Ⓜ️ 微軟服務' {
-        policy: min_moving_avg
-    }
-
-    '🎮 遊戲平台' {
-        policy: min_moving_avg
-    }
-
-    '🍎 蘋果服務' {
-        policy: min_moving_avg
-    }
-
-    '🌐 非中國' {
-        policy: min_moving_avg
-    }
-
-    # 🐟 漏網之魚專用：採用 score (綜合評分)
-    '🐟 漏網之魚' {
-        policy: score
-    }
-}
-
-# ==============================================================================
-# DNS 智慧解析 (localdns 走本機 dnsmasq，即 OpenWrt 原生 system DNS)
-# ==============================================================================
-dns {
-    # 向上游攜帶 ECS (客戶端近似網段)，改善國內 CDN 解析在地性
-    client_subnet: auto
-
-    upstream {
-        googledns: 'tcp+udp://8.8.8.8:53'
-        googledoh: 'https://8.8.8.8/dns-query'
-        cfdns: 'tcp+udp://1.1.1.1:53'
-        cfdoh: 'https://1.1.1.1/dns-query'
-        localdns: 'udp://127.0.0.1:53'
-    }
-    routing {
-        request {
-            # 拒絕 HTTPS 記錄查詢，防止客戶端因 ECH 握手異常中斷
-            qtype(https) -> reject
-            qname(geosite:category-ads-all) -> reject
-            qname(geosite:cn) -> localdns
-            fallback: googledoh
-        }
-        response {
-            # 漏網國內網域挽救：若海外 DoH 回傳中國大陸 IP，退回 localdns 重新解析以獲得最優 CDN
-            upstream(googledoh) && ip(geoip:cn) -> localdns
-            upstream(cfdoh) && ip(geoip:cn) -> localdns
-            fallback: accept
-        }
-    }
-}
-
-# ==============================================================================
-# eBPF 流量路由規則
-# ==============================================================================
-routing {
-    # 核心系統服務與 DNS 直連，防回環加固
-    pname(dnsmasq, systemd-resolved) && l4proto(udp) && dport(53) -> direct(must)
-    pname(NetworkManager, systemd-networkd, systemd-resolved, dhcpcd) -> direct
-    pname(sing-box, mihomo, frpc, einat) -> direct(must)
-
-    dip(224.0.0.0/3, 'ff00::/8') -> direct
-
-    # 1. 🏠 私有網絡 (旁路由環境採用純 direct，保留 eBPF 狀態追蹤)
-    dip(geoip:private) -> direct
-
-    # 2. 🛑 廣告攔截
-    domain(geosite:category-ads-all) -> block
-
-    # 3. 💬 AI 服務 (由轉換器動態提取注入)
-    {{AI_RULES}}
-
-    # 4. Ⓜ️ 微軟服務
-    domain(geosite:microsoft) -> 'Ⓜ️ 微軟服務'
-
-    # 5. 🎮 遊戲平台
-    domain(geosite:steam, geosite:epicgames, geosite:ea, geosite:ubisoft, geosite:blizzard) -> '🎮 遊戲平台'
-
-    # 6. 🍎 蘋果服務
-    domain(geosite:apple) -> '🍎 蘋果服務'
-
-    # 7. 🌐 非中國 (國外網站)
-    domain(geosite:geolocation-!cn) -> '🌐 非中國'
-
-    # 8. 🇨🇳 國內服務 (中國國內網域與 IP 全部直連)
-    domain(geosite:cn) -> direct
-    dip(geoip:cn) -> direct
-
-    # 9. 🐟 漏網之魚 (最終兜底)
-    fallback: '🐟 漏網之魚'
-}
-
-````
-
-## File: src/types.ts
+## File: scripts/argo-converter.ts
 ````ts
-export interface Env {
-  SUB_CACHE: KVNamespace;
-  PAGE_PASSWORD?: string;
-}
+// scripts/argo-converter.ts
+import fs from 'fs';
+import path from 'path';
+import readline from 'readline';
+import { Buffer } from 'buffer';
 
-export interface WireGuardConfig {
-  privateKey: string;
-  localAddress: string[];
-  publicKey?: string;
-  presharedKey?: string;
-  mtu?: number;
-  reserved?: number[];
-  dns?: string;
-}
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
 
-export interface MasqueConfig {
-  privateKey: string;
-  publicKey: string;
-  localIpv4?: string;
-  localIpv6?: string;
-  mtu?: number;
-  uri?: string;
-  sni?: string;
-  congestion_controller?: string;
-  dns?: string[];
-}
+const question = (query: string): Promise<string> => {
+  return new Promise((resolve) => rl.question(query, resolve));
+};
 
-export interface RealityConfig {
-  publicKey: string;
-  shortId: string;
-  spiderX?: string;
-  supportX25519Mlkem768?: boolean;
-}
-
-export interface ProxyNode {
-  type: string;
-  name: string;
+interface VlessNode {
+  originalLink: string;
+  uuid: string;
   server: string;
-  port: number;
-  uuid?: string;
-  password?: string;
-  cipher?: string;
-  udp?: boolean;
-  tls?: boolean;
-  sni?: string;
-  alpn?: string[];
-  fingerprint?: string;
-  flow?: string;
-  network?: string;
-  wsPath?: string;
-  wsHeaders?: Record<string, string>;
-  reality?: RealityConfig;
-  obfs?: string;
-  obfsPassword?: string;
-  skipCertVerify?: boolean;
-  singboxObj?: Record<string, unknown>;
-  clashObj?: Record<string, unknown>;
-  congestion_control?: string;
-  udp_relay_mode?: string;
-  // VLESS SplitHTTP (xhttp)
-  xhttpPath?: string;
-  xhttpHost?: string;
-  xhttpMode?: string;
-  // WireGuard / WARP
-  wireguard?: WireGuardConfig;
-  // Cloudflare WARP MASQUE
-  masque?: MasqueConfig;
-  // ECH (Encrypted Client Hello)
-  ech?: boolean;
-  echQueryServerName?: string;
-  echDoh?: string;
-  // 標籤特徵
-  multiplier?: number;
-  isIplc?: boolean;
+  port: string;
+  type: string;
+  path: string;
+  host: string;
+  sni: string;
+  name: string;
 }
 
-export interface CachedTemplate {
-  content: string;
-  updatedAt: number;
+// 簡易 VLESS 連結解析器
+function parseVlessLink(link: string): VlessNode | null {
+  try {
+    const urlStr = link.replace('vless://', 'http://');
+    const url = new URL(urlStr);
+    const params = url.searchParams;
+    return {
+      originalLink: link,
+      uuid: url.username,
+      server: url.hostname,
+      port: url.port,
+      type: params.get('type') || 'ws',
+      path: params.get('path') || '/',
+      host: params.get('host') || params.get('sni') || url.hostname,
+      sni: params.get('sni') || url.hostname,
+      name: decodeURIComponent(url.hash.slice(1)) || 'VLESS Node'
+    };
+  } catch {
+    return null;
+  }
 }
 
-export type OperationLogAction =
-  | '獲取訂閱'
-  | '登入後台'
-  | '登入失敗'
-  | '新增配置'
-  | '修改配置'
-  | '刪除配置'
-  | '儲存短連結';
+// 獲取並解析訂閱
+async function fetchAndParse(input: string): Promise<VlessNode[]> {
+  let content = input.trim();
+  if (input.startsWith('http')) {
+    console.log('正在獲取網址內容...');
+    try {
+      const res = await fetch(input, {
+        headers: { 'User-Agent': 'v2rayNG/1.8.5' }
+      });
+      if (!res.ok) throw new Error(`HTTP 狀態碼 ${res.status}`);
+      content = await res.text();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.log(`獲取訂閱失敗: ${msg}`);
+      return [];
+    }
+  }
 
-export interface OperationLogEntry {
-  time: string;
-  ip: string;
-  region: string;
-  asn: string;
-  action: OperationLogAction;
-  url: string;
-  ua: string;
+  // 嘗試 Base64 解碼
+  let decoded = content;
+  try {
+    const cleaned = content.replace(/[\s\r\n]+/g, '');
+    decoded = Buffer.from(cleaned, 'base64').toString('utf8');
+  } catch {
+    // 解碼失敗則視為純文字
+  }
+
+  const lines = decoded.split(/\r?\n/);
+  const vlessNodes: VlessNode[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('vless://')) {
+      const parsed = parseVlessLink(trimmed);
+      if (parsed) vlessNodes.push(parsed);
+    }
+  }
+  return vlessNodes;
 }
+
+// 生成 VPS 安裝腳本模板
+function generateVpsScript(node: VlessNode, port: string, token: string, domain: string): string {
+  return `#!/bin/bash
+# Cloudflare Argo Tunnel 一鍵部署腳本 (由 cf-sub-converter 自動生成)
+# 適用於已使用 mack-a v2ray-agent 部署之 Xray/Sing-box 環境
+
+GREEN='\\033[0;32m'
+RED='\\033[0;31m'
+NC='\\033[0m'
+
+echo -e "\${GREEN}=== 開始部署 Cloudflare Argo 隧道 ===\${NC}"
+
+if [ "$EUID" -ne 0 ]; then
+  echo -e "\${RED}錯誤: 請使用 root 權限執行此腳本！\${NC}"
+  exit 1
+fi
+
+# 節點參數配置
+VLESS_UUID="${node.uuid}"
+VLESS_PATH="${node.path}"
+VLESS_TYPE="${node.type}"
+VLESS_PORT="${port}"
+NODE_NAME="${node.name}"
+TUNNEL_TOKEN="${token.trim()}"
+CUSTOM_DOMAIN="${domain.trim()}"
+
+# 下載安裝 cloudflared
+if ! command -v cloudflared &> /dev/null; then
+    echo "正在下載安裝 cloudflared..."
+    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+    chmod +x /usr/local/bin/cloudflared
+    echo "cloudflared 安裝完成！"
+else
+    echo "cloudflared 已存在，跳過安裝。"
+fi
+
+# 判斷是否使用固定隧道
+if [ -n "$TUNNEL_TOKEN" ]; then
+    echo -e "\${GREEN}【固定隧道模式】正在配置服務...\${NC}"
+    cloudflared service uninstall &> /dev/null
+    cloudflared service install "$TUNNEL_TOKEN"
+    systemctl daemon-reload
+    systemctl enable cloudflared
+    systemctl restart cloudflared
+    
+    echo -e "\${GREEN}部署成功！\${NC}"
+    echo "請確保已在 Cloudflare Dashboard 中將網域 '$CUSTOM_DOMAIN' 指向本地 'http://localhost:$VLESS_PORT'"
+    
+    # 輸出用戶端連結
+    FINAL_LINK="vless://$VLESS_UUID@$CUSTOM_DOMAIN:443?encryption=none&security=tls&type=$VLESS_TYPE&host=$CUSTOM_DOMAIN"
+    if [ "$VLESS_TYPE" = "ws" ]; then
+        FINAL_LINK="$FINAL_LINK&path=$(echo -n "$VLESS_PATH" | jq -s -R -r @uri 2>/dev/null || echo -n "$VLESS_PATH")"
+    fi
+    FINAL_LINK="$FINAL_LINK#Argo-$NODE_NAME"
+    echo -e "\n\${GREEN}您的 Argo VLESS 訂閱連結為:\${NC}"
+    echo -e "\${GREEN}$FINAL_LINK\${NC}\n"
+else
+    echo -e "\${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...\${NC}"
+    systemctl stop cloudflared-argo &> /dev/null
+    
+    # 寫入 systemd 臨時隧道服務
+    cat <<EOF > /etc/systemd/system/cloudflared-argo.service
+[Unit]
+Description=Cloudflare Argo Temporary Tunnel for VLESS
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/cloudflared tunnel --url http://127.0.0.1:$VLESS_PORT
+Restart=always
+RestartSec=5
+StandardOutput=file:/var/log/cloudflared-argo.log
+StandardError=file:/var/log/cloudflared-argo.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    touch /var/log/cloudflared-argo.log
+    systemctl daemon-reload
+    systemctl enable cloudflared-argo
+    systemctl start cloudflared-argo
+    
+    echo "正在等待 Cloudflare 分配臨時域名 (約需 10-15 秒)..."
+    TEMP_DOMAIN=""
+    for i in {1..15}; do
+        sleep 1
+        TEMP_DOMAIN=$(grep -oE 'https://[a-zA-Z0-9-]+\\.trycloudflare\\.com' /var/log/cloudflared-argo.log | head -n 1 | sed 's/https:\\/\\///')
+        if [ -n "$TEMP_DOMAIN" ]; then
+            break
+        fi
+    done
+    
+    if [ -n "$TEMP_DOMAIN" ]; then
+        echo -e "\${GREEN}獲取域名成功: \$TEMP_DOMAIN\${NC}"
+        FINAL_LINK="vless://$VLESS_UUID@\$TEMP_DOMAIN:443?encryption=none&security=tls&type=$VLESS_TYPE&host=\$TEMP_DOMAIN"
+        if [ "$VLESS_TYPE" = "ws" ]; then
+            FINAL_LINK="$FINAL_LINK&path=$(echo -n "$VLESS_PATH" | jq -s -R -r @uri 2>/dev/null || echo -n "$VLESS_PATH")"
+        fi
+        FINAL_LINK="$FINAL_LINK#Argo-Temp-$NODE_NAME"
+        
+        echo -e "\n\${GREEN}=== 部署成功 ===\${NC}"
+        echo -e "原節點名稱: $NODE_NAME"
+        echo -e "轉發連接埠: $VLESS_PORT"
+        echo -e "您的臨時 Argo 節點 VLESS 連結為 (注意：VPS 重啟或重開服務後域名會刷新):"
+        echo -e "\${GREEN}\$FINAL_LINK\${NC}\n"
+    else
+        echo -e "\${RED}錯誤: 獲取臨時域名超時！請執行 'cat /var/log/cloudflared-argo.log' 檢查日誌。\${NC}"
+    fi
+fi
+`;
+}
+
+async function main() {
+  console.log('==============================================');
+  console.log('      VLESS -> Cloudflare Argo 轉換工具');
+  console.log('==============================================');
+
+  const input = await question('請輸入訂閱地址、多個 VLESS 節點、或儲存配置的訂閱網址:\n> ');
+  if (!input.trim()) {
+    console.log('輸入不能為空。');
+    rl.close();
+    return;
+  }
+
+  const nodes = await fetchAndParse(input);
+  if (nodes.length === 0) {
+    console.log('未找到任何有效的 VLESS 節點。');
+    rl.close();
+    return;
+  }
+
+  console.log(`\n成功解析出 ${nodes.length} 個 VLESS 節點:`);
+  nodes.forEach((node, i) => {
+    console.log(`  [${i + 1}] ${node.name} (${node.server}:${node.port}, 傳輸協定: ${node.type})`);
+  });
+
+  const select = await question('\n請選擇要複製並轉換的節點 (輸入數字並用逗號隔開，例如: 1,3 ；或輸入 all 代表全部):\n> ');
+  let selectedNodes: VlessNode[] = [];
+  if (select.trim().toLowerCase() === 'all') {
+    selectedNodes = nodes;
+  } else {
+    const indices = select.split(',').map(s => parseInt(s.trim(), 10) - 1);
+    selectedNodes = indices.map(idx => nodes[idx]).filter((n): n is VlessNode => Boolean(n));
+  }
+
+  if (selectedNodes.length === 0) {
+    console.log('選擇無效，程式結束。');
+    rl.close();
+    return;
+  }
+
+  console.log(`\n已選擇 ${selectedNodes.length} 個節點進行轉換...`);
+
+  // 本地連接埠設定
+  const port = await question('\n1. 請輸入該 VLESS 節點在 VPS 上監聽的本地連接埠 (預設 8080，請與 mack-a 配置一致):\n> ') || '8080';
+
+  // Argo Tunnel 授權設定
+  console.log('\n2. 隧道設定（直接斷行即代表隨機生成臨時隧道）：');
+  const token = await question('   請貼上您的 Cloudflare Tunnel Token (選填):\n   > ');
+
+  let domain = '';
+  if (token.trim()) {
+    domain = await question('   請輸入該隧道綁定的自訂域名 (例如: vless.domain.com):\n   > ');
+    if (!domain.trim()) {
+      console.log('   錯誤: 固定隧道模式必須提供自訂域名。');
+      rl.close();
+      return;
+    }
+  }
+
+  // 建立腳本存放目錄
+  const outputDir = path.join(process.cwd(), 'argo_outputs');
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir);
+  }
+
+  const generatedNodes: string[] = [];
+
+  for (const node of selectedNodes) {
+    // 保留原本節點
+    generatedNodes.push(node.originalLink);
+
+    // 生成並寫入一鍵 VPS 腳本
+    const vpsScript = generateVpsScript(node, port, token, domain);
+    const safeNodeName = node.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
+    const scriptPath = path.join(outputDir, `argo-install-${safeNodeName}.sh`);
+    
+    fs.writeFileSync(scriptPath, vpsScript, { encoding: 'utf8', mode: 0o755 });
+    console.log(`\n[✓] 成功生成 VPS 安裝腳本: ${scriptPath}`);
+
+    // 如果是固定隧道，可以直接在本地計算出新的 Argo 節點
+    if (token.trim() && domain.trim()) {
+      const argoLink = `vless://${node.uuid}@${domain.trim()}:443?encryption=none&security=tls&type=${node.type}&host=${domain.trim()}${node.type === 'ws' ? `&path=${encodeURIComponent(node.path)}` : ''}#Argo-${node.name}`;
+      generatedNodes.push(argoLink);
+      console.log(`    └─ 同步生成 Argo 節點連結: ${argoLink}`);
+    } else {
+      console.log(`    └─ 臨時隧道模式：節點連結需在 VPS 上執行腳本後動態輸出。`);
+    }
+  }
+
+  // 如果有生成固定隧道的節點，將新舊節點整合寫入訂閱文件
+  if (generatedNodes.length > selectedNodes.length) {
+    const subPath = path.join(outputDir, 'argo_subscription.txt');
+    fs.writeFileSync(subPath, generatedNodes.join('\n'), 'utf8');
+    const base64Sub = Buffer.from(generatedNodes.join('\n')).toString('base64');
+    fs.writeFileSync(path.join(outputDir, 'argo_subscription_base64.txt'), base64Sub, 'utf8');
+    
+    console.log(`\n[✓] 整合訂閱已生成（含原節點 + 新 Argo 節點）:`);
+    console.log(`    - 明文列表: ${path.join(outputDir, 'argo_subscription.txt')}`);
+    console.log(`    - Base64 格式: ${path.join(outputDir, 'argo_subscription_base64.txt')}`);
+  }
+
+  console.log('\n==============================================');
+  console.log('部署說明：');
+  console.log('1. 請將 argo_outputs 目錄內對應的 .sh 腳本上傳至您的 VPS。');
+  console.log('2. 執行命令賦予執行權限並啟動：');
+  console.log('   chmod +x argo-install-*.sh && ./argo-install-*.sh');
+  console.log('==============================================');
+
+  rl.close();
+}
+
+main();
 
 ````
 
-## File: src/utils.ts
-````ts
-import { ProxyNode } from "./types";
+## File: Clash_Rules.YAML
+````YAML
+port: 7890
+socks-port: 7891
+mixed-port: 7893
+redir-port: 7892
+tproxy-port: 7895
+allow-lan: true
+bind-address: "*"
+mode: rule
+log-level: info
+ipv6: false
+external-controller: 0.0.0.0:9090
+tcp-concurrent: true
+unified-delay: true
 
-// --- 安全 Base64 解碼 ---
-export function safeBase64Decode(str: string): string {
-  try {
-    let b64 = str.replace(/-/g, '+').replace(/_/g, '/').replace(/[^A-Za-z0-9+/=]/g, '');
-    while (b64.length % 4) b64 += '=';
-    
-    const binaryStr = atob(b64);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      bytes[i] = binaryStr.charCodeAt(i);
-    }
-    return new TextDecoder('utf-8').decode(bytes);
-  } catch {
-    return "";
-  }
-}
+fast-open: false
 
-export function utf8ToBase64(str: string): string {
-  try {
-    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => {
-      return String.fromCharCode(parseInt(p1, 16));
-    }));
-  } catch {
-    return btoa(str);
-  }
-}
+profile:
+  store-selected: true
+  store-fake-ip: true
 
-export function tryDecodeURIComponent(str: string): string {
-  try {
-    return decodeURIComponent(str);
-  } catch {
-    return str;
-  }
-}
+sniffer:
+  enable: true
+  override-destination: true
+  sniff:
+    QUIC:
+      ports: [443]
+    TLS:
+      ports: [443, 8443]
+    HTTP:
+      ports: [80, 8080, 8880]
+      override-destination: true
+  force-domain:
+    - "+.netflix.com"
+    - "+.nflxvideo.net"
+    - "+.amazonaws.com"
+    - "+.media.dssott.com"
+  skip-domain:
+    - "+.apple.com"
+    - "Mijia Cloud"
+    - "dlg.io.mi.com"
+    - "+.oray.com"
+    - "+.sunlogin.net"
+    - "+.push.apple.com"
+  parse-pure-ip: true
+  force-dns-mapping: true
 
-// --- 節點倍率與專線特徵提取 (方案 B2) ---
-export function enrichNodeFeatures(node: ProxyNode): void {
-  const name = node.name || '';
-  
-  // 倍率識別 (例如: 0.1x, 0.5X, 1.5倍, 2×)
-  const multiplierMatch = name.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:x|X|倍|×)/);
-  if (multiplierMatch) {
-    const val = parseFloat(multiplierMatch[1]);
-    if (!isNaN(val)) {
-      node.multiplier = val;
-    }
-  }
+dns:
+  enable: true
+  ipv6: false
+  listen: 0.0.0.0:1053
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter-mode: blacklist
+  respect-rules: true
+  fake-ip-filter:
+    # 1. 本地局域網與保留頂級域
+    - '*.lan'
+    - '*.localdomain'
+    - '*.example'
+    - '*.invalid'
+    - '*.localhost'
+    - '*.test'
+    - '*.local'
+    - '*.home.arpa'
+    # 2. 網絡連通性測試 (NCSI / 門戶認證)
+    - '*.msftconnecttest.com'
+    - '*.msftncsi.com'
+    - 'msftconnecttest.com'
+    - 'msftncsi.com'
+    - 'captive.apple.com'
+    - 'connectivitycheck.gstatic.com'
+    - 'connectivitycheck.platform.hicloud.com'
+    - 'detectportal.firefox.com'
+    - '+.market.xiaomi.com'
+    # 3. NTP 時間同步服務
+    - 'time.*.com'
+    - 'time.*.gov'
+    - 'time.*.edu.cn'
+    - 'time.*.apple.com'
+    - 'time.apple.com'
+    - 'time-ios.apple.com'
+    - 'ntp.*.com'
+    - '+.pool.ntp.org'
+    # 4. 主機遊戲聯機與 STUN NAT 穿透
+    - 'stun.*.*'
+    - 'stun.*.*.*'
+    - '+.stun.*.*'
+    - '+.stun.*.*.*'
+    - '*.srv.nintendo.net'
+    - '*.stun.playstation.net'
+    - '+.playstation.net'
+    - '+.playstation.com'
+    - '+.sonyentertainmentnetwork.com'
+    - 'xbox.*.microsoft.com'
+    - '*.xboxlive.com'
+    - '*.battlenet.com.cn'
+    - '*.wotblitz.cn'
+    - '*.wggames.cn'
+    - '*.wowsblitz.cn'
+    # 5. Aethersailor 專屬推薦：Google Play 商店更新防轉圈
+    - '+.services.googleapis.cn'
+    - '+.googleapis.cn'
+    - '+.xn--ngstr-lra8j.com'
+    - 'clientservices.googleapis.com'
+    # 6. 規則集直連 (國內域名與私有網段返回真實 IP)
+    - 'rule-set:cn'
+    - 'rule-set:private'
+    - 'rule-set:apple'
 
-  // 專線特徵識別 (IPLC / IEPL / 專線 / 內網)
-  if (/(IPLC|IEPL|专线|專線|内网|內網|BGP专线)/i.test(name)) {
-    node.isIplc = true;
-  }
-}
+  default-nameserver:
+    - system
+    - 119.29.29.29
+    - 223.5.5.5
+    - 1.1.1.1
+    - 8.8.8.8
 
-// --- 自動加入國旗 Emoji 的智慧辨識系統 ---
-export function addFlag(name: string): string {
-  if (/[\uD83C][\uDDE6-\uDDFF][\uD83C][\uDDE6-\uDDFF]/.test(name)) {
-    return name;
-  }
+  direct-nameserver:
+    - system
 
-  const upper = name.toUpperCase();
+  proxy-server-nameserver:
+    - https://223.5.5.5/dns-query
+    - https://doh.pub/dns-query
+    - https://1.1.1.1/dns-query
 
-  const isMatch = (codes: string, keywords: string): boolean => {
-    const codeRegex = new RegExp(`(?:^|[^A-Z])(${codes})(?![A-Z])`);
-    const keywordRegex = new RegExp(`(${keywords})`);
-    return codeRegex.test(upper) || keywordRegex.test(upper);
-  };
+  nameserver-policy:
+    "rule-set:private":
+      - system
+    "rule-set:cn":
+      - system
+      - https://223.5.5.5/dns-query
+      - https://doh.pub/dns-query
+    "rule-set:apple":
+      - system
 
-  if (isMatch('HK|HKG', '香港|深港|HONGKONG|HONG KONG')) return "🇭🇰 " + name;
-  if (isMatch('TW|TWN|TPE', '台灣|台湾|台北|新北|彰化')) return "🇹🇼 " + name;
-  if (isMatch('JP|JPN|TYO|OSA|NRT|HND|KIX', '日本|东京|大阪|埼玉|慢日|川日|JAPAN')) return "🇯🇵 " + name;
-  if (isMatch('SG|SGP|SIN', '新加坡|狮城|SINGAPORE')) return "🇸🇬 " + name;
-  if (isMatch('US|USA|LAX|SFO|SJC|SEA|NYC|JFK|EWR', '美国|美利堅|洛杉矶|圣何塞|硅谷|波特兰|西雅图|AMERICA|UNITED STATES')) return "🇺🇸 " + name;
-  if (isMatch('KR|KOR|ICN|SEL', '韩国|首尔|KOREA')) return "🇰🇷 " + name;
-  if (isMatch('UK|GB|GBR|LHR|LON', '英国|英國|伦敦|BRITAIN|ENGLAND')) return "🇬🇧 " + name;
-  if (isMatch('NL|NLD|AMS', '荷兰|荷蘭|阿姆斯特丹|NETHERLANDS')) return "🇳🇱 " + name;
-  if (isMatch('BR|BRA|SAO', '巴西|圣保罗|聖保羅|BRAZIL')) return "🇧🇷 " + name;
-  if (isMatch('EG|EGY|CAI', '埃及|开罗|開羅|EGYPT')) return "🇪🇬 " + name;
-  if (isMatch('VN|VNM|HAN|SGN', '越南|河内|河內|西贡|VIETNAM')) return "🇻🇳 " + name;
-  if (isMatch('MO|MAC|MFM', '澳門|澳门')) return "🇲🇴 " + name;
-  if (isMatch('KH|KHM|PNH', '柬埔寨|金边|金邊|CAMBODIA')) return "🇰🇭 " + name;
-  if (isMatch('GR|GRC|ATH', '希腊|希臘|雅典|GREECE')) return "🇬🇷 " + name;
-  if (isMatch('PL|POL|WAW', '波兰|波蘭|华沙|華沙|POLAND')) return "🇵🇱 " + name;
-  if (isMatch('IT|ITA|MIL', '意大利|義大和|米兰|羅馬|ITALY')) return "🇮🇹 " + name;
-  if (isMatch('ES|ESP|MAD', '西班牙|马德里|巴塞隆納|SPAIN')) return "🇪🇸 " + name;
-  if (isMatch('DE|DEU|FRA', '德国|德國|法兰克福|GERMANY')) return "🇩🇪 " + name;
-  if (isMatch('FR|FRA|CDG', '法国|法國|巴黎|FRANCE')) return "🇫🇷 " + name;
-  if (isMatch('RU|RUS', '俄罗斯|俄羅斯|莫斯科|RUSSIA')) return "🇷🇺 " + name;
-  if (isMatch('CH|CHE|ZRH', '瑞士|苏黎世|日内瓦|SWITZERLAND')) return "🇨🇭 " + name;
-  if (isMatch('SE|SWE|ARN', '瑞典|斯德哥尔摩|SWEDEN')) return "🇸🇪 " + name;
-  if (isMatch('NO|NOR|OSL', '挪威|奥斯陆|NORWAY')) return "🇳🇴 " + name;
-  if (isMatch('FI|FIN|HEL', '芬兰|芬蘭|赫尔辛基|FINLAND')) return "🇫🇮 " + name;
-  if (isMatch('DK|DNK|CPH', '丹麦|丹麥|哥本哈根|DENMARK')) return "🇩🇰 " + name;
-  if (isMatch('IE|IRL|DUB', '爱尔兰|愛爾蘭|都柏林|IRELAND')) return "🇮🇪 " + name;
-  if (isMatch('PT|PRT|LIS', '葡萄牙|里斯本|PORTUGAL')) return "🇵🇹 " + name;
-  if (isMatch('TH|THA|BKK', '泰国|泰國|曼谷|THAILAND')) return "🇹🇭 " + name;
-  if (isMatch('MY|MYS|KUL', '马来西亚|馬來西亞|吉隆坡|MALAYSIA')) return "🇲🇾 " + name;
-  if (isMatch('PH|PHL|MNL', '菲律宾|菲律賓|马尼拉|PHILIPPINES')) return "🇵🇭 " + name;
-  if (isMatch('ID|IDN|CGK', '印度尼西亚|印尼|雅加达|INDONESIA')) return "🇮🇩 " + name;
-  if (isMatch('TR|TUR|IST', '土耳其|伊斯坦堡|TURKEY')) return "🇹🇷 " + name;
-  if (isMatch('IN|IND|BOM', '印度|孟买|INDIA')) return "🇮🇳 " + name;
-  if (isMatch('CA|CAN|YVR|YYZ', '加拿大|多伦多|温哥华|CANADA')) return "🇨🇦 " + name;
-  if (isMatch('AU|AUS|SYD|MEL', '澳大利亚|澳洲|悉尼|墨本|AUSTRALIA')) return "🇦🇺 " + name;
-  if (isMatch('CN|CHN', '中国|回国|国内|北京|上海|廣州|深圳|CHINA')) return "🇨🇳 " + name;
-  if (isMatch('NZ|NZL|AKL', '新西兰|紐西蘭|奥克兰|NEW ZEALAND')) return "🇳🇿 " + name;
-  if (isMatch('AE|ARE|DXB', '阿联酋|迪拜|杜拜|UAE')) return "🇦🇪 " + name;
-  if (isMatch('SA|SAU|RUH', '沙特|沙烏地阿拉伯|利雅德|SAUDI')) return "🇸🇦 " + name;
-  if (isMatch('IL|ISR|TLV', '以色列|特拉维夫|ISRAEL')) return "🇮🇱 " + name;
-  if (isMatch('KZ|KAZ', '哈萨克斯坦|哈薩克|KAZAKHSTAN')) return "🇰🇿 " + name;
-  if (isMatch('PK|PAK', '巴基斯坦|PAKISTAN')) return "🇵🇰 " + name;
-  if (isMatch('ZA|ZAF|CPT', '南非|开普敦|SOUTH AFRICA')) return "🇿🇦 " + name;
+  nameserver:
+    - https://8.8.8.8/dns-query
+    - https://1.1.1.1/dns-query
 
-  return "🇺🇳 " + name;
-}
+proxies:
 
-// 按國旗進行歸類排序（🇺🇳 置於頂部）
-export function groupNodesByFlag(nodes: ProxyNode[]): ProxyNode[] {
-  const groups = new Map<string, ProxyNode[]>();
-  const flagOrder: string[] = [];
-  
-  for (const node of nodes) {
-    const flaggedName = addFlag(node.name || 'node');
-    
-    let flag = '🇺🇳';
-    const match = flaggedName.match(/^([\uD83C][\uDDE6-\uDDFF][\uD83C][\uDDE6-\uDDFF])/);
-    if (match) {
-      flag = match[1];
-    }
-    
-    if (!groups.has(flag)) {
-      groups.set(flag, []);
-      flagOrder.push(flag);
-    }
-    groups.get(flag)!.push(node);
-  }
-  
-  const standardOrder = [
-    '🇭🇰', '🇹🇼', '🇯🇵', '🇸🇬', '🇰🇷',
-    '🇺🇸', '🇬🇧', '🇨🇦', '🇦🇺',
-    '🇲🇴', '🇨🇳', '🇹🇭', '🇻🇳', '🇲🇾', '🇵🇭', '🇮🇩',
-    '🇩🇪', '🇫🇷', '🇳🇱', '🇷🇺', '🇮🇳', '🇹🇷'
-  ];
-  
-  flagOrder.sort((a, b) => {
-    if (a === '🇺🇳' && b !== '🇺🇳') return -1;
-    if (b === '🇺🇳' && a !== '🇺🇳') return 1;
-    
-    const idxA = standardOrder.indexOf(a);
-    const idxB = standardOrder.indexOf(b);
-    
-    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-    if (idxA !== -1) return -1;
-    if (idxB !== -1) return 1;
-    
-    return a.localeCompare(b);
-  });
-  
-  const result: ProxyNode[] = [];
-  for (const flag of flagOrder) {
-    result.push(...groups.get(flag)!);
-  }
-  return result;
-}
+proxy-groups:
+  - name: 🚀 節點選擇
+    type: select
+    proxies:
+      - ⚡ 自動選擇
+      - DIRECT
 
-// 去重複命名與賦予特徵標記
-export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
-  const seenKey = new Set<string>();
-  const nameCount = new Map<string, number>();
+  - name: ⚡ 自動選擇
+    type: url-test
+    url: http://www.gstatic.com/generate_204
+    interval: 300
+    tolerance: 50
+    proxies:
 
-  return nodes.filter(node => {
-    const key = `${node.server}:${node.port}:${node.uuid || node.password || ''}:${node.type}`;
+  - name: 💬 AI 服務
+    type: select
+    proxies:
+      - ⚡ 自動選擇
+      - 🚀 節點選擇
 
-    if (seenKey.has(key)) return false;
-    seenKey.add(key);
+  - name: 🍎 蘋果服務
+    type: select
+    proxies:
+      - DIRECT
+      - 🚀 節點選擇
 
-    let baseName = node.name || 'node';
-    baseName = addFlag(baseName);
+  - name: Ⓜ️ 微軟服務
+    type: select
+    proxies:
+      - DIRECT
+      - 🚀 節點選擇
 
-    if (!nameCount.has(baseName)) {
-      nameCount.set(baseName, 1);
-      node.name = baseName;
-    } else {
-      const count = nameCount.get(baseName)! + 1;
-      nameCount.set(baseName, count);
-      node.name = `${baseName}_${count}`;
-    }
-    
-    enrichNodeFeatures(node);
+  - name: 🎮 遊戲平台
+    type: select
+    proxies:
+      - DIRECT
+      - 🚀 節點選擇
 
-    if (node.singboxObj) {
-      node.singboxObj.tag = node.name;
-    }
-    if (node.clashObj) {
-      node.clashObj.name = node.name;
-    }
+  - name: 🌐 非中國
+    type: select
+    proxies:
+      - 🚀 節點選擇
+      - DIRECT
 
-    return true;
-  });
-}
+  - name: 🇨🇳 國內服務
+    type: select
+    proxies:
+      - DIRECT
+      - 🚀 節點選擇
+
+  - name: 🏠 私有網絡
+    type: select
+    proxies:
+      - DIRECT
+
+  - name: 🐟 漏網之魚
+    type: select
+    proxies:
+      - 🚀 節點選擇
+      - DIRECT
+
+  - name: 🛑 廣告攔截
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+
+rule-providers:
+  my-ai:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.mrs"
+    path: ./ruleset/my-ai.mrs
+    interval: 86400
+
+  category-ads-all:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/category-ads-all.mrs"
+    path: ./ruleset/category-ads-all.mrs
+    interval: 86400
+
+  private:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/private.mrs"
+    path: ./ruleset/private.mrs
+    interval: 86400
+
+  private-ip:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/private.mrs"
+    path: ./ruleset/private-ip.mrs
+    interval: 86400
+
+  microsoft:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/microsoft.mrs"
+    path: ./ruleset/microsoft.mrs
+    interval: 86400
+
+  steam:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/steam.mrs"
+    path: ./ruleset/steam.mrs
+    interval: 86400
+
+  epicgames:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/epicgames.mrs"
+    path: ./ruleset/epicgames.mrs
+    interval: 86400
+
+  ea:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/ea.mrs"
+    path: ./ruleset/ea.mrs
+    interval: 86400
+
+  ubisoft:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/ubisoft.mrs"
+    path: ./ruleset/ubisoft.mrs
+    interval: 86400
+
+  blizzard:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/blizzard.mrs"
+    path: ./ruleset/blizzard.mrs
+    interval: 86400
+
+  apple:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/apple.mrs"
+    path: ./ruleset/apple.mrs
+    interval: 86400
+
+  geolocation-non-cn:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/geolocation-!cn.mrs"
+    path: ./ruleset/geolocation-non-cn.mrs
+    interval: 86400
+
+  cn:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/cn.mrs"
+    path: ./ruleset/cn.mrs
+    interval: 86400
+
+  cn-ip:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/cn.mrs"
+    path: ./ruleset/cn-ip.mrs
+    interval: 86400
+
+rules:
+  - RULE-SET,category-ads-all,🛑 廣告攔截
+  - RULE-SET,private,🏠 私有網絡
+  - RULE-SET,private-ip,🏠 私有網絡,no-resolve
+  - RULE-SET,my-ai,💬 AI 服務
+  - RULE-SET,microsoft,Ⓜ️ 微軟服務
+  - RULE-SET,steam,🎮 遊戲平台
+  - RULE-SET,epicgames,🎮 遊戲平台
+  - RULE-SET,ea,🎮 遊戲平台
+  - RULE-SET,ubisoft,🎮 遊戲平台
+  - RULE-SET,blizzard,🎮 遊戲平台
+  - RULE-SET,apple,🍎 蘋果服務
+  - RULE-SET,geolocation-non-cn,🌐 非中國
+  - RULE-SET,cn,🇨🇳 國內服務
+  - RULE-SET,cn-ip,🇨🇳 國內服務,no-resolve
+  - MATCH,🐟 漏網之魚
 
 ````
 
@@ -1411,6 +1566,110 @@ export function toLoon(nodes: ProxyNode[]): string {
   }
 
   return lines.join('\n');
+}
+
+````
+
+## File: src/types.ts
+````ts
+export interface Env {
+  SUB_CACHE: KVNamespace;
+  PAGE_PASSWORD?: string;
+}
+
+export interface WireGuardConfig {
+  privateKey: string;
+  localAddress: string[];
+  publicKey?: string;
+  presharedKey?: string;
+  mtu?: number;
+  reserved?: number[];
+  dns?: string;
+}
+
+export interface MasqueConfig {
+  privateKey: string;
+  publicKey: string;
+  localIpv4?: string;
+  localIpv6?: string;
+  mtu?: number;
+  uri?: string;
+  sni?: string;
+  congestion_controller?: string;
+  dns?: string[];
+}
+
+export interface RealityConfig {
+  publicKey: string;
+  shortId: string;
+  spiderX?: string;
+  supportX25519Mlkem768?: boolean;
+}
+
+export interface ProxyNode {
+  type: string;
+  name: string;
+  server: string;
+  port: number;
+  uuid?: string;
+  password?: string;
+  cipher?: string;
+  udp?: boolean;
+  tls?: boolean;
+  sni?: string;
+  alpn?: string[];
+  fingerprint?: string;
+  flow?: string;
+  network?: string;
+  wsPath?: string;
+  wsHeaders?: Record<string, string>;
+  reality?: RealityConfig;
+  obfs?: string;
+  obfsPassword?: string;
+  skipCertVerify?: boolean;
+  singboxObj?: Record<string, unknown>;
+  clashObj?: Record<string, unknown>;
+  congestion_control?: string;
+  udp_relay_mode?: string;
+  // VLESS SplitHTTP (xhttp)
+  xhttpPath?: string;
+  xhttpHost?: string;
+  xhttpMode?: string;
+  // WireGuard / WARP
+  wireguard?: WireGuardConfig;
+  // Cloudflare WARP MASQUE
+  masque?: MasqueConfig;
+  // ECH (Encrypted Client Hello)
+  ech?: boolean;
+  echQueryServerName?: string;
+  echDoh?: string;
+  // 標籤特徵
+  multiplier?: number;
+  isIplc?: boolean;
+}
+
+export interface CachedTemplate {
+  content: string;
+  updatedAt: number;
+}
+
+export type OperationLogAction =
+  | '獲取訂閱'
+  | '登入後台'
+  | '登入失敗'
+  | '新增配置'
+  | '修改配置'
+  | '刪除配置'
+  | '儲存短連結';
+
+export interface OperationLogEntry {
+  time: string;
+  ip: string;
+  region: string;
+  asn: string;
+  action: OperationLogAction;
+  url: string;
+  ua: string;
 }
 
 ````
@@ -5706,344 +5965,383 @@ export const HTML_PAGE = `<!DOCTYPE html>
 
 ````
 
-## File: Clash_Rules.YAML
-````YAML
-port: 7890
-socks-port: 7891
-mixed-port: 7893
-redir-port: 7892
-tproxy-port: 7895
-allow-lan: true
-bind-address: "*"
-mode: rule
-log-level: info
-ipv6: false
-external-controller: 0.0.0.0:9090
-tcp-concurrent: true
-unified-delay: true
+## File: src/utils.ts
+````ts
+import { ProxyNode } from "./types";
 
-fast-open: false
+// --- 安全 Base64 解碼 ---
+export function safeBase64Decode(str: string): string {
+  try {
+    let b64 = str.replace(/-/g, '+').replace(/_/g, '/').replace(/[^A-Za-z0-9+/=]/g, '');
+    while (b64.length % 4) b64 += '=';
+    
+    const binaryStr = atob(b64);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    return new TextDecoder('utf-8').decode(bytes);
+  } catch {
+    return "";
+  }
+}
 
-profile:
-  store-selected: true
-  store-fake-ip: true
+export function utf8ToBase64(str: string): string {
+  try {
+    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => {
+      return String.fromCharCode(parseInt(p1, 16));
+    }));
+  } catch {
+    return btoa(str);
+  }
+}
 
-sniffer:
-  enable: true
-  override-destination: true
-  sniff:
-    QUIC:
-      ports: [443]
-    TLS:
-      ports: [443, 8443]
-    HTTP:
-      ports: [80, 8080, 8880]
-      override-destination: true
-  force-domain:
-    - "+.netflix.com"
-    - "+.nflxvideo.net"
-    - "+.amazonaws.com"
-    - "+.media.dssott.com"
-  skip-domain:
-    - "+.apple.com"
-    - "Mijia Cloud"
-    - "dlg.io.mi.com"
-    - "+.oray.com"
-    - "+.sunlogin.net"
-    - "+.push.apple.com"
-  parse-pure-ip: true
-  force-dns-mapping: true
+export function tryDecodeURIComponent(str: string): string {
+  try {
+    return decodeURIComponent(str);
+  } catch {
+    return str;
+  }
+}
 
-dns:
-  enable: true
-  ipv6: false
-  listen: 0.0.0.0:1053
-  enhanced-mode: fake-ip
-  fake-ip-range: 198.18.0.1/16
-  fake-ip-filter-mode: blacklist
-  respect-rules: true
-  fake-ip-filter:
-    # 1. 本地局域網與保留頂級域
-    - '*.lan'
-    - '*.localdomain'
-    - '*.example'
-    - '*.invalid'
-    - '*.localhost'
-    - '*.test'
-    - '*.local'
-    - '*.home.arpa'
-    # 2. 網絡連通性測試 (NCSI / 門戶認證)
-    - '*.msftconnecttest.com'
-    - '*.msftncsi.com'
-    - 'msftconnecttest.com'
-    - 'msftncsi.com'
-    - 'captive.apple.com'
-    - 'connectivitycheck.gstatic.com'
-    - 'connectivitycheck.platform.hicloud.com'
-    - 'detectportal.firefox.com'
-    - '+.market.xiaomi.com'
-    # 3. NTP 時間同步服務
-    - 'time.*.com'
-    - 'time.*.gov'
-    - 'time.*.edu.cn'
-    - 'time.*.apple.com'
-    - 'time.apple.com'
-    - 'time-ios.apple.com'
-    - 'ntp.*.com'
-    - '+.pool.ntp.org'
-    # 4. 主機遊戲聯機與 STUN NAT 穿透
-    - 'stun.*.*'
-    - 'stun.*.*.*'
-    - '+.stun.*.*'
-    - '+.stun.*.*.*'
-    - '*.srv.nintendo.net'
-    - '*.stun.playstation.net'
-    - '+.playstation.net'
-    - '+.playstation.com'
-    - '+.sonyentertainmentnetwork.com'
-    - 'xbox.*.microsoft.com'
-    - '*.xboxlive.com'
-    - '*.battlenet.com.cn'
-    - '*.wotblitz.cn'
-    - '*.wggames.cn'
-    - '*.wowsblitz.cn'
-    # 5. Aethersailor 專屬推薦：Google Play 商店更新防轉圈
-    - '+.services.googleapis.cn'
-    - '+.googleapis.cn'
-    - '+.xn--ngstr-lra8j.com'
-    - 'clientservices.googleapis.com'
-    # 6. 規則集直連 (國內域名與私有網段返回真實 IP)
-    - 'rule-set:cn'
-    - 'rule-set:private'
-    - 'rule-set:apple'
+// --- 節點倍率與專線特徵提取 (方案 B2) ---
+export function enrichNodeFeatures(node: ProxyNode): void {
+  const name = node.name || '';
+  
+  // 倍率識別 (例如: 0.1x, 0.5X, 1.5倍, 2×)
+  const multiplierMatch = name.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:x|X|倍|×)/);
+  if (multiplierMatch) {
+    const val = parseFloat(multiplierMatch[1]);
+    if (!isNaN(val)) {
+      node.multiplier = val;
+    }
+  }
 
-  default-nameserver:
-    - system
-    - 119.29.29.29
-    - 223.5.5.5
-    - 1.1.1.1
-    - 8.8.8.8
+  // 專線特徵識別 (IPLC / IEPL / 專線 / 內網)
+  if (/(IPLC|IEPL|专线|專線|内网|內網|BGP专线)/i.test(name)) {
+    node.isIplc = true;
+  }
+}
 
-  direct-nameserver:
-    - system
+// --- 自動加入國旗 Emoji 的智慧辨識系統 ---
+export function addFlag(name: string): string {
+  if (/[\uD83C][\uDDE6-\uDDFF][\uD83C][\uDDE6-\uDDFF]/.test(name)) {
+    return name;
+  }
 
-  proxy-server-nameserver:
-    - https://223.5.5.5/dns-query
-    - https://doh.pub/dns-query
-    - https://1.1.1.1/dns-query
+  const upper = name.toUpperCase();
 
-  nameserver-policy:
-    "rule-set:private":
-      - system
-    "rule-set:cn":
-      - system
-      - https://223.5.5.5/dns-query
-      - https://doh.pub/dns-query
-    "rule-set:apple":
-      - system
+  const isMatch = (codes: string, keywords: string): boolean => {
+    const codeRegex = new RegExp(`(?:^|[^A-Z])(${codes})(?![A-Z])`);
+    const keywordRegex = new RegExp(`(${keywords})`);
+    return codeRegex.test(upper) || keywordRegex.test(upper);
+  };
 
-  nameserver:
-    - https://8.8.8.8/dns-query
-    - https://1.1.1.1/dns-query
+  if (isMatch('HK|HKG', '香港|深港|HONGKONG|HONG KONG')) return "🇭🇰 " + name;
+  if (isMatch('TW|TWN|TPE', '台灣|台湾|台北|新北|彰化')) return "🇹🇼 " + name;
+  if (isMatch('JP|JPN|TYO|OSA|NRT|HND|KIX', '日本|东京|大阪|埼玉|慢日|川日|JAPAN')) return "🇯🇵 " + name;
+  if (isMatch('SG|SGP|SIN', '新加坡|狮城|SINGAPORE')) return "🇸🇬 " + name;
+  if (isMatch('US|USA|LAX|SFO|SJC|SEA|NYC|JFK|EWR', '美国|美利堅|洛杉矶|圣何塞|硅谷|波特兰|西雅图|AMERICA|UNITED STATES')) return "🇺🇸 " + name;
+  if (isMatch('KR|KOR|ICN|SEL', '韩国|首尔|KOREA')) return "🇰🇷 " + name;
+  if (isMatch('UK|GB|GBR|LHR|LON', '英国|英國|伦敦|BRITAIN|ENGLAND')) return "🇬🇧 " + name;
+  if (isMatch('NL|NLD|AMS', '荷兰|荷蘭|阿姆斯特丹|NETHERLANDS')) return "🇳🇱 " + name;
+  if (isMatch('BR|BRA|SAO', '巴西|圣保罗|聖保羅|BRAZIL')) return "🇧🇷 " + name;
+  if (isMatch('EG|EGY|CAI', '埃及|开罗|開羅|EGYPT')) return "🇪🇬 " + name;
+  if (isMatch('VN|VNM|HAN|SGN', '越南|河内|河內|西贡|VIETNAM')) return "🇻🇳 " + name;
+  if (isMatch('MO|MAC|MFM', '澳門|澳门')) return "🇲🇴 " + name;
+  if (isMatch('KH|KHM|PNH', '柬埔寨|金边|金邊|CAMBODIA')) return "🇰🇭 " + name;
+  if (isMatch('GR|GRC|ATH', '希腊|希臘|雅典|GREECE')) return "🇬🇷 " + name;
+  if (isMatch('PL|POL|WAW', '波兰|波蘭|华沙|華沙|POLAND')) return "🇵🇱 " + name;
+  if (isMatch('IT|ITA|MIL', '意大利|義大和|米兰|羅馬|ITALY')) return "🇮🇹 " + name;
+  if (isMatch('ES|ESP|MAD', '西班牙|马德里|巴塞隆納|SPAIN')) return "🇪🇸 " + name;
+  if (isMatch('DE|DEU|FRA', '德国|德國|法兰克福|GERMANY')) return "🇩🇪 " + name;
+  if (isMatch('FR|FRA|CDG', '法国|法國|巴黎|FRANCE')) return "🇫🇷 " + name;
+  if (isMatch('RU|RUS', '俄罗斯|俄羅斯|莫斯科|RUSSIA')) return "🇷🇺 " + name;
+  if (isMatch('CH|CHE|ZRH', '瑞士|苏黎世|日内瓦|SWITZERLAND')) return "🇨🇭 " + name;
+  if (isMatch('SE|SWE|ARN', '瑞典|斯德哥尔摩|SWEDEN')) return "🇸🇪 " + name;
+  if (isMatch('NO|NOR|OSL', '挪威|奥斯陆|NORWAY')) return "🇳🇴 " + name;
+  if (isMatch('FI|FIN|HEL', '芬兰|芬蘭|赫尔辛基|FINLAND')) return "🇫🇮 " + name;
+  if (isMatch('DK|DNK|CPH', '丹麦|丹麥|哥本哈根|DENMARK')) return "🇩🇰 " + name;
+  if (isMatch('IE|IRL|DUB', '爱尔兰|愛爾蘭|都柏林|IRELAND')) return "🇮🇪 " + name;
+  if (isMatch('PT|PRT|LIS', '葡萄牙|里斯本|PORTUGAL')) return "🇵🇹 " + name;
+  if (isMatch('TH|THA|BKK', '泰国|泰國|曼谷|THAILAND')) return "🇹🇭 " + name;
+  if (isMatch('MY|MYS|KUL', '马来西亚|馬來西亞|吉隆坡|MALAYSIA')) return "🇲🇾 " + name;
+  if (isMatch('PH|PHL|MNL', '菲律宾|菲律賓|马尼拉|PHILIPPINES')) return "🇵🇭 " + name;
+  if (isMatch('ID|IDN|CGK', '印度尼西亚|印尼|雅加达|INDONESIA')) return "🇮🇩 " + name;
+  if (isMatch('TR|TUR|IST', '土耳其|伊斯坦堡|TURKEY')) return "🇹🇷 " + name;
+  if (isMatch('IN|IND|BOM', '印度|孟买|INDIA')) return "🇮🇳 " + name;
+  if (isMatch('CA|CAN|YVR|YYZ', '加拿大|多伦多|温哥华|CANADA')) return "🇨🇦 " + name;
+  if (isMatch('AU|AUS|SYD|MEL', '澳大利亚|澳洲|悉尼|墨本|AUSTRALIA')) return "🇦🇺 " + name;
+  if (isMatch('CN|CHN', '中国|回国|国内|北京|上海|廣州|深圳|CHINA')) return "🇨🇳 " + name;
+  if (isMatch('NZ|NZL|AKL', '新西兰|紐西蘭|奥克兰|NEW ZEALAND')) return "🇳🇿 " + name;
+  if (isMatch('AE|ARE|DXB', '阿联酋|迪拜|杜拜|UAE')) return "🇦🇪 " + name;
+  if (isMatch('SA|SAU|RUH', '沙特|沙烏地阿拉伯|利雅德|SAUDI')) return "🇸🇦 " + name;
+  if (isMatch('IL|ISR|TLV', '以色列|特拉维夫|ISRAEL')) return "🇮🇱 " + name;
+  if (isMatch('KZ|KAZ', '哈萨克斯坦|哈薩克|KAZAKHSTAN')) return "🇰🇿 " + name;
+  if (isMatch('PK|PAK', '巴基斯坦|PAKISTAN')) return "🇵🇰 " + name;
+  if (isMatch('ZA|ZAF|CPT', '南非|开普敦|SOUTH AFRICA')) return "🇿🇦 " + name;
 
-proxies:
+  return "🇺🇳 " + name;
+}
 
-proxy-groups:
-  - name: 🚀 節點選擇
-    type: select
-    proxies:
-      - ⚡ 自動選擇
-      - DIRECT
+// 按國旗進行歸類排序（🇺🇳 置於頂部）
+export function groupNodesByFlag(nodes: ProxyNode[]): ProxyNode[] {
+  const groups = new Map<string, ProxyNode[]>();
+  const flagOrder: string[] = [];
+  
+  for (const node of nodes) {
+    const flaggedName = addFlag(node.name || 'node');
+    
+    let flag = '🇺🇳';
+    const match = flaggedName.match(/^([\uD83C][\uDDE6-\uDDFF][\uD83C][\uDDE6-\uDDFF])/);
+    if (match) {
+      flag = match[1];
+    }
+    
+    if (!groups.has(flag)) {
+      groups.set(flag, []);
+      flagOrder.push(flag);
+    }
+    groups.get(flag)!.push(node);
+  }
+  
+  const standardOrder = [
+    '🇭🇰', '🇹🇼', '🇯🇵', '🇸🇬', '🇰🇷',
+    '🇺🇸', '🇬🇧', '🇨🇦', '🇦🇺',
+    '🇲🇴', '🇨🇳', '🇹🇭', '🇻🇳', '🇲🇾', '🇵🇭', '🇮🇩',
+    '🇩🇪', '🇫🇷', '🇳🇱', '🇷🇺', '🇮🇳', '🇹🇷'
+  ];
+  
+  flagOrder.sort((a, b) => {
+    if (a === '🇺🇳' && b !== '🇺🇳') return -1;
+    if (b === '🇺🇳' && a !== '🇺🇳') return 1;
+    
+    const idxA = standardOrder.indexOf(a);
+    const idxB = standardOrder.indexOf(b);
+    
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    
+    return a.localeCompare(b);
+  });
+  
+  const result: ProxyNode[] = [];
+  for (const flag of flagOrder) {
+    result.push(...groups.get(flag)!);
+  }
+  return result;
+}
 
-  - name: ⚡ 自動選擇
-    type: url-test
-    url: http://www.gstatic.com/generate_204
-    interval: 300
-    tolerance: 50
-    proxies:
+// 去重複命名與賦予特徵標記
+export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
+  const seenKey = new Set<string>();
+  const nameCount = new Map<string, number>();
 
-  - name: 💬 AI 服務
-    type: select
-    proxies:
-      - ⚡ 自動選擇
-      - 🚀 節點選擇
+  return nodes.filter(node => {
+    const key = `${node.server}:${node.port}:${node.uuid || node.password || ''}:${node.type}`;
 
-  - name: 🍎 蘋果服務
-    type: select
-    proxies:
-      - DIRECT
-      - 🚀 節點選擇
+    if (seenKey.has(key)) return false;
+    seenKey.add(key);
 
-  - name: Ⓜ️ 微軟服務
-    type: select
-    proxies:
-      - DIRECT
-      - 🚀 節點選擇
+    let baseName = node.name || 'node';
+    baseName = addFlag(baseName);
 
-  - name: 🎮 遊戲平台
-    type: select
-    proxies:
-      - DIRECT
-      - 🚀 節點選擇
+    if (!nameCount.has(baseName)) {
+      nameCount.set(baseName, 1);
+      node.name = baseName;
+    } else {
+      const count = nameCount.get(baseName)! + 1;
+      nameCount.set(baseName, count);
+      node.name = `${baseName}_${count}`;
+    }
+    
+    enrichNodeFeatures(node);
 
-  - name: 🌐 非中國
-    type: select
-    proxies:
-      - 🚀 節點選擇
-      - DIRECT
+    if (node.singboxObj) {
+      node.singboxObj.tag = node.name;
+    }
+    if (node.clashObj) {
+      node.clashObj.name = node.name;
+    }
 
-  - name: 🇨🇳 國內服務
-    type: select
-    proxies:
-      - DIRECT
-      - 🚀 節點選擇
+    return true;
+  });
+}
 
-  - name: 🏠 私有網絡
-    type: select
-    proxies:
-      - DIRECT
+````
 
-  - name: 🐟 漏網之魚
-    type: select
-    proxies:
-      - 🚀 節點選擇
-      - DIRECT
+## File: Honk_Rules.DAE
+````DAE
+# ==============================================================================
+# OpenWrt Honk-Core / DAE 完整設定檔 (由 CF Sub Converter 動態產生，適配 Honk 最新規範)
+# 儲存路徑: /etc/honk/config.dae
+# 可在 GitHub 倉庫直接修改此檔案，客戶端拉取時即時生效！
+# ==============================================================================
 
-  - name: 🛑 廣告攔截
-    type: select
-    proxies:
-      - REJECT
-      - DIRECT
+global {
+    # 綁定外網介面 (預設 auto 自動偵測。若為 PPPoE 撥接上網，可能需手動改為 pppoe-wan)
+    wan_interface: auto
+    # 綁定內網介面 (請務必確認你的路由器 LAN 網卡名稱，預設為 br-lan。多網卡可用逗號隔開)
+    lan_interface: br-lan
 
-rule-providers:
-  my-ai:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.mrs"
-    path: ./ruleset/my-ai.mrs
-    interval: 86400
+    dial_mode: domain
+    allow_insecure: false
+    auto_config_kernel_parameter: true
+    data_dir: '/etc/honk'
+    log_level: info
+    log_file: ''
 
-  category-ads-all:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/category-ads-all.mrs"
-    path: ./ruleset/category-ads-all.mrs
-    interval: 86400
+    tcp_check_url: 'https://www.gstatic.com/generate_204'
+    tcp_check_http_method: HEAD
+    # 【已修復】個別獨立加上引號，符合 Honk 現代列表語法
+    udp_check_dns: 'dns.google.com:53', '8.8.8.8', '2001:4860:4860::8888'
+    check_interval: 300s
+    check_tolerance: 50ms
 
-  private:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/private.mrs"
-    path: ./ruleset/private.mrs
-    interval: 86400
+    # 基礎引導 DNS (用於節點與訂閱連結的初始解析)
+    bootstrap_resolver: '1.1.1.1:53'
 
-  private-ip:
-    type: http
-    behavior: ipcidr
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/private.mrs"
-    path: ./ruleset/private-ip.mrs
-    interval: 86400
+    # 【Honk 最新特性】保存成功獲取的訂閱正文到運行目錄，重啟或斷網時可離線恢復節點
+    store_subscribe: true
 
-  microsoft:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/microsoft.mrs"
-    path: ./ruleset/microsoft.mrs
-    interval: 86400
+    # 【Honk 最新特性】持有有歧義 LAN 轉發 UDP 首包，徹底消除遊戲或 UDP 連線首包丟失
+    nfqueue_enable: true
 
-  steam:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/steam.mrs"
-    path: ./ruleset/steam.mrs
-    interval: 86400
+    # 【Honk 最新特性】預熱與撥號預算：大訂閱基線關閉額外 UDP/TCP 預熱，保護路由器記憶體
+    udp_warm_node_count: 0
+    preconnect_node_count: 0
+}
 
-  epicgames:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/epicgames.mrs"
-    path: ./ruleset/epicgames.mrs
-    interval: 86400
+# ==============================================================================
+# 原生 Web API 與 Doona Web UI (內網瀏覽 http://<路由器IP>:9527)
+# ==============================================================================
+experimental {
+    native_api {
+        enabled: true
+        # Doona 面板監聽位址 (0.0.0.0 代表允許內網所有設備透過路由器 IP 訪問)
+        listen: '0.0.0.0:9527'
+        password_auth: true
+        config_write: true
+        ui: 'embedded'
+    }
+    cache_file {
+        enabled: true
+        store_dns: true
+    }
+}
 
-  ea:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/ea.mrs"
-    path: ./ruleset/ea.mrs
-    interval: 86400
+# ==============================================================================
+# 訂閱配置 (直連下載，每 12 小時自動更新)
+# ==============================================================================
+subscription {
+    {{SUB_TAG}}: '{{SUB_URL}}' {
+        route: direct
+        # 訂閱自動更新間隔 (43200 秒 = 12 小時，可自行更改)
+        interval: 43200s
+    }
+}
 
-  ubisoft:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/ubisoft.mrs"
-    path: ./ruleset/ubisoft.mrs
-    interval: 86400
+# ==============================================================================
+# 策略分流群組 (Group)
+# ==============================================================================
+group {
+    '💬 AI 服務' {
+        policy: min_moving_avg
+    }
 
-  blizzard:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/blizzard.mrs"
-    path: ./ruleset/blizzard.mrs
-    interval: 86400
+    'Ⓜ️ 微軟服務' {
+        policy: min_moving_avg
+    }
 
-  apple:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/apple.mrs"
-    path: ./ruleset/apple.mrs
-    interval: 86400
+    '🎮 遊戲平台' {
+        policy: min_moving_avg
+    }
 
-  geolocation-non-cn:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/geolocation-!cn.mrs"
-    path: ./ruleset/geolocation-non-cn.mrs
-    interval: 86400
+    '🍎 蘋果服務' {
+        policy: min_moving_avg
+    }
 
-  cn:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/cn.mrs"
-    path: ./ruleset/cn.mrs
-    interval: 86400
+    '🌐 非中國' {
+        policy: min_moving_avg
+    }
 
-  cn-ip:
-    type: http
-    behavior: ipcidr
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/cn.mrs"
-    path: ./ruleset/cn-ip.mrs
-    interval: 86400
+    # 🐟 漏網之魚專用：採用 score (綜合評分)
+    '🐟 漏網之魚' {
+        policy: score
+    }
+}
 
-rules:
-  - RULE-SET,category-ads-all,🛑 廣告攔截
-  - RULE-SET,private,🏠 私有網絡
-  - RULE-SET,private-ip,🏠 私有網絡,no-resolve
-  - RULE-SET,my-ai,💬 AI 服務
-  - RULE-SET,microsoft,Ⓜ️ 微軟服務
-  - RULE-SET,steam,🎮 遊戲平台
-  - RULE-SET,epicgames,🎮 遊戲平台
-  - RULE-SET,ea,🎮 遊戲平台
-  - RULE-SET,ubisoft,🎮 遊戲平台
-  - RULE-SET,blizzard,🎮 遊戲平台
-  - RULE-SET,apple,🍎 蘋果服務
-  - RULE-SET,geolocation-non-cn,🌐 非中國
-  - RULE-SET,cn,🇨🇳 國內服務
-  - RULE-SET,cn-ip,🇨🇳 國內服務,no-resolve
-  - MATCH,🐟 漏網之魚
+# ==============================================================================
+# DNS 智慧解析 (localdns 走本機 dnsmasq，即 OpenWrt 原生 system DNS)
+# ==============================================================================
+dns {
+    # 向上游攜帶 ECS (客戶端近似網段)，改善國內 CDN 解析在地性
+    client_subnet: auto
+
+    upstream {
+        googledns: 'tcp+udp://8.8.8.8:53'
+        googledoh: 'https://8.8.8.8/dns-query'
+        cfdns: 'tcp+udp://1.1.1.1:53'
+        cfdoh: 'https://1.1.1.1/dns-query'
+        localdns: 'udp://127.0.0.1:53'
+    }
+    routing {
+        request {
+            # 拒絕 HTTPS 記錄查詢，防止客戶端因 ECH 握手異常中斷
+            qtype(https) -> reject
+            qname(geosite:category-ads-all) -> reject
+            qname(geosite:cn) -> localdns
+            fallback: googledoh
+        }
+        response {
+            # 漏網國內網域挽救：若海外 DoH 回傳中國大陸 IP，退回 localdns 重新解析以獲得最優 CDN
+            upstream(googledoh) && ip(geoip:cn) -> localdns
+            upstream(cfdoh) && ip(geoip:cn) -> localdns
+            fallback: accept
+        }
+    }
+}
+
+# ==============================================================================
+# eBPF 流量路由規則
+# ==============================================================================
+routing {
+    # 核心系統服務與 DNS 直連，防回環加固
+    pname(dnsmasq, systemd-resolved) && l4proto(udp) && dport(53) -> direct(must)
+    pname(NetworkManager, systemd-networkd, systemd-resolved, dhcpcd) -> direct
+    pname(sing-box, mihomo, frpc, einat) -> direct(must)
+
+    dip(224.0.0.0/3, 'ff00::/8') -> direct
+
+    # 1. 🏠 私有網絡 (旁路由環境採用純 direct，保留 eBPF 狀態追蹤)
+    dip(geoip:private) -> direct
+
+    # 2. 🛑 廣告攔截
+    domain(geosite:category-ads-all) -> block
+
+    # 3. 💬 AI 服務 (由轉換器動態提取注入)
+    {{AI_RULES}}
+
+    # 4. Ⓜ️ 微軟服務
+    domain(geosite:microsoft) -> 'Ⓜ️ 微軟服務'
+
+    # 5. 🎮 遊戲平台
+    domain(geosite:steam, geosite:epicgames, geosite:ea, geosite:ubisoft, geosite:blizzard) -> '🎮 遊戲平台'
+
+    # 6. 🍎 蘋果服務
+    domain(geosite:apple) -> '🍎 蘋果服務'
+
+    # 7. 🌐 非中國 (國外網站)
+    domain(geosite:geolocation-!cn) -> '🌐 非中國'
+
+    # 8. 🇨🇳 國內服務 (中國國內網域與 IP 全部直連)
+    domain(geosite:cn) -> direct
+    dip(geoip:cn) -> direct
+
+    # 9. 🐟 漏網之魚 (最終兜底)
+    fallback: '🐟 漏網之魚'
+}
 
 ````
 
@@ -6345,469 +6643,171 @@ cf-sub-converter/
 
 ````
 
-## File: wrangler.toml
-````toml
-name = "my-sub-converter"
-main = "src/index.ts"
-compatibility_date = "2024-04-01"
-
-[placement]
-mode = "smart"
-
-[[kv_namespaces]]
-binding = "SUB_CACHE"
-id = "KV_ID_PLACEHOLDER"
-
-[vars]
-# 💥 私密管理密碼（選填）：設定後將保護「已儲存的配置」管理區域，避免他人檢視或竄改
-# PAGE_PASSWORD = "your_secret_password"
-
-````
-
-## File: scripts/argo-converter.ts
-````ts
-// scripts/argo-converter.ts
-import fs from 'fs';
-import path from 'path';
-import readline from 'readline';
-import { Buffer } from 'buffer';
-
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout
-});
-
-const question = (query: string): Promise<string> => {
-  return new Promise((resolve) => rl.question(query, resolve));
-};
-
-interface VlessNode {
-  originalLink: string;
-  uuid: string;
-  server: string;
-  port: string;
-  type: string;
-  path: string;
-  host: string;
-  sni: string;
-  name: string;
-}
-
-// 簡易 VLESS 連結解析器
-function parseVlessLink(link: string): VlessNode | null {
-  try {
-    const urlStr = link.replace('vless://', 'http://');
-    const url = new URL(urlStr);
-    const params = url.searchParams;
-    return {
-      originalLink: link,
-      uuid: url.username,
-      server: url.hostname,
-      port: url.port,
-      type: params.get('type') || 'ws',
-      path: params.get('path') || '/',
-      host: params.get('host') || params.get('sni') || url.hostname,
-      sni: params.get('sni') || url.hostname,
-      name: decodeURIComponent(url.hash.slice(1)) || 'VLESS Node'
-    };
-  } catch {
-    return null;
-  }
-}
-
-// 獲取並解析訂閱
-async function fetchAndParse(input: string): Promise<VlessNode[]> {
-  let content = input.trim();
-  if (input.startsWith('http')) {
-    console.log('正在獲取網址內容...');
-    try {
-      const res = await fetch(input, {
-        headers: { 'User-Agent': 'v2rayNG/1.8.5' }
-      });
-      if (!res.ok) throw new Error(`HTTP 狀態碼 ${res.status}`);
-      content = await res.text();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.log(`獲取訂閱失敗: ${msg}`);
-      return [];
+## File: Sing-Box_Rules.JSON
+````JSON
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "http_clients": [
+    {
+      "tag": "default"
+    }
+  ],
+  "dns": {
+    "servers": [
+      {
+        "tag": "remote-dns",
+        "type": "https",
+        "server": "8.8.8.8",
+        "detour": "🚀 節點選擇"
+      },
+      {
+        "tag": "remote-cf-dns",
+        "type": "https",
+        "server": "1.1.1.1",
+        "detour": "🚀 節點選擇"
+      },
+      {
+        "tag": "system-dns",
+        "type": "local"
+      },
+      {
+        "tag": "local-dns",
+        "type": "local"
+      },
+      {
+        "tag": "fakeip-dns",
+        "type": "fakeip",
+        "inet4_range": "198.18.0.0/15"
+      }
+    ],
+    "rules": [
+      {
+        "clash_mode": "Direct",
+        "server": "system-dns"
+      },
+      {
+        "clash_mode": "Global",
+        "query_type": ["A", "AAAA"],
+        "server": "fakeip-dns"
+      },
+      {
+        "rule_set": [
+          "rs-private"
+        ],
+        "server": "system-dns"
+      },
+      {
+        "rule_set": [
+          "rs-cn"
+        ],
+        "server": "system-dns",
+        "disable_cache": true
+      },
+      {
+        "rule_set": [
+          "rs-apple"
+        ],
+        "server": "system-dns",
+        "disable_cache": true
+      },
+      {
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "rule_set": [
+          "rs-geolocation-!cn",
+          "rs-ai"
+        ],
+        "server": "fakeip-dns"
+      }
+    ],
+    "final": "remote-dns",
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "interface_name": "tun0",
+      "address": [
+        "172.19.0.1/30"
+      ],
+      "stack": "mixed",
+      "auto_route": true,
+      "strict_route": true
+    }
+  ],
+  "outbounds": [
+    { "type": "selector", "tag": "🚀 節點選擇", "outbounds": ["⚡ 自動選擇", "DIRECT"] },
+    { "type": "urltest", "tag": "⚡ 自動選擇", "outbounds": [], "url": "https://www.gstatic.com/generate_204", "interval": "3m", "tolerance": 50 },
+    { "type": "selector", "tag": "💬 AI 服務", "outbounds": ["⚡ 自動選擇", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🍎 蘋果服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "Ⓜ️ 微軟服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🎮 遊戲平台", "outbounds": ["DIRECT", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🌐 非中國", "outbounds": ["🚀 節點選擇", "DIRECT"] },
+    { "type": "selector", "tag": "🇨🇳 國內服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🏠 私有網絡", "outbounds": ["DIRECT"] },
+    { "type": "selector", "tag": "🐟 漏網之魚", "outbounds": ["🚀 節點選擇", "DIRECT"] },
+    { "type": "selector", "tag": "🛑 廣告攔截", "outbounds": ["REJECT", "DIRECT"] },
+    
+    { "type": "direct", "tag": "DIRECT" },
+    { "type": "block", "tag": "REJECT" }
+  ],
+  "route": {
+    "default_domain_resolver": "system-dns",
+    "default_http_client": "default",
+    "rule_set": [
+      { "type": "remote", "tag": "rs-ai", "format": "binary", "url": "https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.srs" },
+      { "type": "remote", "tag": "rs-apple", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/apple.srs" },
+      { "type": "remote", "tag": "rs-microsoft", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/microsoft.srs" },
+      { "type": "remote", "tag": "rs-steam", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/steam.srs" },
+      { "type": "remote", "tag": "rs-epicgames", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/epicgames.srs" },
+      { "type": "remote", "tag": "rs-ea", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/ea.srs" },
+      { "type": "remote", "tag": "rs-ubisoft", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/ubisoft.srs" },
+      { "type": "remote", "tag": "rs-blizzard", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/blizzard.srs" },
+      { "type": "remote", "tag": "rs-geolocation-!cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/geolocation-!cn.srs" },
+      { "type": "remote", "tag": "rs-cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs" },
+      { "type": "remote", "tag": "ip-cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/cn.srs" },
+      { "type": "remote", "tag": "rs-ads", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ads-all.srs" },
+      { "type": "remote", "tag": "rs-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/private.srs" },
+      { "type": "remote", "tag": "ip-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs" }
+    ],
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      { "protocol": "dns", "action": "hijack-dns" },
+      { "clash_mode": "Direct", "outbound": "DIRECT" },
+      { "clash_mode": "Global", "outbound": "🚀 節點選擇" },
+      { "rule_set": "rs-ads", "outbound": "🛑 廣告攔截" },
+      { "rule_set": ["rs-private", "ip-private"], "outbound": "🏠 私有網絡" },
+      { "rule_set": "rs-ai", "outbound": "💬 AI 服務" },
+      { "rule_set": "rs-microsoft", "outbound": "Ⓜ️ 微軟服務" },
+      { "rule_set": ["rs-steam", "rs-epicgames", "rs-ea", "rs-ubisoft", "rs-blizzard"], "outbound": "🎮 遊戲平台" },
+      { "rule_set": "rs-geolocation-!cn", "outbound": "🌐 非中國" },
+      { "rule_set": "rs-apple", "outbound": "🍎 蘋果服務" },
+      { "rule_set": ["rs-cn", "ip-cn"], "outbound": "🇨🇳 國內服務" },
+      { "outbound": "🐟 漏網之魚" }
+    ],
+    "auto_detect_interface": true
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "store_fakeip": true
+    },
+    "clash_api": {
+      "external_controller": "127.0.0.1:9090",
+      "external_ui": "ui",
+      "secret": "",
+      "default_mode": "rule"
     }
   }
-
-  // 嘗試 Base64 解碼
-  let decoded = content;
-  try {
-    const cleaned = content.replace(/[\s\r\n]+/g, '');
-    decoded = Buffer.from(cleaned, 'base64').toString('utf8');
-  } catch {
-    // 解碼失敗則視為純文字
-  }
-
-  const lines = decoded.split(/\r?\n/);
-  const vlessNodes: VlessNode[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('vless://')) {
-      const parsed = parseVlessLink(trimmed);
-      if (parsed) vlessNodes.push(parsed);
-    }
-  }
-  return vlessNodes;
 }
-
-// 生成 VPS 安裝腳本模板
-function generateVpsScript(node: VlessNode, port: string, token: string, domain: string): string {
-  return `#!/bin/bash
-# Cloudflare Argo Tunnel 一鍵部署腳本 (由 cf-sub-converter 自動生成)
-# 適用於已使用 mack-a v2ray-agent 部署之 Xray/Sing-box 環境
-
-GREEN='\\033[0;32m'
-RED='\\033[0;31m'
-NC='\\033[0m'
-
-echo -e "\${GREEN}=== 開始部署 Cloudflare Argo 隧道 ===\${NC}"
-
-if [ "$EUID" -ne 0 ]; then
-  echo -e "\${RED}錯誤: 請使用 root 權限執行此腳本！\${NC}"
-  exit 1
-fi
-
-# 節點參數配置
-VLESS_UUID="${node.uuid}"
-VLESS_PATH="${node.path}"
-VLESS_TYPE="${node.type}"
-VLESS_PORT="${port}"
-NODE_NAME="${node.name}"
-TUNNEL_TOKEN="${token.trim()}"
-CUSTOM_DOMAIN="${domain.trim()}"
-
-# 下載安裝 cloudflared
-if ! command -v cloudflared &> /dev/null; then
-    echo "正在下載安裝 cloudflared..."
-    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
-    chmod +x /usr/local/bin/cloudflared
-    echo "cloudflared 安裝完成！"
-else
-    echo "cloudflared 已存在，跳過安裝。"
-fi
-
-# 判斷是否使用固定隧道
-if [ -n "$TUNNEL_TOKEN" ]; then
-    echo -e "\${GREEN}【固定隧道模式】正在配置服務...\${NC}"
-    cloudflared service uninstall &> /dev/null
-    cloudflared service install "$TUNNEL_TOKEN"
-    systemctl daemon-reload
-    systemctl enable cloudflared
-    systemctl restart cloudflared
-    
-    echo -e "\${GREEN}部署成功！\${NC}"
-    echo "請確保已在 Cloudflare Dashboard 中將網域 '$CUSTOM_DOMAIN' 指向本地 'http://localhost:$VLESS_PORT'"
-    
-    # 輸出用戶端連結
-    FINAL_LINK="vless://$VLESS_UUID@$CUSTOM_DOMAIN:443?encryption=none&security=tls&type=$VLESS_TYPE&host=$CUSTOM_DOMAIN"
-    if [ "$VLESS_TYPE" = "ws" ]; then
-        FINAL_LINK="$FINAL_LINK&path=$(echo -n "$VLESS_PATH" | jq -s -R -r @uri 2>/dev/null || echo -n "$VLESS_PATH")"
-    fi
-    FINAL_LINK="$FINAL_LINK#Argo-$NODE_NAME"
-    echo -e "\n\${GREEN}您的 Argo VLESS 訂閱連結為:\${NC}"
-    echo -e "\${GREEN}$FINAL_LINK\${NC}\n"
-else
-    echo -e "\${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...\${NC}"
-    systemctl stop cloudflared-argo &> /dev/null
-    
-    # 寫入 systemd 臨時隧道服務
-    cat <<EOF > /etc/systemd/system/cloudflared-argo.service
-[Unit]
-Description=Cloudflare Argo Temporary Tunnel for VLESS
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/cloudflared tunnel --url http://127.0.0.1:$VLESS_PORT
-Restart=always
-RestartSec=5
-StandardOutput=file:/var/log/cloudflared-argo.log
-StandardError=file:/var/log/cloudflared-argo.log
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    touch /var/log/cloudflared-argo.log
-    systemctl daemon-reload
-    systemctl enable cloudflared-argo
-    systemctl start cloudflared-argo
-    
-    echo "正在等待 Cloudflare 分配臨時域名 (約需 10-15 秒)..."
-    TEMP_DOMAIN=""
-    for i in {1..15}; do
-        sleep 1
-        TEMP_DOMAIN=$(grep -oE 'https://[a-zA-Z0-9-]+\\.trycloudflare\\.com' /var/log/cloudflared-argo.log | head -n 1 | sed 's/https:\\/\\///')
-        if [ -n "$TEMP_DOMAIN" ]; then
-            break
-        fi
-    done
-    
-    if [ -n "$TEMP_DOMAIN" ]; then
-        echo -e "\${GREEN}獲取域名成功: \$TEMP_DOMAIN\${NC}"
-        FINAL_LINK="vless://$VLESS_UUID@\$TEMP_DOMAIN:443?encryption=none&security=tls&type=$VLESS_TYPE&host=\$TEMP_DOMAIN"
-        if [ "$VLESS_TYPE" = "ws" ]; then
-            FINAL_LINK="$FINAL_LINK&path=$(echo -n "$VLESS_PATH" | jq -s -R -r @uri 2>/dev/null || echo -n "$VLESS_PATH")"
-        fi
-        FINAL_LINK="$FINAL_LINK#Argo-Temp-$NODE_NAME"
-        
-        echo -e "\n\${GREEN}=== 部署成功 ===\${NC}"
-        echo -e "原節點名稱: $NODE_NAME"
-        echo -e "轉發連接埠: $VLESS_PORT"
-        echo -e "您的臨時 Argo 節點 VLESS 連結為 (注意：VPS 重啟或重開服務後域名會刷新):"
-        echo -e "\${GREEN}\$FINAL_LINK\${NC}\n"
-    else
-        echo -e "\${RED}錯誤: 獲取臨時域名超時！請執行 'cat /var/log/cloudflared-argo.log' 檢查日誌。\${NC}"
-    fi
-fi
-`;
-}
-
-async function main() {
-  console.log('==============================================');
-  console.log('      VLESS -> Cloudflare Argo 轉換工具');
-  console.log('==============================================');
-
-  const input = await question('請輸入訂閱地址、多個 VLESS 節點、或儲存配置的訂閱網址:\n> ');
-  if (!input.trim()) {
-    console.log('輸入不能為空。');
-    rl.close();
-    return;
-  }
-
-  const nodes = await fetchAndParse(input);
-  if (nodes.length === 0) {
-    console.log('未找到任何有效的 VLESS 節點。');
-    rl.close();
-    return;
-  }
-
-  console.log(`\n成功解析出 ${nodes.length} 個 VLESS 節點:`);
-  nodes.forEach((node, i) => {
-    console.log(`  [${i + 1}] ${node.name} (${node.server}:${node.port}, 傳輸協定: ${node.type})`);
-  });
-
-  const select = await question('\n請選擇要複製並轉換的節點 (輸入數字並用逗號隔開，例如: 1,3 ；或輸入 all 代表全部):\n> ');
-  let selectedNodes: VlessNode[] = [];
-  if (select.trim().toLowerCase() === 'all') {
-    selectedNodes = nodes;
-  } else {
-    const indices = select.split(',').map(s => parseInt(s.trim(), 10) - 1);
-    selectedNodes = indices.map(idx => nodes[idx]).filter((n): n is VlessNode => Boolean(n));
-  }
-
-  if (selectedNodes.length === 0) {
-    console.log('選擇無效，程式結束。');
-    rl.close();
-    return;
-  }
-
-  console.log(`\n已選擇 ${selectedNodes.length} 個節點進行轉換...`);
-
-  // 本地連接埠設定
-  const port = await question('\n1. 請輸入該 VLESS 節點在 VPS 上監聽的本地連接埠 (預設 8080，請與 mack-a 配置一致):\n> ') || '8080';
-
-  // Argo Tunnel 授權設定
-  console.log('\n2. 隧道設定（直接斷行即代表隨機生成臨時隧道）：');
-  const token = await question('   請貼上您的 Cloudflare Tunnel Token (選填):\n   > ');
-
-  let domain = '';
-  if (token.trim()) {
-    domain = await question('   請輸入該隧道綁定的自訂域名 (例如: vless.domain.com):\n   > ');
-    if (!domain.trim()) {
-      console.log('   錯誤: 固定隧道模式必須提供自訂域名。');
-      rl.close();
-      return;
-    }
-  }
-
-  // 建立腳本存放目錄
-  const outputDir = path.join(process.cwd(), 'argo_outputs');
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir);
-  }
-
-  const generatedNodes: string[] = [];
-
-  for (const node of selectedNodes) {
-    // 保留原本節點
-    generatedNodes.push(node.originalLink);
-
-    // 生成並寫入一鍵 VPS 腳本
-    const vpsScript = generateVpsScript(node, port, token, domain);
-    const safeNodeName = node.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
-    const scriptPath = path.join(outputDir, `argo-install-${safeNodeName}.sh`);
-    
-    fs.writeFileSync(scriptPath, vpsScript, { encoding: 'utf8', mode: 0o755 });
-    console.log(`\n[✓] 成功生成 VPS 安裝腳本: ${scriptPath}`);
-
-    // 如果是固定隧道，可以直接在本地計算出新的 Argo 節點
-    if (token.trim() && domain.trim()) {
-      const argoLink = `vless://${node.uuid}@${domain.trim()}:443?encryption=none&security=tls&type=${node.type}&host=${domain.trim()}${node.type === 'ws' ? `&path=${encodeURIComponent(node.path)}` : ''}#Argo-${node.name}`;
-      generatedNodes.push(argoLink);
-      console.log(`    └─ 同步生成 Argo 節點連結: ${argoLink}`);
-    } else {
-      console.log(`    └─ 臨時隧道模式：節點連結需在 VPS 上執行腳本後動態輸出。`);
-    }
-  }
-
-  // 如果有生成固定隧道的節點，將新舊節點整合寫入訂閱文件
-  if (generatedNodes.length > selectedNodes.length) {
-    const subPath = path.join(outputDir, 'argo_subscription.txt');
-    fs.writeFileSync(subPath, generatedNodes.join('\n'), 'utf8');
-    const base64Sub = Buffer.from(generatedNodes.join('\n')).toString('base64');
-    fs.writeFileSync(path.join(outputDir, 'argo_subscription_base64.txt'), base64Sub, 'utf8');
-    
-    console.log(`\n[✓] 整合訂閱已生成（含原節點 + 新 Argo 節點）:`);
-    console.log(`    - 明文列表: ${path.join(outputDir, 'argo_subscription.txt')}`);
-    console.log(`    - Base64 格式: ${path.join(outputDir, 'argo_subscription_base64.txt')}`);
-  }
-
-  console.log('\n==============================================');
-  console.log('部署說明：');
-  console.log('1. 請將 argo_outputs 目錄內對應的 .sh 腳本上傳至您的 VPS。');
-  console.log('2. 執行命令賦予執行權限並啟動：');
-  console.log('   chmod +x argo-install-*.sh && ./argo-install-*.sh');
-  console.log('==============================================');
-
-  rl.close();
-}
-
-main();
-
-````
-
-## File: .github/workflows/combine-code.yml
-````yml
-name: Generate All Codebase to MD
-
-on:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - 'combined_project_code.md' # 避免此檔案自身更新引發無限循環
-  workflow_dispatch: # 支援在 GitHub 網頁上手動觸發執行
-
-permissions:
-  contents: write
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Combine All Files into MD
-        run: |
-          OUT_FILE="combined_project_code.md"
-          echo "# Complete Project Codebase" > "$OUT_FILE"
-          echo "Generated on: $(date)" >> "$OUT_FILE"
-          echo "" >> "$OUT_FILE"
-
-          # 遍歷專案內的所有檔案，排除依賴、Git 歷史、打包產物及二進位檔案
-          find . -type f \
-            -not -path "*/node_modules/*" \
-            -not -path "*/.git/*" \
-            -not -path "*/dist/*" \
-            -not -name "package-lock.json" \
-            -not -name "yarn.lock" \
-            -not -name "pnpm-lock.yaml" \
-            -not -name "$OUT_FILE" \
-            -not -name "*.png" \
-            -not -name "*.jpg" \
-            -not -name "*.jpeg" \
-            -not -name "*.gif" \
-            -not -name "*.ico" \
-            -not -name "*.woff*" \
-            -not -name "*.ttf" | while read -r file; do
-              
-              # 取得相對路徑與副檔名
-              rel_path="${file#./}"
-              ext="${file##*.}"
-              
-              # 如果無副檔名，清除變數避免格式混亂
-              if [ "$ext" = "$rel_path" ]; then
-                ext=""
-              fi
-              
-              # 寫入檔案標題
-              echo "## File: $rel_path" >> "$OUT_FILE"
-              # 使用四個反單引號（````）包裹，防止內部程式碼的三個反單引號造成排版衝突
-              echo "\`\`\`\`$ext" >> "$OUT_FILE"
-              cat "$file" >> "$OUT_FILE"
-              echo "" >> "$OUT_FILE"
-              echo "\`\`\`\`" >> "$OUT_FILE"
-              echo "" >> "$OUT_FILE"
-          done
-
-      - name: Commit and Push changes
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git add combined_project_code.md
-          
-          if git diff --staged --quiet; then
-            echo "No changes in codebase."
-          else
-            git commit -m "docs: auto-generate complete codebase [skip ci]"
-            git push origin main
-          fi
-
-````
-
-## File: .github/workflows/deploy.yml
-````yml
-# .github/workflows/deploy.yml
-name: Deploy to Cloudflare Workers
-
-on:
-  # 1. 當推送到 main 或 master 分支時自動執行
-  push:
-    branches:
-      - main
-      - master
-  
-  # 2. 保留手動執行按鈕
-  workflow_dispatch:
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    name: Deploy
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-      
-      # 已將 Node.js 環境升級至 Node 24 以消除棄用警告
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          # 暫時移除 cache: 'npm'，避免因缺少 package-lock.json 報錯
-
-      # 替換成相容無鎖定檔的普通安裝（加入 --prefer-offline 稍微加速）
-      - name: Install dependencies
-        run: npm install --prefer-offline
-
-      # 替換 KV ID
-      - name: Inject KV ID from Secrets
-        run: |
-          sed -i 's/KV_ID_PLACEHOLDER/${{ secrets.CF_KV_ID }}/g' wrangler.toml
-
-      # 部署步驟
-      - name: Deploy
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
 
 ````
 

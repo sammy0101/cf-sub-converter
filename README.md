@@ -1,6 +1,6 @@
 # ⚡ CF Sub Converter Pro
 
-基於 Cloudflare Workers 的全能 Serverless 訂閱轉換與節點中樞。擁有現代深色 UI、GitHub 遠端規則即時直讀與內嵌容災架構（支援 **Sing-Box / Clash Meta / Honk** 三端模板獨立解耦）、自訂短代碼全字元（大小寫/符號）1:1 完整保留、私密配置管理安全鎖與 **操作日誌審計系統**、國旗萬國對齊系統、**Argo 隧道 2.0 自動化生成器**，以及 **OpenWrt Honk / DAE (eBPF 內核級透明代理) 與 Doona Web UI 深度適配**。支援將各類代理節點一鍵轉換為 **Sing-Box / Clash Meta (Mihomo) / Honk (DAE) / Surge 5 / Quantumult X / Loon / Base64** 格式，並提供全平台專屬喚醒協議（Deep Link）與行動條碼掃描自動導入。
+基於 Cloudflare Workers 的全能 Serverless 訂閱轉換與節點中樞。擁有現代深色 UI、GitHub 遠端規則即時直讀與內嵌容災架構（支援 **Sing-Box / Clash Meta / Honk** 三端模板獨立解耦）、自訂短代碼全字元（大小寫/符號）1:1 完整保留、私密配置管理安全鎖、**操作日誌審計與 Telegram Bot 即時通知系統**、國旗萬國對齊系統、**Argo 隧道 2.0 自動化生成器**，以及 **OpenWrt Honk / DAE (eBPF 內核級透明代理) 與 Doona Web UI 深度適配**。支援將各類代理節點一鍵轉換為 **Sing-Box / Clash Meta (Mihomo) / Honk (DAE) / Surge 5 / Quantumult X / Loon / Base64** 格式，並提供全平台專屬喚醒協議（Deep Link）與行動條碼掃描自動導入。
 
 [![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sammy0101/cf-sub-converter)
 
@@ -68,15 +68,18 @@
     - `Subscription-Title: My_Sub`
     - `Content-Disposition: inline; filename="My_Sub.json"`
 
-### 4. 🔐 私密配置管理安全鎖與操作日誌審計系統 (`PAGE_PASSWORD`)
+### 4. 🔐 私密配置管理、操作日誌審計與 Telegram Bot 推播 (`PAGE_PASSWORD`)
 - **公私分明與 Fail-Closed 安全設計**：
   - **公開使用**：通用訂閱轉換、節點過濾、Argo 隧道生成、客戶端訂閱更新一律開放。
-  - **私密保護**：下方的「已儲存的配置」與「📋 查看操作日誌」共用同一組 `PAGE_PASSWORD` 安全鎖；**若未設定 `PAGE_PASSWORD`，日誌 API (`/logs`) 預設回傳 `403 Forbidden` 禁用讀取**，防止訪客 IP 與訂閱連結公開外洩。
-- **永久記住登入狀態**：解鎖成功後瀏覽器（`localStorage`）自動保持登入，重開網頁免重複輸入（自動記錄一筆 `登入後台`），並提供隨時「🔒 鎖定」按鈕同步隱藏配置與日誌。
+  - **私密保護**：下方的「已儲存的配置」、「📋 查看操作日誌」與「🔔 消息通知設定」共用同一組 `PAGE_PASSWORD` 安全鎖；**若未設定 `PAGE_PASSWORD`，日誌與通知 API 預設回傳 `403 Forbidden` 禁用讀取**，防止敏感憑證與訪客隱私外洩。
+- **永久記住登入狀態**：解鎖成功後瀏覽器（`localStorage`）自動保持登入，重開網頁免重複輸入（自動記錄一筆 `登入後台`），並提供隨時「🔒 鎖定」按鈕同步隱藏配置、日誌與通知設定。
 - **操作日誌審計與效能防護**：
   - **零延遲背景追蹤**：客戶端獲取訂閱透過 `ctx.waitUntil()` 非同步寫入 KV，管理操作與錯誤登入嘗試則同步寫入確保即時呈現。
   - **完整遙測欄位（UTC+8）**：原生讀取 Cloudflare `request.cf` 記錄時間、訪客 IP、國家／城市、ASN 與電信業者、4 色操作標籤（🟢 `獲取訂閱` / 🟠 `登入後台` / 🔴 `登入失敗` / 🔵 `新增/修改/刪除配置/儲存短連結`）、長度截斷保護後的請求 URL 與 User-Agent。
   - **Workers 免費版護欄與即時同步**：僅滾動保留最新 **200 筆** 紀錄（防止 10ms CPU 超時），支援首頁折疊預覽、彈窗全欄位檢視、15 秒／切回分頁自動同步、手動刷新與 **🗑️ 清空日誌**。
+- **Telegram Bot 即時推播系統**：
+  - 直接於網頁前端「參數配置」設定 **Bot Token** 與 **Chat ID**（後端讀取時自動遮罩敏感字元 `123456***abcd`），並提供一鍵 **「發送測試訊息」** 與 **「? 新手申請教學彈窗」**。
+  - 啟用後，所有日誌事件皆會透過 `ctx.waitUntil()` 背景即時推播至您的 Telegram，不影響訂閱下載速度。
 
 ### 5. 🛡️ 99.99% GitHub 模板即時直讀與雙重容災架構 (Zero Downtime)
 - **GitHub 遠端直讀 (零 KV 模板冗餘)**：
@@ -85,7 +88,7 @@
 - **雙重容災降級保證**：
   - 請求流程為：`GitHub 即時獲取` ➔ `內嵌應急模板兜底`。
   - 若遇 GitHub 服務波動、網路逾時或 429 限流，系統自動無縫回退至內建純淨版預設模板，確保訂閱拉取 100% 成功。
-- **專屬純淨儲存**：KV 空間專門用於儲存用戶自訂短連結、私密收藏配置、操作審計日誌與 Argo 部署腳本。
+- **專屬純淨儲存**：KV 空間專門用於儲存用戶自訂短連結、私密收藏配置、操作審計日誌、TG 通知設定與 Argo 部署腳本。
 
 ### 6. 🌀 Argo 隧道 2.0 一鍵生成器
 - **優選 IP / 官方域名注入**：支援填入 Cloudflare Clean IP（如 `104.16.80.1`）或優選網域，自動完成連接伺服器與 SNI/Host 映射，顯著降低延遲。
@@ -166,7 +169,7 @@
 
 ## 🔐 設定私密管理密碼（PAGE_PASSWORD）
 
-若要啟用「已儲存的配置」安全密碼鎖與 **「操作日誌審計系統」**，推薦直接在 Cloudflare Dashboard 中設定為 **Secret（加密機密）**，無論重新部署多少次都**永遠不會丟失**：
+若要啟用「已儲存的配置」安全密碼鎖、**「操作日誌審計系統」** 與 **「Telegram Bot 通知」**，推薦直接在 Cloudflare Dashboard 中設定為 **Secret（加密機密）**，無論重新部署多少次都**永遠不會丟失**：
 
 1. 登入 [Cloudflare Dashboard](https://dash.cloudflare.com/) ➔ 點進您的 Worker。
 2. 點擊頂部的 **`Settings` (設定)** ➔ **`Variables and Secrets` (變數與機密)**。
@@ -189,7 +192,7 @@
 - **多平台訂閱面板**：
   - 複製對應客戶端的訂閱連結（含 Sing-Box、Clash Meta、Honk/DAE、Surge、Base64 等）。
   - 點擊 QR Code 圖示彈出專屬喚醒視窗，手機相機或 App 掃描自動填入，或點擊「🚀 一鍵打開並導入」直接喚醒 App。
-- **配置收藏管理與操作日誌**：輸入管理密碼解鎖後，可自由新增、編輯、刪除或一鍵套用常用的私密配置，並於下方「📋 查看操作日誌」即時追蹤所有訂閱更新與後台操作紀錄。
+- **配置收藏、操作日誌與 TG 通知**：輸入管理密碼解鎖後，可自由管理私密配置、於「查看操作日誌」即時追蹤所有請求與異常登入，並於「消息通知設定」配置與測試 Telegram Bot 即時推播。
 
 ---
 
@@ -262,10 +265,10 @@ https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox
   - 這是 Sing-Box 的**正常廣告攔截行為**。當規則集（如 `rs-ads`）識別到追蹤器網域（如 `app-analytics-services.com`）並將其轉發至 `type: "block"` 出站時，核心會主動回傳系統級拒絕碼 `EPERM` (`operation not permitted`) 來切斷連線，並以 `ERROR` 等級印出日誌。
   - 若於手機手遊中因廣告被攔截而領不到看廣告獎勵，可在 Sing-Box 首頁將 **`🛑 廣告攔截`** 暫時切換為 `DIRECT`，領取獎勵後再切回 `REJECT`。
 
-### 3. 為什麼操作日誌區塊顯示「未設定管理密碼，預設禁用」？
+### 3. 為什麼操作日誌與 Telegram 通知顯示「未設定管理密碼，預設禁用」？
 - **原因說明**：
-  - 操作日誌包含訪客真實 IP、所在城市地區、ASN 與完整的訂閱請求連結，屬於高度敏感隱私資訊。
-  - 為防止在未設定密碼的公開環境下資料外洩，系統採用 **Fail-Closed** 安全原則：必須在 Cloudflare Workers 環境變數中設定 `PAGE_PASSWORD` 後，操作日誌才會啟用並於解鎖後呈現。
+  - 操作日誌包含訪客真實 IP、所在城市地區、ASN 與完整的訂閱請求連結，而 Telegram 配置則包含高敏感的 Bot Token。
+  - 為防止在未設定密碼的公開環境下資料與憑證外洩，系統採用 **Fail-Closed** 安全原則：必須在 Cloudflare Workers 環境變數中設定 `PAGE_PASSWORD` 後，日誌與通知功能才會啟用並於解鎖後呈現。
 
 ### 4. 為什麼官方原版 Sing-Box 無法使用 MASQUE 節點？如何在 Sing-Box 使用 WARP？
 - **原因說明**：
@@ -292,21 +295,50 @@ https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox
 ```text
 cf-sub-converter/
 ├── src/
-│   ├── index.ts          # Worker 核心路由、短代碼雙向容錯檢索、安全鑒權與操作日誌審計 API
-│   ├── constants.ts      # 響應式深色 UI 模板（含日誌管理面板）、QR Code 生成器與內嵌緊急降級規則
-│   ├── parser.ts         # 萬能節點解析器 (Clash YAML, WireGuard, MASQUE, VLESS Reality/PQC, ECH)
-│   ├── generator.ts      # 多平台格式生成器 (Sing-Box, Clash Meta, Honk/DAE, Surge 5, Base64)
-│   ├── utils.ts          # Base64 安全編碼、萬國國旗對齊演算法
-│   └── types.ts          # 嚴格 TypeScript 類型定義（含操作日誌模型）
+│   ├── index.ts                 # Worker 核心入口與路由分發
+│   ├── types.ts                 # 嚴格 TypeScript 類型定義（節點、日誌、TG 設定模型）
+│   ├── utils.ts                 # Base64 安全編碼、國旗對齊與去重演算法
+│   ├── config/
+│   │   └── rules.ts             # 遠端規則網址與三端內嵌應急降級模板
+│   ├── parsers/
+│   │   ├── index.ts             # 萬能解析入口與 Base64 自動辨識
+│   │   ├── common.ts            # 通用 URI 正則、ECH 與 IP 判斷工具
+│   │   ├── uri.ts               # VLESS / VMess / Trojan / SS / Hy2 / TUIC / AnyTLS
+│   │   ├── wireguard.ts         # WireGuard (.conf / URI / Shadowrocket)
+│   │   ├── masque.ts            # Cloudflare WARP MASQUE (JSON / URI)
+│   │   └── clash-yaml.ts        # 完整 Clash YAML proxies 陣列解析
+│   ├── generators/
+│   │   ├── index.ts             # 多平台格式生成器統一匯出
+│   │   ├── common.ts            # 遠端模板讀取與 JSON 註解防禦濾網
+│   │   ├── uri.ts               # 明文 URI 與 Base64 導出
+│   │   ├── singbox.ts           # Sing-Box 1.14+ 現代規範配置生成
+│   │   ├── clash.ts             # Clash Meta (Mihomo) YAML 配置生成
+│   │   ├── honk.ts              # OpenWrt Honk / DAE (Honk_Rules.DAE) 生成
+│   │   └── legacy.ts            # Surge 5 / Quantumult X / Loon 配置生成
+│   ├── services/
+│   │   ├── auth.ts              # PAGE_PASSWORD 鑒權與 Fail-Closed 安全檢查
+│   │   ├── audit.ts             # UTC+8 操作日誌記錄與 KV 200 筆滾動清理
+│   │   ├── telegram.ts          # Telegram Bot 推播與測試訊息服務
+│   │   └── node-loader.ts       # 上游訂閱抓取、流量標頭彙總與節點篩選/重命名
+│   ├── routes/
+│   │   ├── admin.ts             # /logs、/tg-config、/tg-test 管理與審計路由
+│   │   ├── favs.ts              # /favs、/save 短代碼與收藏 CRUD 路由
+│   │   ├── argo.ts              # /argo/sh/*、/api/parse-argo、/api/argo-generate
+│   │   └── sub.ts               # /sub 與短代碼訂閱轉換核心路由
+│   └── ui/
+│       ├── index.ts             # 組合輸出完整響應式深色網頁介面
+│       ├── styles.ts            # CSS 樣式表
+│       ├── markup.ts            # 頁面結構與管理彈窗 DOM
+│       └── script.ts            # 前端互動、QR Code 生成與 API 串接腳本
 ├── scripts/
-│   └── argo-converter.ts # 本地 CLI Argo 互動式轉換工具
-├── argo.sh               # VPS Argo 隧道 2.0 一鍵安裝與自我修復通用腳本
-├── Sing-Box_Rules.JSON   # GitHub 遠端 Sing-Box 混合 TUN 規則模板
-├── Clash_Rules.YAML      # GitHub 遠端 Clash Meta (Mihomo) 規則模板
-├── Honk_Rules.DAE        # GitHub 遠端 OpenWrt Honk / DAE 完整規則模板
-├── wrangler.toml         # Cloudflare Workers 配置檔
+│   └── argo-converter.ts        # 本地 CLI Argo 互動式轉換工具
+├── argo.sh                      # VPS Argo 隧道 2.0 一鍵安裝與自我修復通用腳本
+├── Sing-Box_Rules.JSON          # GitHub 遠端 Sing-Box 混合 TUN 規則模板
+├── Clash_Rules.YAML             # GitHub 遠端 Clash Meta (Mihomo) 規則模板
+├── Honk_Rules.DAE               # GitHub 遠端 OpenWrt Honk / DAE 完整規則模板
+├── wrangler.toml                # Cloudflare Workers 配置檔
 └── .github/workflows/
-    └── deploy.yml        # GitHub Actions 自動化部署工作流
+    └── deploy.yml               # GitHub Actions 自動化部署工作流
 ```
 
 ---

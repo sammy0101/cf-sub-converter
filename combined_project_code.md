@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Nov 15 07:05:00 UTC 2026
+Generated on: Sun Nov 15 07:05:17 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -132,7 +132,7 @@ fi
 ````json
 {
   "name": "cf-sub-converter",
-  "version": "3.8.1",
+  "version": "3.9.0",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",

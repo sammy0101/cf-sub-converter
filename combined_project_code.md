@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Nov 15 02:08:49 UTC 2026
+Generated on: Sun Nov 15 06:24:02 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -596,6 +596,19 @@ export interface OperationLogEntry {
   action: OperationLogAction;
   url: string;
   ua: string;
+}
+
+export interface TgConfig {
+  enabled: boolean;
+  botToken: string;
+  chatId: string;
+}
+
+export interface TgConfigPublicView {
+  enabled: boolean;
+  hasToken: boolean;
+  maskedToken: string;
+  chatId: string;
 }
 
 ````

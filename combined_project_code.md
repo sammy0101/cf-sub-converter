@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Nov 15 06:24:02 UTC 2026
+Generated on: Sun Nov 15 06:24:43 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -3229,7 +3229,14 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
 // src/index.ts
 // @ts-ignore
 import packageJson from '../package.json';
-import { Env, ProxyNode, OperationLogAction, OperationLogEntry } from './types';
+import {
+  Env,
+  ProxyNode,
+  OperationLogAction,
+  OperationLogEntry,
+  TgConfig,
+  TgConfigPublicView
+} from './types';
 import { HTML_PAGE } from './constants';
 import { parseContent } from './parser';
 import {
@@ -3247,6 +3254,7 @@ const version = packageJson.version;
 
 const LOGS_KEY = 'operation_logs';
 const MAX_LOGS = 200;
+const TG_CONFIG_KEY = 'tg_config';
 
 interface CfProperties {
   country?: string;
@@ -3309,10 +3317,110 @@ function getClientMeta(request: Request): { ip: string; region: string; asn: str
   return { ip, region, asn, ua };
 }
 
+function maskBotToken(token: string): string {
+  const t = token.trim();
+  if (!t) return '';
+  if (t.length <= 12) return '***';
+  return `${t.slice(0, 6)}***${t.slice(-4)}`;
+}
+
+function escapeHtmlForTg(str: string): string {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function getActionEmoji(action: OperationLogAction): string {
+  if (action === '獲取訂閱') return '🟢';
+  if (action === '登入後台') return '🟠';
+  if (action === '登入失敗') return '🔴';
+  return '🔵';
+}
+
+async function getStoredTgConfig(env: Env): Promise<TgConfig> {
+  if (!env.SUB_CACHE) {
+    return { enabled: false, botToken: '', chatId: '' };
+  }
+  try {
+    const raw = await env.SUB_CACHE.get(TG_CONFIG_KEY);
+    if (!raw) return { enabled: false, botToken: '', chatId: '' };
+    const parsed = JSON.parse(raw) as Partial<TgConfig>;
+    return {
+      enabled: Boolean(parsed.enabled),
+      botToken: typeof parsed.botToken === 'string' ? parsed.botToken : '',
+      chatId: typeof parsed.chatId === 'string' ? parsed.chatId : ''
+    };
+  } catch {
+    return { enabled: false, botToken: '', chatId: '' };
+  }
+}
+
+function toPublicTgView(cfg: TgConfig): TgConfigPublicView {
+  return {
+    enabled: cfg.enabled,
+    hasToken: Boolean(cfg.botToken),
+    maskedToken: maskBotToken(cfg.botToken),
+    chatId: cfg.chatId
+  };
+}
+
+async function postTelegramMessage(
+  botToken: string,
+  chatId: string,
+  text: string
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const cleanToken = botToken.trim().replace(/[^a-zA-Z0-9:_-]/g, '');
+    if (!cleanToken) return { ok: false, error: 'Bot Token 格式無效' };
+    const resp = await fetch(`https://api.telegram.org/bot${cleanToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId.trim(),
+        text,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true
+      })
+    });
+    const data = (await resp.json().catch(() => null)) as { ok?: boolean; description?: string } | null;
+    if (!resp.ok || !data?.ok) {
+      return { ok: false, error: data?.description || `HTTP ${resp.status}` };
+    }
+    return { ok: true };
+  } catch (err: unknown) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function sendTgNotification(env: Env, entry: OperationLogEntry): Promise<void> {
+  if (!env.SUB_CACHE) return;
+  try {
+    const cfg = await getStoredTgConfig(env);
+    if (!cfg.enabled || !cfg.botToken || !cfg.chatId) return;
+
+    const emoji = getActionEmoji(entry.action);
+    const msg = [
+      `🔔 <b>SubConverter Pro 操作通知</b>`,
+      ``,
+      `📌 <b>操作類型：</b>${emoji} ${escapeHtmlForTg(entry.action)}`,
+      `🕒 <b>時間 (UTC+8)：</b><code>${escapeHtmlForTg(entry.time)}</code>`,
+      `🌐 <b>IP：</b><code>${escapeHtmlForTg(entry.ip)}</code>`,
+      `📍 <b>地區：</b>${escapeHtmlForTg(entry.region)}`,
+      `🏢 <b>ASN：</b>${escapeHtmlForTg(entry.asn)}`,
+      `🔗 <b>URL：</b><code>${escapeHtmlForTg(entry.url)}</code>`,
+      `📱 <b>UA：</b><code>${escapeHtmlForTg(entry.ua)}</code>`
+    ].join('\n');
+
+    await postTelegramMessage(cfg.botToken, cfg.chatId, msg);
+  } catch {}
+}
+
 async function appendOperationLog(
   request: Request,
   env: Env,
-  action: OperationLogAction
+  action: OperationLogAction,
+  ctxForTg?: ExecutionContext
 ): Promise<void> {
   if (!env.SUB_CACHE) return;
   try {
@@ -3339,6 +3447,12 @@ async function appendOperationLog(
       logs.length = MAX_LOGS;
     }
     await env.SUB_CACHE.put(LOGS_KEY, JSON.stringify(logs));
+
+    if (ctxForTg && typeof ctxForTg.waitUntil === 'function') {
+      ctxForTg.waitUntil(sendTgNotification(env, entry));
+    } else {
+      await sendTgNotification(env, entry);
+    }
   } catch {}
 }
 
@@ -3348,10 +3462,11 @@ function scheduleLog(
   ctx: ExecutionContext | undefined,
   action: OperationLogAction
 ): void {
+  const task = appendOperationLog(request, env, action);
   if (ctx && typeof ctx.waitUntil === 'function') {
-    ctx.waitUntil(appendOperationLog(request, env, action));
+    ctx.waitUntil(task);
   } else {
-    void appendOperationLog(request, env, action);
+    void task;
   }
 }
 
@@ -3644,7 +3759,7 @@ export default {
           await env.SUB_CACHE.put(cleanPath.toLowerCase(), jsonStr);
         }
 
-        await appendOperationLog(request, env, '儲存短連結');
+        await appendOperationLog(request, env, '儲存短連結', ctx);
         
         return new Response('OK', { 
           status: 200,
@@ -3652,6 +3767,162 @@ export default {
         });
       } catch {
         return new Response('Error saving profile', { status: 500 });
+      }
+    }
+
+    // --- Telegram 通知設定 API (Fail-Closed: 必須設定 PAGE_PASSWORD 且通過授權) ---
+    if (url.pathname === '/tg-config') {
+      if (!hasPasswordConfigured(env)) {
+        return new Response(JSON.stringify({ error: '未設定管理密碼 (PAGE_PASSWORD)，禁止存取通知設定', unconfigured: true }), {
+          status: 403,
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      }
+      if (!checkAuth(request, env)) {
+        if ((request.headers.get('X-Password') || '').trim() !== '') {
+          await appendOperationLog(request, env, '登入失敗', ctx);
+        }
+        return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
+          status: 401,
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      }
+
+      if (request.method === 'GET') {
+        const cfg = await getStoredTgConfig(env);
+        return new Response(JSON.stringify(toPublicTgView(cfg)), {
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      }
+
+      if (request.method === 'POST') {
+        try {
+          const body = (await request.json()) as { enabled?: boolean; botToken?: string; chatId?: string };
+          const existing = await getStoredTgConfig(env);
+
+          const rawToken = typeof body.botToken === 'string' ? body.botToken.trim() : '';
+          const nextToken = rawToken && !rawToken.includes('***') ? rawToken : existing.botToken;
+          const nextChatId = typeof body.chatId === 'string' ? body.chatId.trim() : existing.chatId;
+          const nextEnabled = typeof body.enabled === 'boolean' ? body.enabled : existing.enabled;
+
+          if (nextEnabled && (!nextToken || !nextChatId)) {
+            return new Response(JSON.stringify({ error: '請先填寫有效的 Bot Token 與 Chat ID 後再啟用通知' }), {
+              status: 400,
+              headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+            });
+          }
+
+          const updated: TgConfig = {
+            enabled: nextEnabled,
+            botToken: nextToken,
+            chatId: nextChatId
+          };
+
+          if (env.SUB_CACHE) {
+            await env.SUB_CACHE.put(TG_CONFIG_KEY, JSON.stringify(updated));
+          }
+
+          return new Response(JSON.stringify(toPublicTgView(updated)), {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              'Cache-Control': 'no-store, no-cache, must-revalidate',
+              'Access-Control-Allow-Origin': '*'
+            }
+          });
+        } catch {
+          return new Response(JSON.stringify({ error: '儲存 Telegram 設定失敗' }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+          });
+        }
+      }
+
+      if (request.method === 'DELETE') {
+        if (env.SUB_CACHE) {
+          await env.SUB_CACHE.delete(TG_CONFIG_KEY);
+        }
+        return new Response(JSON.stringify(toPublicTgView({ enabled: false, botToken: '', chatId: '' })), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      }
+    }
+
+    if (request.method === 'POST' && url.pathname === '/tg-test') {
+      if (!hasPasswordConfigured(env)) {
+        return new Response(JSON.stringify({ ok: false, error: '未設定管理密碼 (PAGE_PASSWORD)' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+      if (!checkAuth(request, env)) {
+        if ((request.headers.get('X-Password') || '').trim() !== '') {
+          await appendOperationLog(request, env, '登入失敗', ctx);
+        }
+        return new Response(JSON.stringify({ ok: false, error: '密碼錯誤或未授權' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+
+      try {
+        const body = (await request.json()) as { botToken?: string; chatId?: string };
+        const existing = await getStoredTgConfig(env);
+        const rawToken = typeof body.botToken === 'string' ? body.botToken.trim() : '';
+        const tokenToUse = rawToken && !rawToken.includes('***') ? rawToken : existing.botToken;
+        const chatIdToUse = typeof body.chatId === 'string' && body.chatId.trim() ? body.chatId.trim() : existing.chatId;
+
+        if (!tokenToUse || !chatIdToUse) {
+          return new Response(JSON.stringify({ ok: false, error: '請先輸入 Bot Token 與 Chat ID' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+          });
+        }
+
+        const meta = getClientMeta(request);
+        const testMsg = [
+          `✅ <b>SubConverter Pro Telegram 測試通知</b>`,
+          ``,
+          `🎉 恭喜！您的機器人連線正常，已準備好接收即時操作通知。`,
+          `🕒 <b>時間 (UTC+8)：</b><code>${escapeHtmlForTg(formatUtc8Time())}</code>`,
+          `🌐 <b>測試來源 IP：</b><code>${escapeHtmlForTg(meta.ip)}</code>`,
+          `📍 <b>地區：</b>${escapeHtmlForTg(meta.region)}`
+        ].join('\n');
+
+        const sendRes = await postTelegramMessage(tokenToUse, chatIdToUse, testMsg);
+        if (!sendRes.ok) {
+          return new Response(JSON.stringify({ ok: false, error: sendRes.error || 'Telegram API 回傳失敗' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+          });
+        }
+
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return new Response(JSON.stringify({ ok: false, error: msg }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
       }
     }
 
@@ -3669,7 +3940,7 @@ export default {
       }
       if (!checkAuth(request, env)) {
         if ((request.headers.get('X-Password') || '').trim() !== '') {
-          await appendOperationLog(request, env, '登入失敗');
+          await appendOperationLog(request, env, '登入失敗', ctx);
         }
         return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
           status: 401,
@@ -3700,7 +3971,7 @@ export default {
       }
       if (!checkAuth(request, env)) {
         if ((request.headers.get('X-Password') || '').trim() !== '') {
-          await appendOperationLog(request, env, '登入失敗');
+          await appendOperationLog(request, env, '登入失敗', ctx);
         }
         return new Response(JSON.stringify({ error: '未授權' }), {
           status: 401,
@@ -3728,7 +3999,7 @@ export default {
     if (request.method === 'GET' && url.pathname === '/favs') {
       if (!checkAuth(request, env)) {
         if ((request.headers.get('X-Password') || '').trim() !== '') {
-          await appendOperationLog(request, env, '登入失敗');
+          await appendOperationLog(request, env, '登入失敗', ctx);
         }
         return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
           status: 401,
@@ -3740,7 +4011,7 @@ export default {
         });
       }
       if (hasPasswordConfigured(env) && request.headers.get('X-Login-Attempt') === '1') {
-        await appendOperationLog(request, env, '登入後台');
+        await appendOperationLog(request, env, '登入後台', ctx);
       }
       const favs = await getFavs();
       return new Response(JSON.stringify(favs), {
@@ -3755,7 +4026,7 @@ export default {
     if (request.method === 'POST' && url.pathname === '/favs') {
       if (!checkAuth(request, env)) {
         if ((request.headers.get('X-Password') || '').trim() !== '') {
-          await appendOperationLog(request, env, '登入失敗');
+          await appendOperationLog(request, env, '登入失敗', ctx);
         }
         return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
       }
@@ -3784,7 +4055,7 @@ export default {
           await env.SUB_CACHE.put(cleanName.toLowerCase(), syncData);
         }
 
-        await appendOperationLog(request, env, '新增配置');
+        await appendOperationLog(request, env, '新增配置', ctx);
 
         return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
       } catch {
@@ -3795,7 +4066,7 @@ export default {
     if (request.method === 'PUT' && url.pathname === '/favs') {
       if (!checkAuth(request, env)) {
         if ((request.headers.get('X-Password') || '').trim() !== '') {
-          await appendOperationLog(request, env, '登入失敗');
+          await appendOperationLog(request, env, '登入失敗', ctx);
         }
         return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
       }
@@ -3825,7 +4096,7 @@ export default {
             await env.SUB_CACHE.put(cleanName.toLowerCase(), syncData);
           }
 
-          await appendOperationLog(request, env, '修改配置');
+          await appendOperationLog(request, env, '修改配置', ctx);
         }
         return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
       } catch {
@@ -3836,7 +4107,7 @@ export default {
     if (request.method === 'DELETE' && url.pathname === '/favs') {
       if (!checkAuth(request, env)) {
         if ((request.headers.get('X-Password') || '').trim() !== '') {
-          await appendOperationLog(request, env, '登入失敗');
+          await appendOperationLog(request, env, '登入失敗', ctx);
         }
         return new Response(JSON.stringify({ error: '未授權' }), { status: 401, headers: { 'Access-Control-Allow-Origin': '*' } });
       }
@@ -3851,7 +4122,7 @@ export default {
             await env.SUB_CACHE.delete(removed.name.trim());
             await env.SUB_CACHE.delete(removed.name.trim().toLowerCase());
           }
-          await appendOperationLog(request, env, '刪除配置');
+          await appendOperationLog(request, env, '刪除配置', ctx);
         }
         return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
       } catch {

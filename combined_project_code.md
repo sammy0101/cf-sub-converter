@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Nov 15 06:24:43 UTC 2026
+Generated on: Sun Nov 15 06:27:43 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -4913,6 +4913,38 @@ export const HTML_PAGE = `<!DOCTYPE html>
       border-radius: var(--radius-md); background: var(--bg-input);
     }
 
+    /* TG 消息通知設定樣式 */
+    .tg-control-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 1rem; flex-wrap: wrap; background: var(--bg-input);
+      border: 1px solid var(--border); border-radius: var(--radius-md);
+      padding: 1rem 1.25rem;
+    }
+    .tg-left-group { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+    .tg-label-text { font-weight: 600; font-size: 0.95rem; color: var(--text-main); }
+    .tg-checkbox-label {
+      display: inline-flex !important; align-items: center; gap: 6px;
+      margin-bottom: 0 !important; cursor: pointer; font-size: 0.9rem;
+      color: var(--text-main); user-select: none;
+    }
+    .tg-checkbox-label input[type="checkbox"] {
+      width: 16px; height: 16px; accent-color: var(--primary); cursor: pointer;
+    }
+    .tg-actions-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .tg-help-box {
+      background: var(--bg-input); border: 1px solid var(--border);
+      border-radius: var(--radius-md); padding: 1.15rem 1.25rem;
+      font-size: 0.88rem; color: var(--text-main); line-height: 1.65;
+    }
+    .tg-help-step { margin-bottom: 1rem; }
+    .tg-help-step:last-child { margin-bottom: 0; }
+    .tg-help-step-title { font-weight: 600; color: var(--primary); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+    .tg-help-box code {
+      background: var(--bg-panel); border: 1px solid var(--border);
+      padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem; color: #93c5fd;
+    }
+
     @keyframes shake {
       0%, 100% { transform: translateX(0); }
       20%, 60% { transform: translateX(-6px); }
@@ -4942,6 +4974,8 @@ export const HTML_PAGE = `<!DOCTYPE html>
       .result-actions .btn-icon { height: 38px; display: flex; justify-content: center; align-items: center; }
       .lock-card { padding: 1.5rem 1rem; }
       .logs-footer { flex-direction: column; align-items: stretch; }
+      .tg-control-row { flex-direction: column; align-items: stretch; }
+      .tg-actions-group { justify-content: flex-end; }
     }
   </style>
 </head>
@@ -5212,6 +5246,45 @@ export const HTML_PAGE = `<!DOCTYPE html>
         </div>
       </div>
     </section>
+
+    <!-- 消息通知設定 (需通過 PAGE_PASSWORD 驗證且環境變數已設定時才顯示) -->
+    <section class="panel" id="tgPanel" style="display: none;">
+      <div class="panel-header" id="tgPanelHeader">
+        <h2 class="panel-title">
+          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+          消息通知設定
+        </h2>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-ghost" id="toggleTgBtn" onclick="toggleTgCollapse()" title="收合 / 展開">
+            <svg id="toggleTgIcon" viewBox="0 0 24 24" style="width:16px;height:16px;transition:transform 0.2s"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            <span id="toggleTgText">收合</span>
+          </button>
+        </div>
+      </div>
+      <div id="tgBody">
+        <div class="tg-control-row">
+          <div class="tg-left-group">
+            <span class="tg-label-text">Telegram Bot 通知設定</span>
+            <label class="tg-checkbox-label" for="tgEnabledCheckbox">
+              <input type="checkbox" id="tgEnabledCheckbox" onchange="toggleTgEnabled(this)">
+              <span>啟用</span>
+            </label>
+            <span class="badge" id="tgStatusBadge" style="display: none;"></span>
+          </div>
+          <div class="tg-actions-group">
+            <button class="btn btn-ghost" onclick="openTgHelpModal()" title="查看申請教學與設定說明" style="padding: 0.5rem 0.7rem; font-weight: 700;">?</button>
+            <button class="btn btn-primary" style="width: auto; padding: 0.55rem 1rem; font-size: 0.85rem;" onclick="openTgModal()">
+              <svg viewBox="0 0 24 24" style="width:16px;height:16px"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+              參數配置
+            </button>
+            <button class="btn btn-ghost btn-danger" onclick="clearTgConfig()">
+              <svg viewBox="0 0 24 24" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              清除配置
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 
   <!-- 全部日誌彈窗 -->
@@ -5240,6 +5313,85 @@ export const HTML_PAGE = `<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- Telegram Bot 參數配置彈窗 -->
+  <div class="modal-overlay" id="tgModal">
+    <div class="modal-content" style="max-width: 540px;">
+      <div class="panel-header" style="margin-bottom: 1.25rem;">
+        <h3 class="panel-title">
+          <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+          Telegram Bot 參數配置
+        </h3>
+        <button class="btn btn-ghost" onclick="openTgHelpModal()" title="查看設定教學" style="padding: 0.4rem 0.65rem; font-weight: 700;">?</button>
+      </div>
+      <div class="form-group">
+        <label for="tgBotTokenInput">Bot Token</label>
+        <input type="password" id="tgBotTokenInput" placeholder="例如: 123456789:AAHxxxxxxxxxxxxxxxxxxxx">
+        <div class="hint" id="tgTokenHint">若已配置過 Token，留空不填代表維持原本設定的密鑰。</div>
+      </div>
+      <div class="form-group">
+        <label for="tgChatIdInput">Chat ID</label>
+        <input type="text" id="tgChatIdInput" placeholder="例如: 987654321 或 -1001234567890">
+        <div class="hint">啟用後將自動推送所有事件通知（含操作類型、時間 UTC+8、IP、地區、ASN、URL 與 UA）。</div>
+      </div>
+      <div class="modal-footer" style="margin-top: 1.75rem; justify-content: space-between; flex-wrap: wrap;">
+        <button class="btn btn-ghost" id="tgTestBtn" onclick="testTgConfig()">
+          <svg viewBox="0 0 24 24" style="width:16px;height:16px"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+          發送測試訊息
+        </button>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn btn-ghost" onclick="closeTgModal()">取消</button>
+          <button class="btn btn-primary" onclick="saveTgConfig()" style="width: auto; padding: 0.65rem 1.5rem; font-size: 0.95rem;">儲存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Telegram Bot ? 說明教學彈窗 -->
+  <div class="modal-overlay" id="tgHelpModal">
+    <div class="modal-content" style="max-width: 600px;">
+      <div class="panel-header" style="margin-bottom: 1.25rem;">
+        <h3 class="panel-title">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          Telegram Bot 申請與設定說明
+        </h3>
+      </div>
+      <div class="tg-help-box">
+        <div class="tg-help-step">
+          <div class="tg-help-step-title">第一步：申請機器人並取得 Bot Token</div>
+          <div>
+            1. 在 Telegram 搜尋並開啟官方帳號 <code>@BotFather</code>。<br>
+            2. 發送指令 <code>/newbot</code>，依提示輸入機器人的顯示名稱與用戶名（用戶名必須以 <code>bot</code> 結尾，例如 <code>my_sub_alert_bot</code>）。<br>
+            3. 建立成功後，複製訊息中類似 <code>123456789:AAHxxx...</code> 的字串，填入 <strong>Bot Token</strong>。
+          </div>
+        </div>
+        <div class="tg-help-step">
+          <div class="tg-help-step-title">第二步：查詢個人或群組 Chat ID</div>
+          <div>
+            1. 在 Telegram 搜尋並開啟 <code>@userinfobot</code>（或 <code>@getidsbot</code>），點擊 <code>Start</code>。<br>
+            2. 機器人會回覆一串純數字 <code>Id</code>（例如 <code>987654321</code>），填入 <strong>Chat ID</strong>。<br>
+            3. 若要通知至群組，請先將機器人加入群組並查出以 <code>-100</code> 開頭的群組 ID。
+          </div>
+        </div>
+        <div class="tg-help-step">
+          <div class="tg-help-step-title">第三步：必做！先啟動機器人對話</div>
+          <div>
+            設定完成前，請務必親自搜尋並開啟您剛建立的機器人視窗，點擊底部的 <strong><code>Start</code></strong>（發送 <code>/start</code>）。<br>
+            若未先主動發起對話，Telegram 安全機制會阻擋機器人主動傳訊（測試時將顯示 Forbidden 錯誤）。
+          </div>
+        </div>
+        <div class="tg-help-step">
+          <div class="tg-help-step-title">第四步：測試與安全機制</div>
+          <div>
+            填妥後點擊 <strong>「發送測試訊息」</strong> 驗證連線正常即可儲存。所有憑證皆受 <code>PAGE_PASSWORD</code> 保護並儲存於 Cloudflare KV，讀取時會自動遮罩敏感字元。
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="margin-top: 1.5rem;">
+        <button class="btn btn-primary" onclick="closeTgHelpModal()" style="width: auto; padding: 0.65rem 1.5rem; font-size: 0.95rem;">我知道了</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="modal">
     <div class="modal-content">
       <h3 id="modalTitle" style="margin-bottom: 1rem;">新增配置</h3>
@@ -5263,9 +5415,11 @@ export const HTML_PAGE = `<!DOCTYPE html>
   <script>
     var favs = [];
     var operationLogs = [];
+    var tgConfigState = { enabled: false, hasToken: false, maskedToken: '', chatId: '' };
     var isFavLocked = false;
     var isLogsUnconfigured = false;
     var isLogsCollapsed = false;
+    var isTgCollapsed = false;
     var parsedArgoNodesCache = [];
 
     function escapeHtml(str) {
@@ -5345,6 +5499,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           isFavLocked = true;
           renderLockScreen();
           hideLogsPanel();
+          hideTgPanel();
           return;
         }
         if (resp.ok) {
@@ -5353,6 +5508,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
             isFavLocked = false;
             renderFavs();
             loadLogs();
+            loadTgConfig();
           });
         } else {
           renderErrorScreen('載入配置失敗');
@@ -5369,6 +5525,252 @@ export const HTML_PAGE = `<!DOCTYPE html>
       closeLogsModal();
     }
 
+    function hideTgPanel() {
+      tgConfigState = { enabled: false, hasToken: false, maskedToken: '', chatId: '' };
+      var panel = document.getElementById('tgPanel');
+      if (panel) panel.style.display = 'none';
+      closeTgModal();
+      closeTgHelpModal();
+    }
+
+    function loadTgConfig() {
+      var pwd = getStoredPwd();
+      var panel = document.getElementById('tgPanel');
+
+      fetch('/tg-config?t=' + Date.now(), {
+        headers: { 'X-Password': pwd }
+      }).then(function(resp) {
+        if (resp.status === 403 || resp.status === 401) {
+          hideTgPanel();
+          return;
+        }
+        if (resp.ok) {
+          resp.json().then(function(data) {
+            tgConfigState = data || { enabled: false, hasToken: false, maskedToken: '', chatId: '' };
+            panel.style.display = 'block';
+            renderTgPanel();
+          });
+        }
+      }).catch(function() {
+        hideTgPanel();
+      });
+    }
+
+    function renderTgPanel() {
+      var cb = document.getElementById('tgEnabledCheckbox');
+      var badge = document.getElementById('tgStatusBadge');
+      if (cb) cb.checked = Boolean(tgConfigState.enabled);
+
+      if (badge) {
+        if (tgConfigState.hasToken && tgConfigState.chatId) {
+          badge.style.display = 'inline-block';
+          badge.textContent = tgConfigState.enabled ? '已配置 · 運行中' : '已配置 · 已暫停';
+          if (tgConfigState.enabled) {
+            badge.style.background = 'rgba(16, 185, 129, 0.1)';
+            badge.style.color = 'var(--success)';
+            badge.style.borderColor = 'rgba(16, 185, 129, 0.25)';
+          } else {
+            badge.style.background = 'rgba(59, 130, 246, 0.1)';
+            badge.style.color = 'var(--primary)';
+            badge.style.borderColor = 'rgba(59, 130, 246, 0.2)';
+          }
+        } else {
+          badge.style.display = 'inline-block';
+          badge.textContent = '未配置';
+          badge.style.background = 'rgba(148, 163, 184, 0.1)';
+          badge.style.color = 'var(--text-muted)';
+          badge.style.borderColor = 'rgba(148, 163, 184, 0.2)';
+        }
+      }
+    }
+
+    function toggleTgCollapse() {
+      isTgCollapsed = !isTgCollapsed;
+      var header = document.getElementById('tgPanelHeader');
+      var body = document.getElementById('tgBody');
+      var icon = document.getElementById('toggleTgIcon');
+      var text = document.getElementById('toggleTgText');
+      if (isTgCollapsed) {
+        body.style.display = 'none';
+        header.style.marginBottom = '0';
+        icon.style.transform = 'rotate(-90deg)';
+        if (text) text.textContent = '展開';
+      } else {
+        body.style.display = 'block';
+        header.style.marginBottom = '1.25rem';
+        icon.style.transform = 'rotate(0deg)';
+        if (text) text.textContent = '收合';
+      }
+    }
+
+    function toggleTgEnabled(checkbox) {
+      var targetEnabled = checkbox.checked;
+      if (targetEnabled && (!tgConfigState.hasToken || !tgConfigState.chatId)) {
+        checkbox.checked = false;
+        showToast('請先完成參數配置（Bot Token 與 Chat ID）', false);
+        openTgModal();
+        return;
+      }
+
+      var pwd = getStoredPwd();
+      fetch('/tg-config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Password': pwd
+        },
+        body: JSON.stringify({ enabled: targetEnabled })
+      }).then(function(resp) {
+        if (!resp.ok) {
+          return resp.json().then(function(err) {
+            throw new Error(err.error || '更新失敗');
+          });
+        }
+        return resp.json();
+      }).then(function(data) {
+        tgConfigState = data;
+        renderTgPanel();
+        showToast(tgConfigState.enabled ? '已啟用 Telegram 通知' : '已暫停 Telegram 通知');
+      }).catch(function(e) {
+        checkbox.checked = !targetEnabled;
+        showToast(e.message, false);
+      });
+    }
+
+    function openTgModal() {
+      var tokenInput = document.getElementById('tgBotTokenInput');
+      var chatIdInput = document.getElementById('tgChatIdInput');
+      var hint = document.getElementById('tgTokenHint');
+
+      tokenInput.value = '';
+      if (tgConfigState.hasToken) {
+        tokenInput.placeholder = '已設定 (' + tgConfigState.maskedToken + ')，留空保留原 Token';
+        hint.textContent = '目前已有儲存的 Bot Token (' + tgConfigState.maskedToken + ')，留空代表維持原密鑰不變。';
+      } else {
+        tokenInput.placeholder = '例如: 123456789:AAHxxxxxxxxxxxxxxxxxxxx';
+        hint.textContent = '請從 @BotFather 取得 Bot Token。';
+      }
+      chatIdInput.value = tgConfigState.chatId || '';
+      document.getElementById('tgModal').classList.add('show');
+    }
+
+    function closeTgModal() {
+      document.getElementById('tgModal').classList.remove('show');
+    }
+
+    function openTgHelpModal() {
+      document.getElementById('tgHelpModal').classList.add('show');
+    }
+
+    function closeTgHelpModal() {
+      document.getElementById('tgHelpModal').classList.remove('show');
+    }
+
+    function saveTgConfig() {
+      var tokenVal = document.getElementById('tgBotTokenInput').value.trim();
+      var chatIdVal = document.getElementById('tgChatIdInput').value.trim();
+
+      if (!tgConfigState.hasToken && !tokenVal) {
+        return showToast('請輸入 Bot Token', false);
+      }
+      if (!chatIdVal) {
+        return showToast('請輸入 Chat ID', false);
+      }
+
+      var pwd = getStoredPwd();
+      var shouldEnable = tgConfigState.hasToken ? tgConfigState.enabled : true;
+
+      fetch('/tg-config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Password': pwd
+        },
+        body: JSON.stringify({
+          enabled: shouldEnable,
+          botToken: tokenVal,
+          chatId: chatIdVal
+        })
+      }).then(function(resp) {
+        if (!resp.ok) {
+          return resp.json().then(function(err) {
+            throw new Error(err.error || '儲存失敗');
+          });
+        }
+        return resp.json();
+      }).then(function(data) {
+        tgConfigState = data;
+        renderTgPanel();
+        closeTgModal();
+        showToast('Telegram 通知參數已儲存！');
+      }).catch(function(e) {
+        showToast('儲存失敗: ' + e.message, false);
+      });
+    }
+
+    function testTgConfig() {
+      var tokenVal = document.getElementById('tgBotTokenInput').value.trim();
+      var chatIdVal = document.getElementById('tgChatIdInput').value.trim();
+
+      if (!tgConfigState.hasToken && !tokenVal) {
+        return showToast('請先輸入 Bot Token', false);
+      }
+      if (!chatIdVal && !tgConfigState.chatId) {
+        return showToast('請先輸入 Chat ID', false);
+      }
+
+      var btn = document.getElementById('tgTestBtn');
+      var oldHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.textContent = '發送中...';
+
+      var pwd = getStoredPwd();
+      fetch('/tg-test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Password': pwd
+        },
+        body: JSON.stringify({
+          botToken: tokenVal,
+          chatId: chatIdVal
+        })
+      }).then(function(resp) {
+        return resp.json().then(function(data) {
+          if (!resp.ok || !data.ok) {
+            throw new Error(data.error || '發送失敗');
+          }
+          showToast('測試訊息已發送，請檢查 Telegram！');
+        });
+      }).catch(function(e) {
+        showToast('測試失敗: ' + e.message, false);
+      }).finally(function() {
+        btn.disabled = false;
+        btn.innerHTML = oldHtml;
+      });
+    }
+
+    function clearTgConfig() {
+      if (!confirm('確定要清除 Telegram 通知配置嗎？')) return;
+      var pwd = getStoredPwd();
+      fetch('/tg-config', {
+        method: 'DELETE',
+        headers: { 'X-Password': pwd }
+      }).then(function(resp) {
+        if (resp.ok) {
+          return resp.json().then(function(data) {
+            tgConfigState = data;
+            renderTgPanel();
+            showToast('已清除 Telegram 通知配置');
+          });
+        } else {
+          showToast('清除失敗：密碼錯誤或未授權', false);
+        }
+      }).catch(function(e) {
+        showToast('清除失敗: ' + e.message, false);
+      });
+    }
+
     function loadLogs(showSuccessToast) {
       var pwd = getStoredPwd();
       var panel = document.getElementById('logsPanel');
@@ -5382,7 +5784,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           isLogsUnconfigured = true;
           panel.style.display = 'block';
           footer.style.display = 'none';
-          container.innerHTML = '<div class="empty-state" style="padding: 1.5rem;">🔒 未設定管理密碼 (PAGE_PASSWORD)，基於隱私保護，操作日誌功能預設禁用。<br>請至 Cloudflare Workers 設定 PAGE_PASSWORD 環境變數即可自動啟用。</div>';
+          container.innerHTML = '<div class="empty-state" style="padding: 1.5rem;">🔒 未設定管理密碼 (PAGE_PASSWORD)，基於隱私保護，操作日誌與消息通知功能預設禁用。<br>請至 Cloudflare Workers 設定 PAGE_PASSWORD 環境變數即可自動啟用。</div>';
           return;
         }
         if (resp.status === 401) {
@@ -5547,13 +5949,13 @@ export const HTML_PAGE = `<!DOCTYPE html>
             '<path d="M7 11V7a5 5 0 0 1 10 0v4"></path>' +
           '</svg>' +
         '</div>' +
-        '<div class="lock-title">私密配置與操作日誌已鎖定</div>' +
+        '<div class="lock-title">私密配置與審計通知已鎖定</div>' +
         '<div class="lock-desc">此區域受管理密碼保護，請輸入密碼解鎖</div>' +
         '<div class="lock-form">' +
           '<input type="password" id="lockPwdInput" placeholder="請輸入管理密碼..." onkeydown="if(event.key===\\'Enter\\') unlockFavs()">' +
           '<button class="btn btn-primary" onclick="unlockFavs()">' +
             '<svg viewBox="0 0 24 24" style="width:16px;height:16px;margin-right:4px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>' +
-            '解鎖配置與日誌' +
+            '解鎖全部功能' +
           '</button>' +
         '</div>' +
       '</div>';
@@ -5587,6 +5989,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
             isFavLocked = false;
             renderFavs();
             loadLogs();
+            loadTgConfig();
             showToast('🔓 解鎖成功！已記住登入狀態');
           });
         } else {
@@ -5611,8 +6014,9 @@ export const HTML_PAGE = `<!DOCTYPE html>
       localStorage.removeItem('sub_fav_pwd');
       isFavLocked = true;
       hideLogsPanel();
+      hideTgPanel();
       renderLockScreen();
-      showToast('🔒 已鎖定配置清單與日誌');
+      showToast('🔒 已鎖定配置、日誌與通知設定');
     }
     
     function renderFavs() {

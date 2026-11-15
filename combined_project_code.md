@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sun Nov 15 06:52:24 UTC 2026
+Generated on: Sun Nov 15 06:52:44 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -2608,6 +2608,25 @@ export interface TgConfigPublicView {
   hasToken: boolean;
   maskedToken: string;
   chatId: string;
+}
+
+````
+
+## File: src/services/auth.ts
+````ts
+// src/services/auth.ts
+import { Env } from '../types';
+
+export function hasPasswordConfigured(env: Env): boolean {
+  return Boolean(env.PAGE_PASSWORD && env.PAGE_PASSWORD.trim() !== '');
+}
+
+export function checkAuth(request: Request, env: Env): boolean {
+  if (!hasPasswordConfigured(env)) {
+    return true;
+  }
+  const clientPwd = request.headers.get('X-Password') || '';
+  return clientPwd === env.PAGE_PASSWORD!.trim();
 }
 
 ````

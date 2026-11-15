@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Sat Nov 14 17:42:06 UTC 2026
+Generated on: Sun Nov 15 02:07:03 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -4590,15 +4590,18 @@ export const HTML_PAGE = `<!DOCTYPE html>
     }
     .lock-form .btn { width: 100% !important; padding: 0.7rem; font-size: 0.92rem; font-weight: 600; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
 
-    /* 操作日誌樣式 */
-    .logs-table-wrap { width: 100%; overflow-x: auto; border-radius: var(--radius-sm); }
+    /* 操作日誌樣式 (與面板統一) */
+    .logs-table-wrap {
+      width: 100%; overflow-x: auto; background: var(--bg-input);
+      border: 1px solid var(--border); border-radius: var(--radius-md);
+    }
     .logs-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left; }
     .logs-table th {
-      color: var(--text-muted); font-weight: 600; padding: 0.7rem 0.75rem;
-      border-bottom: 1px solid var(--border); background: rgba(15, 23, 42, 0.45); white-space: nowrap;
+      color: var(--text-muted); font-weight: 600; padding: 0.75rem 0.875rem;
+      border-bottom: 1px solid var(--border); background: rgba(30, 41, 59, 0.45); white-space: nowrap;
     }
     .logs-table td {
-      padding: 0.7rem 0.75rem; border-bottom: 1px solid rgba(51, 65, 85, 0.55);
+      padding: 0.75rem 0.875rem; border-bottom: 1px solid rgba(51, 65, 85, 0.55);
       color: var(--text-main); vertical-align: middle;
     }
     .logs-table tr:last-child td { border-bottom: none; }
@@ -4607,8 +4610,8 @@ export const HTML_PAGE = `<!DOCTYPE html>
     .logs-url-cell { max-width: 260px; word-break: break-all; font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; color: #cbd5e1; }
     .logs-ua-cell { max-width: 220px; word-break: break-word; font-size: 0.76rem; color: var(--text-muted); }
     .log-badge {
-      display: inline-block; padding: 3px 10px; border-radius: 6px;
-      font-size: 0.76rem; font-weight: 600; white-space: nowrap; color: #ffffff;
+      display: inline-block; padding: 2px 9px; border-radius: var(--radius-sm);
+      font-size: 0.75rem; font-weight: 600; white-space: nowrap; color: #ffffff;
     }
     .log-badge-sub { background-color: var(--success); }
     .log-badge-login { background-color: var(--warning); }
@@ -4620,10 +4623,10 @@ export const HTML_PAGE = `<!DOCTYPE html>
       gap: 1rem; margin-top: 1.25rem; flex-wrap: wrap;
     }
     .logs-note { font-size: 0.8rem; color: var(--text-muted); }
-    .logs-modal-content { max-width: 1080px !important; width: 95% !important; padding: 1.5rem 1.75rem !important; }
+    .logs-modal-content { max-width: 1080px !important; width: 95% !important; padding: 1.75rem !important; }
     .logs-modal-scroll {
       max-height: 62vh; overflow: auto; border: 1px solid var(--border);
-      border-radius: var(--radius-md); background: var(--bg-app);
+      border-radius: var(--radius-md); background: var(--bg-input);
     }
 
     @keyframes shake {
@@ -4899,27 +4902,29 @@ export const HTML_PAGE = `<!DOCTYPE html>
       <div id="favGrid"></div>
     </section>
 
-    <!-- 查看操作日誌 (需通過 PAGE_PASSWORD 驗證且環境變數已設定時才顯示內容) -->
+    <!-- 查看操作日誌 (與「已儲存的配置」視覺完全統一) -->
     <section class="panel" id="logsPanel" style="display: none;">
-      <div class="panel-header" style="margin-bottom: 0;">
+      <div class="panel-header" id="logsPanelHeader">
         <h2 class="panel-title">
           <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-          📋 查看操作日誌
+          查看操作日誌
         </h2>
-        <div style="display: flex; gap: 6px; align-items: center;">
-          <button class="btn-icon" id="refreshLogsBtn" onclick="refreshLogsNow()" title="立即刷新日誌">
-            <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-ghost" id="refreshLogsBtn" onclick="refreshLogsNow()" title="立即刷新日誌">
+            <svg viewBox="0 0 24 24" style="width:16px;height:16px"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            刷新
           </button>
-          <button class="btn-icon" id="toggleLogsBtn" onclick="toggleLogsCollapse()" title="收合 / 展開">
-            <svg id="toggleLogsIcon" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          <button class="btn btn-ghost" id="toggleLogsBtn" onclick="toggleLogsCollapse()" title="收合 / 展開">
+            <svg id="toggleLogsIcon" viewBox="0 0 24 24" style="width:16px;height:16px;transition:transform 0.2s"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            <span id="toggleLogsText">收合</span>
           </button>
         </div>
       </div>
-      <div id="logsBody" style="margin-top: 1.25rem;">
+      <div id="logsBody">
         <div id="logsTableContainer"></div>
         <div class="logs-footer" id="logsFooter">
           <span class="logs-note">因為 KV 空間與 Workers CPU 限制，只保留最新 200 筆操作日誌，超過該數量會自動清理最舊的日誌記錄。</span>
-          <button class="btn btn-primary" style="width: auto; padding: 0.65rem 1.4rem; font-size: 0.9rem; box-shadow: 0 0 18px rgba(59, 130, 246, 0.35);" onclick="openLogsModal()">全部日誌</button>
+          <button class="btn btn-primary" style="width: auto; padding: 0.65rem 1.25rem; font-size: 0.9rem;" onclick="openLogsModal()">全部日誌</button>
         </div>
       </div>
     </section>
@@ -4928,19 +4933,25 @@ export const HTML_PAGE = `<!DOCTYPE html>
   <!-- 全部日誌彈窗 -->
   <div class="modal-overlay" id="logsModal">
     <div class="modal-content logs-modal-content">
-      <div class="panel-header" style="margin-bottom: 1rem;">
-        <h3 class="panel-title" style="font-size: 1.15rem;">
-          📋 所有操作日誌
+      <div class="panel-header" style="margin-bottom: 1.25rem;">
+        <h3 class="panel-title">
+          <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          所有操作日誌
         </h3>
-        <div style="display: flex; gap: 6px; align-items: center;">
-          <button class="btn-icon" onclick="refreshLogsNow()" title="立即刷新" style="border: none; background: transparent;">🔄</button>
-          <button class="btn-icon" onclick="closeLogsModal()" title="關閉" style="border: none; background: transparent; font-size: 1.1rem;">✕</button>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-ghost" onclick="refreshLogsNow()" title="立即刷新">
+            <svg viewBox="0 0 24 24" style="width:16px;height:16px"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            刷新
+          </button>
         </div>
       </div>
       <div class="logs-modal-scroll" id="allLogsTableContainer"></div>
-      <div class="modal-footer" style="margin-top: 1.25rem; justify-content: space-between; flex-wrap: wrap;">
-        <button class="btn btn-ghost btn-danger" onclick="clearLogs()" style="border-color: rgba(239, 68, 68, 0.4); color: var(--danger);">🗑️ 清空日誌</button>
-        <button class="btn btn-primary" onclick="closeLogsModal()" style="width: auto; padding: 0.65rem 2.2rem; background: var(--warning);">關閉</button>
+      <div class="modal-footer" style="margin-top: 1.5rem; justify-content: space-between; flex-wrap: wrap;">
+        <button class="btn btn-ghost btn-danger" onclick="clearLogs()">
+          <svg viewBox="0 0 24 24" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          清空日誌
+        </button>
+        <button class="btn btn-primary" onclick="closeLogsModal()" style="width: auto; padding: 0.65rem 1.5rem; font-size: 0.95rem;">關閉</button>
       </div>
     </div>
   </div>
@@ -5105,7 +5116,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
               renderAllLogsModal();
             }
             if (showSuccessToast) {
-              showToast('🔄 已同步最新操作日誌');
+              showToast('已同步最新操作日誌');
             }
           });
         }
@@ -5192,14 +5203,20 @@ export const HTML_PAGE = `<!DOCTYPE html>
 
     function toggleLogsCollapse() {
       isLogsCollapsed = !isLogsCollapsed;
+      var header = document.getElementById('logsPanelHeader');
       var body = document.getElementById('logsBody');
       var icon = document.getElementById('toggleLogsIcon');
+      var text = document.getElementById('toggleLogsText');
       if (isLogsCollapsed) {
         body.style.display = 'none';
+        header.style.marginBottom = '0';
         icon.style.transform = 'rotate(-90deg)';
+        if (text) text.textContent = '展開';
       } else {
         body.style.display = 'block';
+        header.style.marginBottom = '1.25rem';
         icon.style.transform = 'rotate(0deg)';
+        if (text) text.textContent = '收合';
       }
     }
 
@@ -5224,7 +5241,7 @@ export const HTML_PAGE = `<!DOCTYPE html>
           operationLogs = [];
           renderCompactLogs();
           renderAllLogsModal();
-          showToast('🗑️ 已清空所有操作日誌');
+          showToast('已清空所有操作日誌');
         } else {
           showToast('清空失敗：密碼錯誤或未授權', false);
         }

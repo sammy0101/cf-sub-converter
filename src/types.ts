@@ -97,3 +97,16 @@ export interface OperationLogEntry {
   url: string;
   ua: string;
 }
+
+export interface TgConfig {
+  enabled: boolean;
+  botToken: string;
+  chatId: string;
+}
+
+export interface TgConfigPublicView {
+  enabled: boolean;
+  hasToken: boolean;
+  maskedToken: string;
+  chatId: string;
+}

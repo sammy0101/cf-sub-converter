@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Nov 18 11:34:44 UTC 2026
+Generated on: Wed Nov 18 11:35:06 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -6517,6 +6517,16 @@ async function saveFavs(env: Env, favs: Array<Record<string, string>>): Promise<
   await env.SUB_CACHE.put(FAVS_KEY, JSON.stringify(favs));
 }
 
+function jsonError(error: string, status: number): Response {
+  return new Response(JSON.stringify({ error }), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*'
+    }
+  });
+}
+
 export async function handleFavsRoutes(
   request: Request,
   env: Env,
@@ -6534,7 +6544,7 @@ export async function handleFavsRoutes(
         token?: string;
       };
       const cleanPath = (body.path || '').trim();
-      if (!cleanPath || !body.content) return new Response('Missing path or content', { status: 400 });
+      if (!cleanPath || !body.content) return jsonError('缺少短連結名稱或節點內容', 400);
 
       const cleanToken = (body.token || '').trim();
 
@@ -6548,16 +6558,10 @@ export async function handleFavsRoutes(
           const existingToken = (existingParsed.token || '').trim();
           if (existingToken) {
             if (hasPasswordConfigured(env) && !checkAuth(request, env)) {
-              return new Response('Forbidden: 該短連結已受 Token 保護，需要管理密碼授權才可修改', {
-                status: 403,
-                headers: { 'Access-Control-Allow-Origin': '*' }
-              });
+              return jsonError('該短連結已受 Token 保護，需要管理密碼授權才可修改', 403);
             }
             if (!hasPasswordConfigured(env) && cleanToken !== existingToken) {
-              return new Response('Forbidden: Token 不符', {
-                status: 403,
-                headers: { 'Access-Control-Allow-Origin': '*' }
-              });
+              return jsonError('Token 不符，禁止覆蓋', 403);
             }
           }
         } catch {}
@@ -6583,8 +6587,9 @@ export async function handleFavsRoutes(
         status: 200,
         headers: { 'Access-Control-Allow-Origin': '*' }
       });
-    } catch {
-      return new Response('Error saving profile', { status: 500 });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return jsonError(`儲存短連結失敗: ${msg}`, 500);
     }
   }
 
@@ -6624,16 +6629,13 @@ export async function handleFavsRoutes(
       if ((request.headers.get('X-Password') || '').trim() !== '') {
         await appendOperationLog(request, env, '登入失敗', ctx);
       }
-      return new Response(JSON.stringify({ error: '未授權' }), {
-        status: 401,
-        headers: { 'Access-Control-Allow-Origin': '*' }
-      });
+      return jsonError('密碼錯誤或未授權', 401);
     }
     try {
       const body = (await request.json()) as Record<string, string>;
-      if (!body.name || !body.url) return new Response('Missing name or url', { status: 400 });
+      if (!body.name || !body.url) return jsonError('缺少配置名稱或節點內容', 400);
       const cleanToken = (body.token || '').trim();
-      const favs = await getFavs();
+      const favs = await getFavs(env);
       favs.push({
         name: body.name,
         url: body.url,
@@ -6660,8 +6662,9 @@ export async function handleFavsRoutes(
       await appendOperationLog(request, env, '新增配置', ctx);
 
       return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
-    } catch {
-      return new Response('Error saving favorite', { status: 500 });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return jsonError(`新增配置寫入 KV 失敗: ${msg}`, 500);
     }
   }
 
@@ -6670,10 +6673,7 @@ export async function handleFavsRoutes(
       if ((request.headers.get('X-Password') || '').trim() !== '') {
         await appendOperationLog(request, env, '登入失敗', ctx);
       }
-      return new Response(JSON.stringify({ error: '未授權' }), {
-        status: 401,
-        headers: { 'Access-Control-Allow-Origin': '*' }
-      });
+      return jsonError('密碼錯誤或未授權', 401);
     }
     try {
       const body = (await request.json()) as {
@@ -6685,45 +6685,53 @@ export async function handleFavsRoutes(
         rename?: string;
         token?: string;
       };
-      if (body.index === undefined || !body.name || !body.url) return new Response('Missing data', { status: 400 });
+      if (body.index === undefined || !body.name || !body.url) {
+        return jsonError('缺少配置索引、名稱或節點內容', 400);
+      }
       const cleanToken = (body.token || '').trim();
-      const favs = await getFavs();
-      if (body.index >= 0 && body.index < favs.length) {
-        const oldName = favs[body.index]?.name?.trim();
-        const newName = body.name.trim();
+      const favs = await getFavs(env);
+      if (body.index < 0 || body.index >= favs.length) {
+        return jsonError('欲修改的配置索引不存在，請重新整理頁面', 400);
+      }
 
-        favs[body.index] = {
-          name: body.name,
-          url: body.url,
-          include: body.include || '',
-          exclude: body.exclude || '',
-          rename: body.rename || '',
-          token: cleanToken
-        };
-        await saveFavs(env, favs);
+      const oldName = favs[body.index]?.name?.trim();
+      const newName = body.name.trim();
 
-        if (oldName && oldName !== newName) {
-          await env.SUB_CACHE.delete(oldName);
+      favs[body.index] = {
+        name: body.name,
+        url: body.url,
+        include: body.include || '',
+        exclude: body.exclude || '',
+        rename: body.rename || '',
+        token: cleanToken
+      };
+      await saveFavs(env, favs);
+
+      if (oldName && oldName !== newName) {
+        await env.SUB_CACHE.delete(oldName);
+        if (oldName !== oldName.toLowerCase()) {
           await env.SUB_CACHE.delete(oldName.toLowerCase());
         }
-
-        const syncData = JSON.stringify({
-          content: body.url,
-          include: body.include || '',
-          exclude: body.exclude || '',
-          rename: body.rename || '',
-          token: cleanToken
-        });
-        await env.SUB_CACHE.put(newName, syncData);
-        if (newName !== newName.toLowerCase()) {
-          await env.SUB_CACHE.put(newName.toLowerCase(), syncData);
-        }
-
-        await appendOperationLog(request, env, '修改配置', ctx);
       }
+
+      const syncData = JSON.stringify({
+        content: body.url,
+        include: body.include || '',
+        exclude: body.exclude || '',
+        rename: body.rename || '',
+        token: cleanToken
+      });
+      await env.SUB_CACHE.put(newName, syncData);
+      if (newName !== newName.toLowerCase()) {
+        await env.SUB_CACHE.put(newName.toLowerCase(), syncData);
+      }
+
+      await appendOperationLog(request, env, '修改配置', ctx);
+
       return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
-    } catch {
-      return new Response('Error updating favorite', { status: 500 });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return jsonError(`修改配置寫入 KV 失敗: ${msg}`, 500);
     }
   }
 
@@ -6732,27 +6740,28 @@ export async function handleFavsRoutes(
       if ((request.headers.get('X-Password') || '').trim() !== '') {
         await appendOperationLog(request, env, '登入失敗', ctx);
       }
-      return new Response(JSON.stringify({ error: '未授權' }), {
-        status: 401,
-        headers: { 'Access-Control-Allow-Origin': '*' }
-      });
+      return jsonError('密碼錯誤或未授權', 401);
     }
     try {
       const body = (await request.json()) as { index?: number };
-      if (body.index === undefined) return new Response('Missing index', { status: 400 });
-      const favs = await getFavs();
+      if (body.index === undefined) return jsonError('缺少索引參數', 400);
+      const favs = await getFavs(env);
       if (body.index >= 0 && body.index < favs.length) {
         const removed = favs.splice(body.index, 1)[0];
         await saveFavs(env, favs);
         if (removed && removed.name) {
-          await env.SUB_CACHE.delete(removed.name.trim());
-          await env.SUB_CACHE.delete(removed.name.trim().toLowerCase());
+          const rName = removed.name.trim();
+          await env.SUB_CACHE.delete(rName);
+          if (rName !== rName.toLowerCase()) {
+            await env.SUB_CACHE.delete(rName.toLowerCase());
+          }
         }
         await appendOperationLog(request, env, '刪除配置', ctx);
       }
       return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
-    } catch {
-      return new Response('Error deleting favorite', { status: 500 });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return jsonError(`刪除配置失敗: ${msg}`, 500);
     }
   }
 

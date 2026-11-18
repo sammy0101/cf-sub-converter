@@ -28,15 +28,44 @@ export async function handleFavsRoutes(
         include?: string;
         exclude?: string;
         rename?: string;
+        token?: string;
       };
       const cleanPath = (body.path || '').trim();
       if (!cleanPath || !body.content) return new Response('Missing path or content', { status: 400 });
+
+      const cleanToken = (body.token || '').trim();
+
+      // 安全防線：若該短連結已存在且設有 Token 保護，禁止未經管理密碼授權的公開覆蓋
+      const existingRaw =
+        (await env.SUB_CACHE.get(cleanPath)) ||
+        (cleanPath !== cleanPath.toLowerCase() ? await env.SUB_CACHE.get(cleanPath.toLowerCase()) : null);
+      if (existingRaw) {
+        try {
+          const existingParsed = JSON.parse(existingRaw) as { token?: string };
+          const existingToken = (existingParsed.token || '').trim();
+          if (existingToken) {
+            if (hasPasswordConfigured(env) && !checkAuth(request, env)) {
+              return new Response('Forbidden: 該短連結已受 Token 保護，需要管理密碼授權才可修改', {
+                status: 403,
+                headers: { 'Access-Control-Allow-Origin': '*' }
+              });
+            }
+            if (!hasPasswordConfigured(env) && cleanToken !== existingToken) {
+              return new Response('Forbidden: Token 不符', {
+                status: 403,
+                headers: { 'Access-Control-Allow-Origin': '*' }
+              });
+            }
+          }
+        } catch {}
+      }
 
       const saveData = {
         content: body.content,
         include: body.include || '',
         exclude: body.exclude || '',
-        rename: body.rename || ''
+        rename: body.rename || '',
+        token: cleanToken
       };
       const jsonStr = JSON.stringify(saveData);
 
@@ -100,13 +129,15 @@ export async function handleFavsRoutes(
     try {
       const body = (await request.json()) as Record<string, string>;
       if (!body.name || !body.url) return new Response('Missing name or url', { status: 400 });
-      const favs = await getFavs(env);
+      const cleanToken = (body.token || '').trim();
+      const favs = await getFavs();
       favs.push({
         name: body.name,
         url: body.url,
         include: body.include || '',
         exclude: body.exclude || '',
-        rename: body.rename || ''
+        rename: body.rename || '',
+        token: cleanToken
       });
       await saveFavs(env, favs);
 
@@ -115,7 +146,8 @@ export async function handleFavsRoutes(
         content: body.url,
         include: body.include || '',
         exclude: body.exclude || '',
-        rename: body.rename || ''
+        rename: body.rename || '',
+        token: cleanToken
       });
       await env.SUB_CACHE.put(cleanName, syncData);
       if (cleanName !== cleanName.toLowerCase()) {
@@ -148,29 +180,40 @@ export async function handleFavsRoutes(
         include?: string;
         exclude?: string;
         rename?: string;
+        token?: string;
       };
       if (body.index === undefined || !body.name || !body.url) return new Response('Missing data', { status: 400 });
-      const favs = await getFavs(env);
+      const cleanToken = (body.token || '').trim();
+      const favs = await getFavs();
       if (body.index >= 0 && body.index < favs.length) {
+        const oldName = favs[body.index]?.name?.trim();
+        const newName = body.name.trim();
+
         favs[body.index] = {
           name: body.name,
           url: body.url,
           include: body.include || '',
           exclude: body.exclude || '',
-          rename: body.rename || ''
+          rename: body.rename || '',
+          token: cleanToken
         };
         await saveFavs(env, favs);
 
-        const cleanName = body.name.trim();
+        if (oldName && oldName !== newName) {
+          await env.SUB_CACHE.delete(oldName);
+          await env.SUB_CACHE.delete(oldName.toLowerCase());
+        }
+
         const syncData = JSON.stringify({
           content: body.url,
           include: body.include || '',
           exclude: body.exclude || '',
-          rename: body.rename || ''
+          rename: body.rename || '',
+          token: cleanToken
         });
-        await env.SUB_CACHE.put(cleanName, syncData);
-        if (cleanName !== cleanName.toLowerCase()) {
-          await env.SUB_CACHE.put(cleanName.toLowerCase(), syncData);
+        await env.SUB_CACHE.put(newName, syncData);
+        if (newName !== newName.toLowerCase()) {
+          await env.SUB_CACHE.put(newName.toLowerCase(), syncData);
         }
 
         await appendOperationLog(request, env, '修改配置', ctx);
@@ -194,7 +237,7 @@ export async function handleFavsRoutes(
     try {
       const body = (await request.json()) as { index?: number };
       if (body.index === undefined) return new Response('Missing index', { status: 400 });
-      const favs = await getFavs(env);
+      const favs = await getFavs();
       if (body.index >= 0 && body.index < favs.length) {
         const removed = favs.splice(body.index, 1)[0];
         await saveFavs(env, favs);

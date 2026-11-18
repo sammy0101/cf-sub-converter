@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Nov 18 11:00:28 UTC 2026
+Generated on: Wed Nov 18 11:00:55 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -4456,7 +4456,12 @@ export function sanitizeLogUrl(rawUrl: string): string {
     if (urlVal && urlVal.length > 48) {
       u.searchParams.set('url', urlVal.slice(0, 48) + '...');
     }
-    const result = u.toString();
+    const tokenVal = u.searchParams.get('token');
+    if (tokenVal) {
+      const masked = tokenVal.length > 8 ? `${tokenVal.slice(0, 3)}***${tokenVal.slice(-3)}` : '***';
+      u.searchParams.set('token', masked);
+    }
+    const result = u.toString().replace(/%2A/g, '*');
     return result.length > 160 ? result.slice(0, 157) + '...' : result;
   } catch {
     return rawUrl.length > 160 ? rawUrl.slice(0, 157) + '...' : rawUrl;

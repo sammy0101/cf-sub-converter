@@ -180,6 +180,7 @@ export const UI_MARKUP = `
           <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
           Argo 隧道 2.0 (支援優選 IP / 多端口部署)
         </h2>
+        <button class="btn btn-ghost" onclick="openArgoHelpModal()" title="查看 Argo 隧道 2.0 使用說明" style="padding: 0.45rem 0.7rem; font-weight: 700;">?</button>
       </div>
       
       <div class="form-group">
@@ -315,6 +316,53 @@ export const UI_MARKUP = `
         </div>
       </div>
     </section>
+  </div>
+
+  <!-- Argo 隧道 2.0 ? 詳細說明彈窗 -->
+  <div class="modal-overlay" id="argoHelpModal">
+    <div class="modal-content" style="max-width: 640px;">
+      <div class="panel-header" style="margin-bottom: 1.25rem;">
+        <h3 class="panel-title">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          Argo 隧道 2.0 使用說明與部署教學
+        </h3>
+      </div>
+      <div class="tg-help-box">
+        <div class="tg-help-step">
+          <div class="tg-help-step-title">一、什麼是 Argo 隧道 2.0？（適用協議與前提）</div>
+          <div>
+            將 VPS 上原本容易被阻斷或延遲較高的節點，透過 <code>cloudflared</code> 加密隧道接入 Cloudflare 邊緣節點（Anycast），實現隱藏真實 VPS IP 與優選 IP 加速。<br>
+            • <strong>支援協議</strong>：僅支援 <code>VLESS</code> 與 <code>VMess</code>（建議使用 <code>ws</code> WebSocket 傳輸；Reality / gRPC 無法經過 Cloudflare 代理）。<br>
+            • <strong>第一步操作</strong>：先在頁面最上方輸入框貼入原始節點或訂閱網址，再點擊「第一步」按鈕載入並勾選欲轉換的節點。
+          </div>
+        </div>
+        <div class="tg-help-step">
+          <div class="tg-help-step-title">二、兩種隧道模式比較（臨時 vs 固定）</div>
+          <div>
+            • <strong>臨時隧道模式 (Quick Tunnel)</strong>：將「Token」與「自訂域名」<strong>皆留空</strong>。不需自己買網域，VPS 執行腳本後會自動申請隨機 <code>*.trycloudflare.com</code> 域名。<br>
+              <em>⚠️ 注意：VPS 重啟或隧道服務重啟後臨時域名會刷新，執行完腳本請從 VPS 終端機複製新域名，手動替換輸出節點中的提示域名。</em><br>
+            • <strong>固定隧道模式 (Named Tunnel)</strong>：需先於 Cloudflare Zero Trust 後台建立 Tunnel 取得 <strong>Token</strong>，並綁定您自己的域名（例如 <code>argo.yourdomain.com</code> 指向本地 <code>http://127.0.0.1:連接埠</code>）。生成後可直接取得永久可用的節點連結。
+          </div>
+        </div>
+        <div class="tg-help-step">
+          <div class="tg-help-step-title">三、本地連接埠與優選 IP 填寫指南</div>
+          <div>
+            • <strong>VPS 本地監聽連接埠</strong>：填寫 VPS 上 Xray / Sing-Box 實際監聽的連接埠（預設自動帶入所選節點 Port，如 <code>8080</code>）。部署腳本會自動探測本機監聽狀態、智慧偵測 TLS 與自動重寫 Origin Host。<br>
+            • <strong>Cloudflare 優選 IP / 優選域名（選填）</strong>：填入 Cloudflare Clean IP（如 <code>104.16.80.1</code>）或優選官方網域（如 <code>www.visa.com</code>、<code>icook.hk</code>），系統會將連接目標替換為優選 IP 並保留 Argo 網域作為 <code>SNI/Host</code>，顯著降低延遲。
+          </div>
+        </div>
+        <div class="tg-help-step">
+          <div class="tg-help-step-title">四、VPS 一鍵部署注意事項</div>
+          <div>
+            1. 產生的一鍵指令 <code>curl -sSL ... | bash</code> 快取有效期為 <strong>1 小時 (3600 秒)</strong>。<br>
+            2. 請務必使用 <strong><code>root</code> 權限</strong>於目標節點的 Linux (<code>amd64</code>) VPS 上執行，腳本會自動安裝 <code>cloudflared</code> 並註冊為開機自啟的 systemd 服務。
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="margin-top: 1.5rem;">
+        <button class="btn btn-primary" onclick="closeArgoHelpModal()" style="width: auto; padding: 0.65rem 1.5rem; font-size: 0.95rem;">我知道了</button>
+      </div>
+    </div>
   </div>
 
   <!-- 全部日誌彈窗 -->

@@ -13,6 +13,18 @@ import {
 import { loadNodesWithTraffic, filterAndRenameNodes } from '../services/node-loader';
 import { scheduleLog } from '../services/audit';
 
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const bufA = enc.encode(a);
+  const bufB = enc.encode(b);
+  if (bufA.length !== bufB.length) return false;
+  let diff = 0;
+  for (let i = 0; i < bufA.length; i++) {
+    diff |= bufA[i] ^ bufB[i];
+  }
+  return diff === 0;
+}
+
 export async function handleSubRoute(
   request: Request,
   env: Env,
@@ -30,6 +42,8 @@ export async function handleSubRoute(
   const rawPath = url.pathname.replace(/^\/+/, '');
   const path = decodeURIComponent(rawPath).trim();
   let detectedProfileName = nameParam;
+  let storedToken = '';
+  let foundInKv = false;
 
   if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
     if (!detectedProfileName) {
@@ -45,18 +59,21 @@ export async function handleSubRoute(
     }
 
     if (stored) {
+      foundInKv = true;
       try {
         const parsed = JSON.parse(stored) as {
           content?: string;
           include?: string;
           exclude?: string;
           rename?: string;
+          token?: string;
         };
         if (parsed && parsed.content) {
           urlParam = parsed.content;
           if (!includeParam) includeParam = parsed.include || '';
           if (!excludeParam) excludeParam = parsed.exclude || '';
           if (!renameParam) renameParam = parsed.rename || '';
+          storedToken = (parsed.token || '').trim();
         }
       } catch {
         urlParam = stored;
@@ -70,20 +87,44 @@ export async function handleSubRoute(
           const favsList = JSON.parse(favsData) as Array<Record<string, string>>;
           const matched = favsList.find(f => f.name && f.name.trim().toLowerCase() === path.toLowerCase());
           if (matched && matched.url) {
+            foundInKv = true;
             urlParam = matched.url;
             if (!includeParam) includeParam = matched.include || '';
             if (!excludeParam) excludeParam = matched.exclude || '';
             if (!renameParam) renameParam = matched.rename || '';
+            storedToken = (matched.token || '').trim();
             detectedProfileName = matched.name;
           }
         }
       } catch {}
+    }
+
+    // 防掃描校驗：若配置設有 Token，無 Token 或錯誤 Token 統一回傳 404 Not Found（防列舉），並記為異常存取
+    if (foundInKv && storedToken) {
+      const providedToken = (url.searchParams.get('token') || '').trim();
+      if (!providedToken || !timingSafeEqualStr(providedToken, storedToken)) {
+        scheduleLog(request, env, ctx, '異常存取');
+        return new Response('Not Found', {
+          status: 404,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+        });
+      }
     }
   }
 
   if (!urlParam || urlParam.trim() === '') {
     if (path === 'sub') {
       return new Response('Error: Missing parameter "url"', { status: 400 });
+    }
+    if (path === 'favicon.ico') {
+      return new Response(null, { status: 204 });
+    }
+    // 任何不存在的路徑統一回傳 404 Not Found，確保與 Token 驗證失敗之回應完全一致，不洩漏短連結名稱
+    if (path !== '') {
+      return new Response('Not Found', {
+        status: 404,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+      });
     }
     const dynamicHtml = HTML_PAGE.replace('id="appVersionBadge">PRO</span>', `id="appVersionBadge">v${version}</span>`);
     return new Response(dynamicHtml, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
@@ -125,24 +166,30 @@ export async function handleSubRoute(
     scheduleLog(request, env, ctx, '獲取訂閱');
 
     const host = `https://${url.host}`;
-    const encodedUrl = encodeURIComponent(urlParam);
+    let basePreview = `${host}/?url=${encodeURIComponent(urlParam)}`;
+    if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
+      basePreview = `${host}/${encodeURIComponent(path)}`;
+      if (storedToken) basePreview += `?token=${encodeURIComponent(storedToken)}`;
+    }
+    const sep = basePreview.includes('?') ? '&' : '?';
+
     let filterQuery = '';
-    if (includeParam) filterQuery += `&include=${encodeURIComponent(includeParam)}`;
-    if (excludeParam) filterQuery += `&exclude=${encodeURIComponent(excludeParam)}`;
-    if (renameParam) filterQuery += `&rename=${encodeURIComponent(renameParam)}`;
-    if (detectedProfileName) filterQuery += `&name=${encodeURIComponent(detectedProfileName)}`;
+    if (includeParam && !foundInKv) filterQuery += `&include=${encodeURIComponent(includeParam)}`;
+    if (excludeParam && !foundInKv) filterQuery += `&exclude=${encodeURIComponent(excludeParam)}`;
+    if (renameParam && !foundInKv) filterQuery += `&rename=${encodeURIComponent(renameParam)}`;
+    if (detectedProfileName && !foundInKv) filterQuery += `&name=${encodeURIComponent(detectedProfileName)}`;
 
     const htmlInfo = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>轉換完成</title><style>body{background:#0f172a;color:#f8fafc;font-family:sans-serif;padding:40px;text-align:center;}a{display:inline-block;margin:10px;padding:12px 24px;background:#3b82f6;color:#fff;text-decoration:none;border-radius:8px;}</style></head>
 <body>
   <h1>⚡ 成功轉換 ${uniqueNodes.length} 個節點</h1>
   <div>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=clash">Clash Meta (YAML)</a>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=singbox">Sing-Box (JSON)</a>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=surge">Surge 5</a>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=quanx">Quantumult X</a>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=loon">Loon</a>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=base64">Base64</a>
-    <a href="${host}/?url=${encodedUrl}${filterQuery}&target=honk">Honk / dae (config.dae)</a>
+    <a href="${basePreview}${sep}target=clash${filterQuery}">Clash Meta (YAML)</a>
+    <a href="${basePreview}${sep}target=singbox${filterQuery}">Sing-Box (JSON)</a>
+    <a href="${basePreview}${sep}target=surge${filterQuery}">Surge 5</a>
+    <a href="${basePreview}${sep}target=quanx${filterQuery}">Quantumult X</a>
+    <a href="${basePreview}${sep}target=loon${filterQuery}">Loon</a>
+    <a href="${basePreview}${sep}target=base64${filterQuery}">Base64</a>
+    <a href="${basePreview}${sep}target=honk${filterQuery}">Honk / dae (config.dae)</a>
   </div>
 </body></html>`;
     return new Response(htmlInfo, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
@@ -174,6 +221,9 @@ export async function handleSubRoute(
       let base64SubUrl = `${host}/?url=${encodeURIComponent(urlParam)}&target=base64`;
       if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
         base64SubUrl = `${host}/${encodeURIComponent(path)}?target=base64`;
+        if (storedToken) {
+          base64SubUrl += `&token=${encodeURIComponent(storedToken)}`;
+        }
       }
       if (includeParam) base64SubUrl += `&include=${encodeURIComponent(includeParam)}`;
       if (excludeParam) base64SubUrl += `&exclude=${encodeURIComponent(excludeParam)}`;

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Nov 18 11:02:42 UTC 2026
+Generated on: Wed Nov 18 11:03:33 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -8161,7 +8161,7 @@ name: Deploy to Cloudflare Workers
 
 on:
   # 1. 當推送到 main 或 master 分支時自動執行
-  #push:
+  push:
     branches:
       - main
       - master

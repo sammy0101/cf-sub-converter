@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Nov 18 10:59:56 UTC 2026
+Generated on: Wed Nov 18 11:00:28 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -4338,7 +4338,7 @@ export function escapeHtmlForTg(str: string): string {
 function getActionEmoji(action: OperationLogAction): string {
   if (action === '獲取訂閱') return '🟢';
   if (action === '登入後台') return '🟠';
-  if (action === '登入失敗') return '🔴';
+  if (action === '登入失敗' || action === '異常存取') return '🔴';
   return '🔵';
 }
 

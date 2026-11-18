@@ -101,6 +101,14 @@ export const UI_SCRIPT = `
       document.getElementById('modal').classList.remove('show');
     }
 
+    function openArgoHelpModal() {
+      document.getElementById('argoHelpModal').classList.add('show');
+    }
+
+    function closeArgoHelpModal() {
+      document.getElementById('argoHelpModal').classList.remove('show');
+    }
+
     function loadFavs(isInitialLogin) {
       var pwd = getStoredPwd();
       var reqHeaders = { 'X-Password': pwd };

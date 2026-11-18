@@ -1,6 +1,6 @@
 # ⚡ CF Sub Converter Pro
 
-基於 Cloudflare Workers 的全能 Serverless 訂閱轉換與節點中樞。擁有現代深色 UI、GitHub 遠端規則即時直讀與內嵌容災架構（支援 **Sing-Box / Clash Meta / Honk** 三端模板獨立解耦）、自訂短代碼全字元（大小寫/符號）1:1 完整保留、私密配置管理安全鎖、**操作日誌審計與 Telegram Bot 即時通知系統**、國旗萬國對齊系統、**Argo 隧道 2.0 自動化生成器**，以及 **OpenWrt Honk / DAE (eBPF 內核級透明代理) 與 Doona Web UI 深度適配**。支援將各類代理節點一鍵轉換為 **Sing-Box / Clash Meta (Mihomo) / Honk (DAE) / Surge 5 / Quantumult X / Loon / Base64** 格式，並提供全平台專屬喚醒協議（Deep Link）與行動條碼掃描自動導入。
+基於 Cloudflare Workers 的全能 Serverless 訂閱轉換與節點中樞。擁有現代深色 UI、GitHub 遠端規則即時直讀與內嵌容災架構（支援 **Sing-Box / Clash Meta / Honk** 三端模板獨立解耦）、自訂短代碼全字元（大小寫/符號）1:1 完整保留、**自訂高強度存取 Token 與防列舉隱匿保護**、私密配置管理安全鎖、**操作日誌審計與 Telegram Bot 即時通知系統**、國旗萬國對齊系統、**Argo 隧道 2.0 自動化生成器**，以及 **OpenWrt Honk / DAE (eBPF 內核級透明代理) 與 Doona Web UI 深度適配**。支援將各類代理節點一鍵轉換為 **Sing-Box / Clash Meta (Mihomo) / Honk (DAE) / Surge 5 / Quantumult X / Loon / Base64** 格式，並提供全平台專屬喚醒協議（Deep Link）與行動條碼掃描自動導入。
 
 [![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sammy0101/cf-sub-converter)
 
@@ -48,7 +48,7 @@
   - **Doona 原生 Web UI 完整可編輯**：所有策略組採用標準識別碼（`AI`, `Microsoft`, `Game`, `Apple`, `Global`, `Fallback`）並設定為 `policy: selector` 與 `config_write: true`，在 `http://路由器IP:9527` 徹底解鎖 🔒 限制，允許自由點擊切換節點與編輯策略組屬性。
   - **DNS 現代調優**：配置 `client_subnet: auto` 改善 CDN 在地性、`qtype(https) -> reject`，並具備海外 DoH 回傳中國 IP 時自動退回 `localdns` 重解析的挽救機制。
   - **旁路由（雙網關）專屬優化**：私有網段規則採用純 `dip(geoip:private) -> direct`（排除 `must`），加上 `sing-box`、`mihomo`、`frpc`、`einat` 進程直連防回環。
-  - **自動化訂閱與雲端 AI 規則連動**：透過 `subscription` 區塊每 12 小時直連更新 Base64 訂閱，並即時拉取 GitHub `geosite_ai_hk_proxy.dae`。
+  - **自動化訂閱與雲端 AI 規則連動**：透過 `subscription` 區塊每 12 小時直連更新 Base64 訂閱（若配置設有 Token 會自動透傳），並即時拉取 GitHub `geosite_ai_hk_proxy.dae`。
 - **Surge 5**：標準 `.conf` 格式，支援 Proxy、Proxy Group、分流規則與 `[WireGuard ...]` 獨立專屬區塊。
 - **Quantumult X**：支援包含 `vless=` 在內的標準 `server_remote` 節點清單。
 - **Loon**：標準 `[Proxy]` 格式。
@@ -58,7 +58,12 @@
   - 點擊 QR Code 圖示自動產生符合各客戶端規範的條碼。
   - 手機相機或 App 掃描全自動填入名稱與網址，亦可點擊按鈕直接喚醒 App 一鍵導入。
 
-### 3. 🏷️ 短連結雲端儲存與全字元完整保留
+### 3. 🏷️ 短連結雲端儲存與自訂存取 Token 防掃描保護
+- **自訂存取 Token 與隨機生成（防暴力掃描）**：
+  - 支援於主表單或「新增／編輯配置」彈窗填寫 **`自訂存取 Token`**，亦可點擊 **`🎲 隨機生成`** 利用瀏覽器密碼學隨機數（`crypto.getRandomValues`）產生 24 位高強度英數 Token。
+  - **裸短連結自動失效 + 防列舉隱匿 (Anti-Enumeration)**：設定 Token 後，原本不帶 Token 的裸短連結（如 `/EDT`）立即失效；若請求未附帶 `?token=` 或以 Constant-Time 比對失敗，後端統一回傳與不存在路徑完全一致的 **`404 Not Found`**，徹底阻斷路徑字典探測。
+  - **防覆蓋劫持保護**：已受 Token 保護的短代碼禁止未經 `PAGE_PASSWORD` 授權透過公開 `/save` 接口覆蓋。
+  - **全平台與 Honk 自動透傳**：載入受保護配置時，所有平台連結、QR Code 及 Honk 內嵌 `subscription` 網址皆會自動帶上 `?token=`；留空 Token 則維持一般短連結運作。
 - **大小寫字母與特殊符號 1:1 完全保留**：
   - 點選已儲存的配置時，自訂短路徑名稱完整保留原始大小寫字母（如 `HK-VIP-Pro`）、符號、Emoji 與中文，不再強制轉換為小寫。
   - 網址生成器整合標準安全轉義（`encodeURIComponent`），確保包含特殊字元或空白時 HTTP 路由不被截斷，並能精確於 KV 還原對應配置。
@@ -72,14 +77,14 @@
 - **公私分明與 Fail-Closed 安全設計**：
   - **公開使用**：通用訂閱轉換、節點過濾、Argo 隧道生成、客戶端訂閱更新一律開放。
   - **私密保護**：下方的「已儲存的配置」、「📋 查看操作日誌」與「🔔 消息通知設定」共用同一組 `PAGE_PASSWORD` 安全鎖；**若未設定 `PAGE_PASSWORD`，日誌與通知 API 預設回傳 `403 Forbidden` 禁用讀取**，防止敏感憑證與訪客隱私外洩。
-- **永久記住登入狀態**：解鎖成功後瀏覽器（`localStorage`）自動保持登入，重開網頁免重複輸入（自動記錄一筆 `登入後台`），並提供隨時「🔒 鎖定」按鈕同步隱藏配置、日誌與通知設定。
+- **永久記住登入狀態與精準錯誤透傳**：解鎖成功後瀏覽器（`localStorage`）自動保持登入，重開網頁免重複輸入（自動記錄一筆 `登入後台`），並提供隨時「🔒 鎖定」按鈕同步隱藏配置、日誌與通知設定；後端操作失敗時會結構化回傳真實 HTTP 狀態碼與異常原因，避免誤報。
 - **操作日誌審計與效能防護**：
-  - **零延遲背景追蹤**：客戶端獲取訂閱透過 `ctx.waitUntil()` 非同步寫入 KV，管理操作與錯誤登入嘗試則同步寫入確保即時呈現。
-  - **完整遙測欄位（UTC+8）**：原生讀取 Cloudflare `request.cf` 記錄時間、訪客 IP、國家／城市、ASN 與電信業者、4 色操作標籤（🟢 `獲取訂閱` / 🟠 `登入後台` / 🔴 `登入失敗` / 🔵 `新增/修改/刪除配置/儲存短連結`）、長度截斷保護後的請求 URL 與 User-Agent。
+  - **零延遲背景追蹤**：客戶端獲取訂閱與異常存取透過 `ctx.waitUntil()` 非同步寫入 KV，管理操作與錯誤登入嘗試則同步寫入確保即時呈現。
+  - **完整遙測欄位（UTC+8）**：原生讀取 Cloudflare `request.cf` 記錄時間、訪客 IP、國家／城市、ASN 與電信業者、4 色操作標籤（🟢 `獲取訂閱` / 🟠 `登入後台` / 🔴 `登入失敗`、`異常存取` / 🔵 `新增/修改/刪除配置/儲存短連結`）、自動遮罩 `?token=` 與截斷過長 URL 後的請求路徑與 User-Agent。
   - **Workers 免費版護欄與即時同步**：僅滾動保留最新 **200 筆** 紀錄（防止 10ms CPU 超時），支援首頁折疊預覽、彈窗全欄位檢視、15 秒／切回分頁自動同步、手動刷新與 **🗑️ 清空日誌**。
 - **Telegram Bot 即時推播系統**：
   - 直接於網頁前端「參數配置」設定 **Bot Token** 與 **Chat ID**（後端讀取時自動遮罩敏感字元 `123456***abcd`），並提供一鍵 **「發送測試訊息」** 與 **「? 新手申請教學彈窗」**。
-  - 啟用後，所有日誌事件皆會透過 `ctx.waitUntil()` 背景即時推播至您的 Telegram，不影響訂閱下載速度。
+  - 啟用後，所有日誌事件（包含異常 Token 掃描警報）皆會透過 `ctx.waitUntil()` 背景即時推播至您的 Telegram，不影響訂閱下載速度。
 
 ### 5. 🛡️ 99.99% GitHub 模板即時直讀與雙重容災架構 (Zero Downtime)
 - **GitHub 遠端直讀 (零 KV 模板冗餘)**：
@@ -116,9 +121,9 @@
 
 ---
 
-### 方法二：手動 Fork 本專案並使用 GitHub Actions 自動部署 (需設定 Secrets)
+### 方法二：手動 Fork 本專案並使用 GitHub Actions 手動觸發部署 (需設定 Secrets)
 
-如果您選擇**手動 Fork 本項目**並利用倉庫內建的 GitHub Actions 自動進行 CI/CD 部署，請依照以下步驟操作：
+如果您選擇**手動 Fork 本項目**並利用倉庫內建的 `.github/workflows/deploy.yml` 進行部署（為避免分批修改檔案時重複觸發，此工作流已設定為**手動觸發模式 `workflow_dispatch`**），請依照以下步驟操作：
 
 1. **Fork 本專案**：
    點擊本倉庫右上角的 **`Fork`** 按鈕，將專案複製一份到您的 GitHub 帳號下。
@@ -138,10 +143,10 @@
    | **`CF_ACCOUNT_ID`** | **Cloudflare 帳戶 ID**<br>獲取方式：登入 Cloudflare ➔ 點擊任意網域或 Worker 頁面，在右側欄位即可找到「帳戶 ID (Account ID)」。 |
    | **`CF_KV_ID`** | **KV 命名空間 ID**<br>獲取方式：填入步驟 2 中建立的 `SUB_CACHE` 命名空間 ID。 |
 
-4. **觸發自動部署**：
-   - 前往 GitHub 倉庫的 **`Actions`** 標籤頁。
-   - 點擊左側的 **`Deploy to Cloudflare Workers`** 工作流，點擊 **`Run workflow`** 手動執行部署。
-   - 後續只要您對 `main` 或 `master` 分支推送（Push）任何代碼變更，GitHub Actions 就會全自動為您編譯並發布至 Cloudflare Workers。
+4. **手動觸發部署**：
+   - 確認所有程式碼修改皆已提交至 `main` 分支後，前往 GitHub 倉庫的 **`Actions`** 標籤頁。
+   - 點擊左側的 **`Deploy to Cloudflare Workers`** 工作流。
+   - 點擊右側的 **`Run workflow`** ➔ **`Run workflow`**，即可一次完成編譯並發布至 Cloudflare Workers。
 
 ---
 
@@ -188,11 +193,11 @@
 - **資料來源設定**：
   - 貼上完整 **Clash Meta (.yaml) 設定檔**、機場訂閱連結、WireGuard `.conf` 設定檔（支援多組 `[Interface]...[Peer]` 連續貼入）、Cloudflare WARP MASQUE JSON（支援陣列或多個物件），或各類代理節點。
 - **過濾與替換**：設定保留/排除關鍵字或名稱替換規則。
-- **短連結雲端儲存**：設定自訂短代碼（如 `My_Sub`），規則將自動打包存入 KV，大小寫與字元原樣保留。
+- **短連結雲端儲存與 Token 保護**：設定自訂短代碼（如 `My_Sub`）與選填存取 Token（支援一鍵隨機生成 24 位高強度密鑰），規則將自動打包存入 KV，大小寫與字元原樣保留。
 - **多平台訂閱面板**：
-  - 複製對應客戶端的訂閱連結（含 Sing-Box、Clash Meta、Honk/DAE、Surge、Base64 等）。
+  - 複製對應客戶端的訂閱連結（含 Sing-Box、Clash Meta、Honk/DAE、Surge、Base64 等，如有設定 Token 會自動附帶 `?token=`）。
   - 點擊 QR Code 圖示彈出專屬喚醒視窗，手機相機或 App 掃描自動填入，或點擊「🚀 一鍵打開並導入」直接喚醒 App。
-- **配置收藏、操作日誌與 TG 通知**：輸入管理密碼解鎖後，可自由管理私密配置、於「查看操作日誌」即時追蹤所有請求與異常登入，並於「消息通知設定」配置與測試 Telegram Bot 即時推播。
+- **配置收藏、操作日誌與 TG 通知**：輸入管理密碼解鎖後，可自由管理私密配置、於「查看操作日誌」即時追蹤所有請求與異常存取，並於「消息通知設定」配置與測試 Telegram Bot 即時推播。
 
 ---
 
@@ -209,6 +214,7 @@ https://your-worker.workers.dev
 | 參數 | 說明 | 範例 |
 | :--- | :--- | :--- |
 | `url` | 原始訂閱連結、YAML 或節點內容（需 URL 編碼） | `https://example.com/sub` |
+| `token` | 自訂存取 Token（僅於該短連結設有 Token 時強制校驗） | `token=4lhO9kXKa8bZR6ReAxPp5JRE` |
 | `target` | 目標格式：`clash` / `singbox` / `honk` (或 `dae`) / `surge` / `quanx` / `loon` / `base64` | `target=honk` |
 | `include` | 僅保留符合正則之節點 | `include=HK\|TW` |
 | `exclude` | 排除符合正則之節點（自動相容乘號 `×`） | `exclude=5x\|官網` |
@@ -221,11 +227,11 @@ https://your-worker.workers.dev
 # 轉換原始訂閱為 Clash Meta 格式，僅保留香港，並刪除廣告名稱
 https://your-worker.workers.dev/sub?url=<URL編碼>&target=clash&include=HK&rename=DEL-[廣告]
 
-# 讀取已存於雲端 KV 的短連結配置為 OpenWrt Honk (config.dae) 格式
-https://your-worker.workers.dev/<自訂短連結名稱>?target=honk
+# 讀取設有 Token 保護的短連結為 Sing-Box 格式
+https://your-worker.workers.dev/<自訂短連結名稱>?token=<Token>&target=singbox
 
-# 讀取短連結為 Sing-Box 格式
-https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox
+# 讀取短連結為 OpenWrt Honk (config.dae) 格式（內部 subscription 會自動透傳 Token）
+https://your-worker.workers.dev/<自訂短連結名稱>?token=<Token>&target=honk
 ```
 
 ---
@@ -252,7 +258,11 @@ https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox
 
 ## ❓ 常見問題排錯 (FAQ)
 
-### 1. 在 OpenWrt 旁路由（雙網關）使用 Honk / DAE 時，為什麼私有網段不能加 `(must)`？
+### 1. 如何防止自訂短連結被惡意掃描器或爬蟲猜測盜用？
+- **第一道防線（應用程式層）**：於「新增／編輯配置」中點擊 **`🎲 隨機生成`** 為配置加上 24 位高強度隨機 **Token**。設定後，原本無 Token 的裸短連結會徹底失效並回傳與不存在路徑相同的 `404 Not Found`（防列舉），同時觸發操作日誌 🔴 **`異常存取`** 與 Telegram 告警。
+- **第二道防線（Cloudflare 邊緣 WAF）**：建議在 Cloudflare Dashboard ➔ **安全性 (Security) ➔ WAF ➔ 速率限制規則** 新增一條免費規則（例如：同一個 IP 於 10 秒內請求超過 20 次直接封鎖），即可在封包抵達 Worker 前於邊緣層擋下高頻掃描，節省 KV 讀取次數。
+
+### 2. 在 OpenWrt 旁路由（雙網關）使用 Honk / DAE 時，為什麼私有網段不能加 `(must)`？
 - **原因說明**：
   - 在旁路由架構中，主路由與旁路由位於同一個 L2 廣播網段。
   - 若在私有 IP 規則寫上 `dip(geoip:private) -> direct(must)`，Linux 核心會強制跳過 eBPF 狀態鏈直接發送，繞過了 DAE 的 Conntrack（連接追蹤）與 SNAT 偽裝。
@@ -260,17 +270,17 @@ https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox
 - **解法**：
   - 本專案產出的 Honk 配置已採用 `dip(geoip:private) -> direct`，保留 eBPF 狀態追蹤，在旁路由與單臂路由環境下均可順暢連通。
 
-### 2. 為什麼 Sing-Box 日誌會看到 `outbound/block[REJECT]: operation not permitted` 紅字報錯？
+### 3. 為什麼 Sing-Box 日誌會看到 `outbound/block[REJECT]: operation not permitted` 紅字報錯？
 - **原因說明**：
   - 這是 Sing-Box 的**正常廣告攔截行為**。當規則集（如 `rs-ads`）識別到追蹤器網域（如 `app-analytics-services.com`）並將其轉發至 `type: "block"` 出站時，核心會主動回傳系統級拒絕碼 `EPERM` (`operation not permitted`) 來切斷連線，並以 `ERROR` 等級印出日誌。
   - 若於手機手遊中因廣告被攔截而領不到看廣告獎勵，可在 Sing-Box 首頁將 **`🛑 廣告攔截`** 暫時切換為 `DIRECT`，領取獎勵後再切回 `REJECT`。
 
-### 3. 為什麼操作日誌與 Telegram 通知顯示「未設定管理密碼，預設禁用」？
+### 4. 為什麼操作日誌與 Telegram 通知顯示「未設定管理密碼，預設禁用」？
 - **原因說明**：
   - 操作日誌包含訪客真實 IP、所在城市地區、ASN 與完整的訂閱請求連結，而 Telegram 配置則包含高敏感的 Bot Token。
   - 為防止在未設定密碼的公開環境下資料與憑證外洩，系統採用 **Fail-Closed** 安全原則：必須在 Cloudflare Workers 環境變數中設定 `PAGE_PASSWORD` 後，日誌與通知功能才會啟用並於解鎖後呈現。
 
-### 4. 為什麼官方原版 Sing-Box 無法使用 MASQUE 節點？如何在 Sing-Box 使用 WARP？
+### 5. 為什麼官方原版 Sing-Box 無法使用 MASQUE 節點？如何在 Sing-Box 使用 WARP？
 - **原因說明**：
   - **MASQUE 協議現狀**：官方 `SagerNet/sing-box` 主線尚未合併 MASQUE 模組（若強行載入會報 `unknown outbound type: masque`）。目前僅社群擴展分支（如 `sing-box-lx`、`sing-box-extended`）支援 MASQUE。
   - **協議不可互轉**：MASQUE（ECDSA P-256 / HTTP/3）與 WireGuard（Curve25519 / UDP）是兩套完全獨立的密碼學體系，轉換器無法直接將 MASQUE 金鑰轉換成 WireGuard 節點。
@@ -278,11 +288,11 @@ https://your-worker.workers.dev/<自訂短連結名稱>?target=singbox
   - 若需在官方原版 Sing-Box 使用 WARP，請直接獲取 **WARP 的 WireGuard 設定檔**（例如使用 `wgcf` 工具產生內含 `[Interface]...[Peer]` 的 `.conf` 檔）。
   - 將該 WireGuard `.conf` 貼入本轉換器，即可轉出符合官方規範的頂層現代 `endpoints` 結構，流暢連通。
 
-### 5. WireGuard 節點在小火箭（Shadowrocket）測速顯示超時/紅燈（TCP 無延遲），但打開開關能正常上網？
+### 6. WireGuard 節點在小火箭（Shadowrocket）測速顯示超時/紅燈（TCP 無延遲），但打開開關能正常上網？
 - **原因**：WireGuard 是工作在第 3 層（網路層）的虛擬網卡 TUN 隧道協議。小火箭首頁的「連通性測試」預設發送的是 **TCP/HTTP Ping**；在開關未開啟前，TUN 路由尚未真正建立，因此向私有 DNS（如 Proton 的 `10.2.0.1`）發起的 TCP 域名解析必定超時。
 - **說明**：這是所有包含內部私有 DNS 的 WireGuard / WARP 節點在小火箭中的**正常現象**。只要連線開關開啟後能順暢瀏覽網頁，即代表功能完全正常。若需測出數值，可在小火箭「設定」➔「測試方法」中切換為 **ICMP** 測速。
 
-### 6. 某些優選節點（如 `www.visa.cn`）在小火箭測速顯示綠燈，但在 Sing-Box / Clash 上連不上？
+### 7. 某些優選節點（如 `www.visa.cn`）在小火箭測速顯示綠燈，但在 Sing-Box / Clash 上連不上？
 - **原因**：
   - **小火箭 TCP Ping 假象**：小火箭預設只測 TCP 握手。`www.visa.cn` 的真實伺服器目前已遷至阿里雲香港（`47.75.18.65`），TCP 端口能通（顯示 2ms 綠燈），但**阿里雲節點根本不具備 Cloudflare Workers 的反代回源功能**，實際上根本無法上網。
   - **Sing-Box 真實業務探測**：Sing-Box 的測速發起的是真正的 HTTP 204 端到端業務測試（`https://www.gstatic.com/generate_204`），握手失敗立即如實回報紅燈。
@@ -317,19 +327,19 @@ cf-sub-converter/
 │   │   └── legacy.ts            # Surge 5 / Quantumult X / Loon 配置生成
 │   ├── services/
 │   │   ├── auth.ts              # PAGE_PASSWORD 鑒權與 Fail-Closed 安全檢查
-│   │   ├── audit.ts             # UTC+8 操作日誌記錄與 KV 200 筆滾動清理
+│   │   ├── audit.ts             # UTC+8 操作日誌記錄、Token 遮罩與 200 筆滾動清理
 │   │   ├── telegram.ts          # Telegram Bot 推播與測試訊息服務
 │   │   └── node-loader.ts       # 上游訂閱抓取、流量標頭彙總與節點篩選/重命名
 │   ├── routes/
 │   │   ├── admin.ts             # /logs、/tg-config、/tg-test 管理與審計路由
-│   │   ├── favs.ts              # /favs、/save 短代碼與收藏 CRUD 路由
+│   │   ├── favs.ts              # /favs、/save 短代碼防劫持與收藏 CRUD 路由
 │   │   ├── argo.ts              # /argo/sh/*、/api/parse-argo、/api/argo-generate
-│   │   └── sub.ts               # /sub 與短代碼訂閱轉換核心路由
+│   │   └── sub.ts               # /sub 與短代碼 Token 防列舉校驗、訂閱轉換核心路由
 │   └── ui/
 │       ├── index.ts             # 組合輸出完整響應式深色網頁介面
 │       ├── styles.ts            # CSS 樣式表
 │       ├── markup.ts            # 頁面結構與管理彈窗 DOM
-│       └── script.ts            # 前端互動、QR Code 生成與 API 串接腳本
+│       └── script.ts            # 前端互動、隨機 Token 生成、QR Code 與 API 串接腳本
 ├── scripts/
 │   └── argo-converter.ts        # 本地 CLI Argo 互動式轉換工具
 ├── argo.sh                      # VPS Argo 隧道 2.0 一鍵安裝與自我修復通用腳本
@@ -338,7 +348,7 @@ cf-sub-converter/
 ├── Honk_Rules.DAE               # GitHub 遠端 OpenWrt Honk / DAE 完整規則模板
 ├── wrangler.toml                # Cloudflare Workers 配置檔
 └── .github/workflows/
-    └── deploy.yml               # GitHub Actions 自動化部署工作流
+    └── deploy.yml               # GitHub Actions 手動觸發部署工作流 (workflow_dispatch)
 ```
 
 ---

@@ -41,6 +41,17 @@ export const UI_MARKUP = `
         <label for="shortCode">自訂路徑短連結 (選填)</label>
         <input type="text" id="shortCode" placeholder="例如: proton_vpn">
       </div>
+
+      <div class="form-group">
+        <label for="shortToken">自訂短連結存取 Token (選填，留空則直接使用短連結；設定後原裸短連結失效)</label>
+        <div class="cmd-group" style="margin-top: 0;">
+          <input type="text" id="shortToken" placeholder="例如: 點擊右側「隨機生成」或自訂高強度字串">
+          <button type="button" class="btn btn-ghost" onclick="generateRandomToken('shortToken')">
+            <svg viewBox="0 0 24 24" style="width:16px;height:16px"><polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line><polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line><line x1="4" y1="4" x2="9" y2="9"></line></svg>
+            隨機生成
+          </button>
+        </div>
+      </div>
       
       <button class="btn btn-primary" id="generateBtn" onclick="generate()" style="margin-top: 1.5rem;">
         <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
@@ -411,6 +422,7 @@ export const UI_MARKUP = `
     </div>
   </div>
 
+  <!-- 新增 / 編輯配置彈窗 -->
   <div class="modal-overlay" id="modal">
     <div class="modal-content">
       <h3 id="modalTitle" style="margin-bottom: 1rem;">新增配置</h3>
@@ -419,6 +431,16 @@ export const UI_MARKUP = `
       <div class="form-group"><label>保留關鍵字</label><input type="text" id="favInclude"></div>
       <div class="form-group"><label>排除關鍵字</label><input type="text" id="favExclude"></div>
       <div class="form-group"><label>名稱替換規則</label><input type="text" id="favRename"></div>
+      <div class="form-group">
+        <label for="favToken">自訂存取 Token (選填，設定後原裸短連結將失效，必須帶 ?token= 才可存取)</label>
+        <div class="cmd-group" style="margin-top: 0;">
+          <input type="text" id="favToken" placeholder="留空表示維持一般短連結；點擊右側隨機生成高強度 Token">
+          <button type="button" class="btn btn-ghost" onclick="generateRandomToken('favToken')">
+            <svg viewBox="0 0 24 24" style="width:16px;height:16px"><polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line><polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line><line x1="4" y1="4" x2="9" y2="9"></line></svg>
+            隨機生成
+          </button>
+        </div>
+      </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" onclick="closeModal()">取消</button>
         <button class="btn btn-primary" onclick="saveFav()" style="width: auto;">儲存</button>

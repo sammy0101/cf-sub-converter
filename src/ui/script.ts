@@ -34,6 +34,21 @@ export const UI_SCRIPT = `
       }, 2500);
     }
 
+    function generateRandomToken(targetId) {
+      var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+      var bytes = new Uint8Array(24);
+      window.crypto.getRandomValues(bytes);
+      var token = '';
+      for (var i = 0; i < bytes.length; i++) {
+        token += chars.charAt(bytes[i] % chars.length);
+      }
+      var el = document.getElementById(targetId);
+      if (el) {
+        el.value = token;
+        showToast('已生成 24 位高強度隨機 Token');
+      }
+    }
+
     function copyResult(id) {
       var input = document.getElementById(id);
       if (!input || !input.value) return;
@@ -64,6 +79,7 @@ export const UI_SCRIPT = `
       document.getElementById('favInclude').value = '';
       document.getElementById('favExclude').value = '';
       document.getElementById('favRename').value = '';
+      document.getElementById('favToken').value = '';
       document.getElementById('modal').dataset.edit = '';
       document.getElementById('modal').classList.add('show');
     }
@@ -405,7 +421,7 @@ export const UI_SCRIPT = `
     function getLogBadgeClass(action) {
       if (action === '獲取訂閱') return 'log-badge log-badge-sub';
       if (action === '登入後台') return 'log-badge log-badge-login';
-      if (action === '登入失敗') return 'log-badge log-badge-fail';
+      if (action === '登入失敗' || action === '異常存取') return 'log-badge log-badge-fail';
       return 'log-badge log-badge-edit';
     }
 
@@ -630,7 +646,8 @@ export const UI_SCRIPT = `
         var f = favs[i];
         var includeBadge = f.include ? '<span class="badge" style="background: rgba(16, 185, 129, 0.1); color: var(--success); border-color: rgba(16, 185, 129, 0.2); margin-right: 4px;">保: ' + escapeHtml(f.include) + '</span>' : '';
         var excludeBadge = f.exclude ? '<span class="badge" style="background: rgba(239, 68, 68, 0.1); color: var(--danger); border-color: rgba(239, 68, 68, 0.2); margin-right: 4px;">排: ' + escapeHtml(f.exclude) + '</span>' : '';
-        var renameBadge = f.rename ? '<span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--primary); border-color: rgba(59, 130, 246, 0.2)">替: ' + escapeHtml(f.rename) + '</span>' : '';
+        var renameBadge = f.rename ? '<span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--primary); border-color: rgba(59, 130, 246, 0.2); margin-right: 4px;">替: ' + escapeHtml(f.rename) + '</span>' : '';
+        var tokenBadge = f.token ? '<span class="badge" style="background: rgba(245, 158, 11, 0.12); color: var(--warning); border-color: rgba(245, 158, 11, 0.3);">🔒 Token 保護</span>' : '';
 
         html += '<div class="fav-card" onclick="useFav(' + i + ')">' +
           '<div class="fav-title">' +
@@ -639,7 +656,7 @@ export const UI_SCRIPT = `
           '</div>' +
           '<div class="fav-url">' + escapeHtml(f.url) + '</div>' +
           '<div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;">' +
-            includeBadge + excludeBadge + renameBadge +
+            includeBadge + excludeBadge + renameBadge + tokenBadge +
           '</div>' +
           '<div class="fav-actions">' +
             '<button class="btn btn-ghost" onclick="event.stopPropagation(); editFav(' + i + ')">編輯</button>' +
@@ -655,6 +672,7 @@ export const UI_SCRIPT = `
       var f = favs[index];
       document.getElementById('urlInput').value = f.url || '';
       document.getElementById('shortCode').value = f.name || '';
+      document.getElementById('shortToken').value = f.token || '';
       document.getElementById('includeKeywords').value = f.include || '';
       document.getElementById('excludeKeywords').value = f.exclude || '';
       document.getElementById('renameKeywords').value = f.rename || '';
@@ -672,6 +690,7 @@ export const UI_SCRIPT = `
       document.getElementById('favInclude').value = f.include || '';
       document.getElementById('favExclude').value = f.exclude || '';
       document.getElementById('favRename').value = f.rename || '';
+      document.getElementById('favToken').value = f.token || '';
       document.getElementById('modal').dataset.edit = index;
       document.getElementById('modal').classList.add('show');
     }
@@ -704,6 +723,7 @@ export const UI_SCRIPT = `
       var include = document.getElementById('favInclude').value.trim();
       var exclude = document.getElementById('favExclude').value.trim();
       var rename = document.getElementById('favRename').value.trim();
+      var token = document.getElementById('favToken').value.trim();
       if (!name || !url) return showToast('請完整填寫名稱與節點內容', false);
 
       var editIndex = document.getElementById('modal').dataset.edit;
@@ -714,7 +734,8 @@ export const UI_SCRIPT = `
         url: url,
         include: include,
         exclude: exclude,
-        rename: rename
+        rename: rename,
+        token: token
       };
       if (reqMethod === 'PUT') {
         reqBody.index = parseInt(editIndex, 10);
@@ -746,6 +767,7 @@ export const UI_SCRIPT = `
 
       var host = window.location.origin;
       var shortCode = document.getElementById('shortCode').value.trim();
+      var shortToken = document.getElementById('shortToken').value.trim();
       var include = document.getElementById('includeKeywords').value.trim();
       var exclude = document.getElementById('excludeKeywords').value.trim();
       var rename = document.getElementById('renameKeywords').value.trim();
@@ -775,16 +797,30 @@ export const UI_SCRIPT = `
         showToast('正在儲存短代碼配置...');
         fetch('/save', { 
           method: 'POST', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ path: shortCode, content: raw, include: include, exclude: exclude, rename: rename }) 
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Password': getStoredPwd()
+          }, 
+          body: JSON.stringify({
+            path: shortCode,
+            content: raw,
+            include: include,
+            exclude: exclude,
+            rename: rename,
+            token: shortToken
+          }) 
         }).then(function(resp) {
           if (!resp.ok) {
             throw new Error('伺服器儲存失敗: HTTP ' + resp.status);
           }
-          proceed(host + '/' + encodeURIComponent(shortCode));
+          var targetBase = host + '/' + encodeURIComponent(shortCode);
+          if (shortToken) {
+            targetBase += '?token=' + encodeURIComponent(shortToken);
+          }
+          proceed(targetBase);
           if (!isFavLocked && !isLogsUnconfigured) loadLogs();
         }).catch(function(err) {
-          showToast('短連結儲存失敗，請確認 KV 綁定: ' + err.message, false);
+          showToast('短連結儲存失敗: ' + err.message, false);
         });
       } else {
         var bUrl = host + '/?url=' + encodeURIComponent(raw);

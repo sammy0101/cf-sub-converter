@@ -26,7 +26,7 @@ export function escapeHtmlForTg(str: string): string {
 function getActionEmoji(action: OperationLogAction): string {
   if (action === '獲取訂閱') return '🟢';
   if (action === '登入後台') return '🟠';
-  if (action === '登入失敗') return '🔴';
+  if (action === '登入失敗' || action === '異常存取') return '🔴';
   return '🔵';
 }
 

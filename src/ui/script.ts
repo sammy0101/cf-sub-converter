@@ -31,7 +31,20 @@ export const UI_SCRIPT = `
       t.className = 'toast show ' + (isSuccess ? 'success' : 'error');
       setTimeout(function() {
         t.className = 'toast';
-      }, 2500);
+      }, 3000);
+    }
+
+    function parseErrorResponse(resp, fallbackMsg) {
+      return resp.text().then(function(txt) {
+        var detail = txt;
+        try {
+          var parsed = JSON.parse(txt);
+          if (parsed && parsed.error) detail = parsed.error;
+        } catch {}
+        return detail || fallbackMsg || ('HTTP ' + resp.status);
+      }).catch(function() {
+        return fallbackMsg || ('HTTP ' + resp.status);
+      });
     }
 
     function generateRandomToken(targetId) {
@@ -114,7 +127,7 @@ export const UI_SCRIPT = `
             loadTgConfig();
           });
         } else {
-          renderErrorScreen('載入配置失敗');
+          renderErrorScreen('載入配置失敗 (HTTP ' + resp.status + ')');
         }
       }).catch(function() {
         renderErrorScreen('網路連線失敗');
@@ -225,8 +238,8 @@ export const UI_SCRIPT = `
         body: JSON.stringify({ enabled: targetEnabled })
       }).then(function(resp) {
         if (!resp.ok) {
-          return resp.json().then(function(err) {
-            throw new Error(err.error || '更新失敗');
+          return parseErrorResponse(resp, '更新失敗').then(function(msg) {
+            throw new Error(msg);
           });
         }
         return resp.json();
@@ -296,8 +309,8 @@ export const UI_SCRIPT = `
         })
       }).then(function(resp) {
         if (!resp.ok) {
-          return resp.json().then(function(err) {
-            throw new Error(err.error || '儲存失敗');
+          return parseErrorResponse(resp, '儲存失敗').then(function(msg) {
+            throw new Error(msg);
           });
         }
         return resp.json();
@@ -367,7 +380,9 @@ export const UI_SCRIPT = `
             showToast('已清除 Telegram 通知配置');
           });
         } else {
-          showToast('清除失敗：密碼錯誤或未授權', false);
+          return parseErrorResponse(resp, '清除失敗').then(function(msg) {
+            showToast('清除失敗：' + msg, false);
+          });
         }
       }).catch(function(e) {
         showToast('清除失敗: ' + e.message, false);
@@ -532,7 +547,9 @@ export const UI_SCRIPT = `
           renderAllLogsModal();
           showToast('已清空所有操作日誌');
         } else {
-          showToast('清空失敗：密碼錯誤或未授權', false);
+          return parseErrorResponse(resp, '清空失敗').then(function(msg) {
+            showToast('清空失敗：' + msg, false);
+          });
         }
       }).catch(function(e) {
         showToast('清空失敗: ' + e.message, false);
@@ -710,7 +727,9 @@ export const UI_SCRIPT = `
           loadFavs(false);
           showToast('已成功刪除配置');
         } else {
-          showToast('刪除失敗：未授權或密碼錯誤', false);
+          return parseErrorResponse(resp, '刪除失敗').then(function(msg) {
+            showToast('刪除失敗 (HTTP ' + resp.status + ')：' + msg, false);
+          });
         }
       }).catch(function(e) {
         showToast('刪除失敗: ' + e.message, false);
@@ -753,11 +772,15 @@ export const UI_SCRIPT = `
           closeModal();
           loadFavs(false);
           showToast('配置儲存成功！');
+        } else if (resp.status === 401) {
+          showToast('儲存失敗：密碼錯誤或未授權，請先鎖定後重新登入', false);
         } else {
-          showToast('儲存失敗：密碼錯誤或未授權', false);
+          return parseErrorResponse(resp, '伺服器處理錯誤').then(function(msg) {
+            showToast('儲存失敗 (HTTP ' + resp.status + ')：' + msg, false);
+          });
         }
-      }).catch(function() {
-        showToast('儲存失敗，請重試', false);
+      }).catch(function(e) {
+        showToast('儲存失敗，網路異常: ' + e.message, false);
       });
     }
 
@@ -811,7 +834,9 @@ export const UI_SCRIPT = `
           }) 
         }).then(function(resp) {
           if (!resp.ok) {
-            throw new Error('伺服器儲存失敗: HTTP ' + resp.status);
+            return parseErrorResponse(resp, 'HTTP ' + resp.status).then(function(msg) {
+              throw new Error(msg);
+            });
           }
           var targetBase = host + '/' + encodeURIComponent(shortCode);
           if (shortToken) {

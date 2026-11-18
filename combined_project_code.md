@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Wed Nov 18 11:18:25 UTC 2026
+Generated on: Wed Nov 18 11:34:44 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -8160,13 +8160,7 @@ jobs:
 name: Deploy to Cloudflare Workers
 
 on:
-  # 1. 當推送到 main 或 master 分支時自動執行
-  #push:
-    branches:
-      - main
-      - master
-  
-  # 2. 保留手動執行按鈕
+  # 僅保留手動執行按鈕（已關閉 push 自動部署，方便分批修改代碼後手動一次發布）
   workflow_dispatch:
 
 jobs:
@@ -8176,15 +8170,14 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-      
+
       # 已將 Node.js 環境升級至 Node 24 以消除棄用警告
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          # 暫時移除 cache: 'npm'，避免因缺少 package-lock.json 報錯
 
-      # 替換成相容無鎖定檔的普通安裝（加入 --prefer-offline 稍微加速）
+      # 替換成相容無鎖定檔的普通安裝
       - name: Install dependencies
         run: npm install --prefer-offline
 

@@ -3,7 +3,7 @@ name: Deploy to Cloudflare Workers
 
 on:
   # 1. 當推送到 main 或 master 分支時自動執行
-  push:
+  #push:
     branches:
       - main
       - master

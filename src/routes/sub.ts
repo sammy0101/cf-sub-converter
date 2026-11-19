@@ -119,7 +119,6 @@ export async function handleSubRoute(
     if (path === 'favicon.ico') {
       return new Response(null, { status: 204 });
     }
-    // 任何不存在的路徑統一回傳 404 Not Found，確保與 Token 驗證失敗之回應完全一致，不洩漏短連結名稱
     if (path !== '') {
       return new Response('Not Found', {
         status: 404,
@@ -179,17 +178,31 @@ export async function handleSubRoute(
     if (renameParam && !foundInKv) filterQuery += `&rename=${encodeURIComponent(renameParam)}`;
     if (detectedProfileName && !foundInKv) filterQuery += `&name=${encodeURIComponent(detectedProfileName)}`;
 
-    const htmlInfo = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>轉換完成</title><style>body{background:#0f172a;color:#f8fafc;font-family:sans-serif;padding:40px;text-align:center;}a{display:inline-block;margin:10px;padding:12px 24px;background:#3b82f6;color:#fff;text-decoration:none;border-radius:8px;}</style></head>
+    const htmlInfo = `<!DOCTYPE html><html lang="zh-TW"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>轉換完成</title><style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: radial-gradient(ellipse at 50% 0%, #0d1633 0%, #040711 75%); color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; position: relative; overflow-x: hidden; }
+body::before, body::after { content: ""; position: fixed; border-radius: 50%; filter: blur(90px); pointer-events: none; z-index: -1; }
+body::before { width: 420px; height: 420px; top: -100px; left: -80px; background: rgba(59, 130, 246, 0.34); }
+body::after { width: 440px; height: 440px; bottom: -120px; right: -80px; background: rgba(6, 182, 212, 0.25); }
+.glass-panel { background: linear-gradient(145deg, rgba(255,255,255,0.085) 0%, rgba(255,255,255,0.025) 100%); backdrop-filter: blur(24px) saturate(180%); -webkit-backdrop-filter: blur(24px) saturate(180%); border: 1px solid rgba(255,255,255,0.16); border-radius: 24px; padding: 36px 28px; max-width: 680px; width: 100%; text-align: center; box-shadow: 0 24px 56px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.22); }
+h1 { font-size: 1.5rem; margin-bottom: 22px; font-weight: 700; }
+.links { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+a { display: inline-flex; align-items: center; justify-content: center; padding: 12px 20px; background: linear-gradient(135deg, rgba(59,130,246,0.88), rgba(37,99,235,0.85)); color: #fff; text-decoration: none; border-radius: 14px; font-weight: 600; font-size: 0.92rem; border: 1px solid rgba(255,255,255,0.24); box-shadow: 0 8px 20px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.32); transition: transform 0.2s, box-shadow 0.2s; }
+a:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(59,130,246,0.48), inset 0 1px 0 rgba(255,255,255,0.4); }
+@media (prefers-reduced-motion: reduce) { a { transition: none; } }
+</style></head>
 <body>
-  <h1>⚡ 成功轉換 ${uniqueNodes.length} 個節點</h1>
-  <div>
-    <a href="${basePreview}${sep}target=clash${filterQuery}">Clash Meta (YAML)</a>
-    <a href="${basePreview}${sep}target=singbox${filterQuery}">Sing-Box (JSON)</a>
-    <a href="${basePreview}${sep}target=surge${filterQuery}">Surge 5</a>
-    <a href="${basePreview}${sep}target=quanx${filterQuery}">Quantumult X</a>
-    <a href="${basePreview}${sep}target=loon${filterQuery}">Loon</a>
-    <a href="${basePreview}${sep}target=base64${filterQuery}">Base64</a>
-    <a href="${basePreview}${sep}target=honk${filterQuery}">Honk / dae (config.dae)</a>
+  <div class="glass-panel">
+    <h1>⚡ 成功轉換 ${uniqueNodes.length} 個節點</h1>
+    <div class="links">
+      <a href="${basePreview}${sep}target=clash${filterQuery}">Clash Meta (YAML)</a>
+      <a href="${basePreview}${sep}target=singbox${filterQuery}">Sing-Box (JSON)</a>
+      <a href="${basePreview}${sep}target=surge${filterQuery}">Surge 5</a>
+      <a href="${basePreview}${sep}target=quanx${filterQuery}">Quantumult X</a>
+      <a href="${basePreview}${sep}target=loon${filterQuery}">Loon</a>
+      <a href="${basePreview}${sep}target=base64${filterQuery}">Base64</a>
+      <a href="${basePreview}${sep}target=honk${filterQuery}">Honk / dae (config.dae)</a>
+    </div>
   </div>
 </body></html>`;
     return new Response(htmlInfo, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });

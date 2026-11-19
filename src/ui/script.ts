@@ -190,20 +190,20 @@ export const UI_SCRIPT = `
           badge.style.display = 'inline-block';
           badge.textContent = tgConfigState.enabled ? '已配置 · 運行中' : '已配置 · 已暫停';
           if (tgConfigState.enabled) {
-            badge.style.background = 'rgba(16, 185, 129, 0.1)';
-            badge.style.color = 'var(--success)';
-            badge.style.borderColor = 'rgba(16, 185, 129, 0.25)';
+            badge.style.background = 'rgba(16, 185, 129, 0.14)';
+            badge.style.color = '#6ee7b7';
+            badge.style.borderColor = 'rgba(16, 185, 129, 0.35)';
           } else {
-            badge.style.background = 'rgba(59, 130, 246, 0.1)';
-            badge.style.color = 'var(--primary)';
-            badge.style.borderColor = 'rgba(59, 130, 246, 0.2)';
+            badge.style.background = 'rgba(59, 130, 246, 0.14)';
+            badge.style.color = '#93c5fd';
+            badge.style.borderColor = 'rgba(96, 165, 250, 0.3)';
           }
         } else {
           badge.style.display = 'inline-block';
           badge.textContent = '未配置';
-          badge.style.background = 'rgba(148, 163, 184, 0.1)';
+          badge.style.background = 'rgba(148, 163, 184, 0.12)';
           badge.style.color = 'var(--text-muted)';
-          badge.style.borderColor = 'rgba(148, 163, 184, 0.2)';
+          badge.style.borderColor = 'rgba(148, 163, 184, 0.24)';
         }
       }
     }
@@ -669,14 +669,14 @@ export const UI_SCRIPT = `
       var html = '';
       for (var i = 0; i < favs.length; i++) {
         var f = favs[i];
-        var includeBadge = f.include ? '<span class="badge" style="background: rgba(16, 185, 129, 0.1); color: var(--success); border-color: rgba(16, 185, 129, 0.2); margin-right: 4px;">保: ' + escapeHtml(f.include) + '</span>' : '';
-        var excludeBadge = f.exclude ? '<span class="badge" style="background: rgba(239, 68, 68, 0.1); color: var(--danger); border-color: rgba(239, 68, 68, 0.2); margin-right: 4px;">排: ' + escapeHtml(f.exclude) + '</span>' : '';
-        var renameBadge = f.rename ? '<span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--primary); border-color: rgba(59, 130, 246, 0.2); margin-right: 4px;">替: ' + escapeHtml(f.rename) + '</span>' : '';
-        var tokenBadge = f.token ? '<span class="badge" style="background: rgba(245, 158, 11, 0.12); color: var(--warning); border-color: rgba(245, 158, 11, 0.3);">🔒 Token 保護</span>' : '';
+        var includeBadge = f.include ? '<span class="badge" style="background: rgba(16, 185, 129, 0.14); color: #6ee7b7; border-color: rgba(16, 185, 129, 0.3); margin-right: 4px;">保: ' + escapeHtml(f.include) + '</span>' : '';
+        var excludeBadge = f.exclude ? '<span class="badge" style="background: rgba(239, 68, 68, 0.14); color: #fca5a5; border-color: rgba(239, 68, 68, 0.3); margin-right: 4px;">排: ' + escapeHtml(f.exclude) + '</span>' : '';
+        var renameBadge = f.rename ? '<span class="badge" style="background: rgba(59, 130, 246, 0.14); color: #93c5fd; border-color: rgba(96, 165, 250, 0.3); margin-right: 4px;">替: ' + escapeHtml(f.rename) + '</span>' : '';
+        var tokenBadge = f.token ? '<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fcd34d; border-color: rgba(245, 158, 11, 0.35);">🔒 Token 保護</span>' : '';
 
         html += '<div class="fav-card" onclick="useFav(' + i + ')">' +
           '<div class="fav-title">' +
-            '<svg viewBox="0 0 24 24" style="width:16px;height:16px;color:var(--primary)"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>' +
+            '<svg viewBox="0 0 24 24" style="width:16px;height:16px;color:#60a5fa"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>' +
             escapeHtml(f.name) +
           '</div>' +
           '<div class="fav-url">' + escapeHtml(f.url) + '</div>' +
@@ -917,34 +917,41 @@ export const UI_SCRIPT = `
         clientName = 'Shadowrocket';
       }
 
-      var win = window.open('', '_blank', 'width=460,height=600');
+      var win = window.open('', '_blank', 'width=460,height=640');
       if (!win) return showToast('請允許瀏覽器開啟彈出視窗', false);
 
       var qrHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + escapeHtml(displayTitle) + '</title>' +
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">' +
         '<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\\/script>' +
         '<style>' +
-          'body { background: #0f172a; color: #f8fafc; font-family: -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; text-align: center; }' +
-          'h2 { font-size: 1.15rem; margin-bottom: 8px; }' +
-          'p { color: #94a3b8; font-size: 0.85rem; margin-bottom: 20px; }' +
-          '#qrcode { background: #ffffff; padding: 16px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); margin-bottom: 20px; }' +
+          '* { box-sizing: border-box; margin: 0; padding: 0; }' +
+          'body { background: radial-gradient(ellipse at 50% 0%, #0d1633 0%, #040711 75%); color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; text-align: center; position: relative; overflow: hidden; }' +
+          'body::before, body::after { content: ""; position: fixed; border-radius: 50%; filter: blur(80px); pointer-events: none; z-index: -1; }' +
+          'body::before { width: 320px; height: 320px; top: -80px; left: -60px; background: rgba(59, 130, 246, 0.35); }' +
+          'body::after { width: 320px; height: 320px; bottom: -80px; right: -60px; background: rgba(6, 182, 212, 0.25); }' +
+          '.glass-card { background: linear-gradient(145deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.03) 100%); backdrop-filter: blur(24px) saturate(180%); -webkit-backdrop-filter: blur(24px) saturate(180%); border: 1px solid rgba(255,255,255,0.16); border-radius: 24px; padding: 28px 24px; width: 100%; max-width: 340px; box-shadow: 0 24px 48px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.24); display: flex; flex-direction: column; align-items: center; }' +
+          'h2 { font-size: 1.15rem; margin-bottom: 6px; font-weight: 700; }' +
+          'p { color: #94a3b8; font-size: 0.84rem; margin-bottom: 20px; }' +
+          '.qr-frame { background: #ffffff; padding: 14px; border-radius: 16px; box-shadow: 0 12px 30px rgba(0,0,0,0.38); margin-bottom: 22px; }' +
           '#qrcode img { display: block; }' +
-          '.btn { display: inline-flex; align-items: center; justify-content: center; background: #3b82f6; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; text-decoration: none; cursor: pointer; width: 100%; max-width: 280px; font-size: 0.95rem; margin-bottom: 10px; transition: background 0.2s; }' +
-          '.btn:hover { background: #2563eb; }' +
-          '.btn-ghost { background: transparent; border: 1px solid #334155; color: #94a3b8; }' +
-          '.btn-ghost:hover { background: #1e293b; color: white; }' +
+          '.btn { display: inline-flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(59,130,246,0.92), rgba(37,99,235,0.88)); color: white; border: 1px solid rgba(255,255,255,0.25); padding: 12px 20px; border-radius: 14px; font-weight: 600; text-decoration: none; cursor: pointer; width: 100%; font-size: 0.95rem; margin-bottom: 10px; box-shadow: 0 8px 22px rgba(37,99,235,0.4), inset 0 1px 0 rgba(255,255,255,0.35); transition: transform 0.2s; }' +
+          '.btn:hover { transform: translateY(-1px); }' +
+          '.btn-ghost { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); color: #cbd5e1; box-shadow: inset 0 1px 0 rgba(255,255,255,0.14); margin-bottom: 0; }' +
+          '.btn-ghost:hover { background: rgba(255,255,255,0.14); color: #ffffff; }' +
         '</style>' +
         '</head><body>' +
-        '<h2>' + escapeHtml(displayTitle) + '</h2>' +
-        '<p>使用手機相機或對應客戶端掃描二維碼</p>' +
-        '<div id="qrcode"></div>' +
-        '<a href="' + escapeHtml(deepLink) + '" class="btn">🚀 一鍵打開並導入 ' + escapeHtml(clientName) + '</a>' +
-        '<button onclick="window.close()" class="btn btn-ghost">關閉視窗</button>' +
+        '<div class="glass-card">' +
+          '<h2>' + escapeHtml(displayTitle) + '</h2>' +
+          '<p>使用手機相機或對應客戶端掃描二維碼</p>' +
+          '<div class="qr-frame"><div id="qrcode"></div></div>' +
+          '<a href="' + escapeHtml(deepLink) + '" class="btn">🚀 一鍵打開並導入 ' + escapeHtml(clientName) + '</a>' +
+          '<button onclick="window.close()" class="btn btn-ghost">關閉視窗</button>' +
+        '</div>' +
         '<script>' +
           'new QRCode(document.getElementById("qrcode"), {' +
             'text: ' + JSON.stringify(qrTargetText) + ',' +
-            'width: 220,' +
-            'height: 220,' +
+            'width: 210,' +
+            'height: 210,' +
             'correctLevel: QRCode.CorrectLevel.M' +
           '});' +
         '<\\/script>' +

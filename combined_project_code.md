@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 15:05:44 UTC 2026
+Generated on: Thu Nov 26 15:06:14 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -6273,6 +6273,7 @@ export function parseClashProxyItem(p: Record<string, unknown>, index: number): 
       tls,
       sni,
       network,
+      grpcServiceName,
       flow,
       wsPath,
       wsHeaders,
@@ -6525,7 +6526,49 @@ export function parseClashProxyItem(p: Record<string, unknown>, index: number): 
     return node;
   }
 
-  // 7. WireGuard
+  // 7. AnyTLS
+  if (type === 'anytls') {
+    const password = String(p.password || '');
+    if (!password) throw new Error(`[Clash YAML] AnyTLS 節點 [${name}] 缺少 password`);
+    const sni = p.sni ? String(p.sni) : p.servername ? String(p.servername) : server;
+    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
+    const fingerprint = p['client-fingerprint'] ? String(p['client-fingerprint']).trim() : 'chrome';
+    const alpn = Array.isArray(p.alpn) ? p.alpn.map(String) : undefined;
+
+    const node: ProxyNode = {
+      type: 'anytls',
+      name,
+      server,
+      port,
+      uuid: password,
+      password,
+      tls: true,
+      sni,
+      fingerprint,
+      skipCertVerify,
+      alpn,
+      udp: p.udp !== undefined ? Boolean(p.udp) : true,
+      clashObj: { ...p }
+    };
+    const sbTls: Record<string, unknown> = {
+      enabled: true,
+      server_name: sni,
+      insecure: skipCertVerify,
+      utls: { enabled: true, fingerprint }
+    };
+    if (alpn) sbTls.alpn = alpn;
+    node.singboxObj = {
+      tag: name,
+      type: 'anytls',
+      server,
+      server_port: port,
+      password,
+      tls: sbTls
+    };
+    return node;
+  }
+
+  // 8. WireGuard
   if (type === 'wireguard') {
     const privateKey = String(p['private-key'] || '');
     const publicKey = String(p['public-key'] || '');
@@ -6577,7 +6620,7 @@ export function parseClashProxyItem(p: Record<string, unknown>, index: number): 
     return node;
   }
 
-  // 8. 兜底通用節點
+  // 9. 兜底通用節點
   return {
     type,
     name,
@@ -6602,8 +6645,10 @@ export function parseClashYaml(content: string): ProxyNode[] {
   for (let i = 0; i < rawProxies.length; i++) {
     const p = rawProxies[i];
     if (!p || typeof p !== 'object') continue;
-    const node = parseClashProxyItem(p as Record<string, unknown>, i);
-    if (node) nodes.push(node);
+    try {
+      const node = parseClashProxyItem(p as Record<string, unknown>, i);
+      if (node) nodes.push(node);
+    } catch {}
   }
   return nodes;
 }

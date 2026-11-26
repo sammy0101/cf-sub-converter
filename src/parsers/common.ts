@@ -21,13 +21,13 @@ export function parseProxyUri(urlStr: string, defaultPort = 443): ParsedUri | nu
   try {
     const trimmed = urlStr.trim();
     const match = trimmed.match(
-      /^([a-zA-Z0-9_-]+):\/\/(?:([^:@/?#]+)(?::([^@/?#]*))?@)?(\[[a-fA-F0-9:]+\]|[^:/?#]+)(?::([0-9]+))?(?:\?([^#]*))?(?:#(.*))?$/
+      /^([a-zA-Z0-9_-]+):\/\/(?:([^:@/?#]+)(?::([^@/?#]*))?@)?(\[[a-fA-F0-9:]+\]|[^:/?#]+)(?::([0-9]+))?\/?(?:\?([^#]*))?(?:#(.*))?$/
     );
     if (!match) return null;
 
     const protocol = match[1].toLowerCase();
-    const username = match[2] ? decodeURIComponent(match[2]) : '';
-    const password = match[3] ? decodeURIComponent(match[3]) : undefined;
+    const username = match[2] ? tryDecodeURIComponent(match[2]) : '';
+    const password = match[3] ? tryDecodeURIComponent(match[3]) : undefined;
     let hostname = match[4];
     if (hostname.startsWith('[') && hostname.endsWith(']')) {
       hostname = hostname.slice(1, -1);
@@ -46,8 +46,12 @@ export function parseProxyUri(urlStr: string, defaultPort = 443): ParsedUri | nu
 export function parsePluginParams(str: string): Record<string, string> {
   const params: Record<string, string> = {};
   str.split(';').forEach(p => {
-    const [k, v] = p.split('=');
-    if (k && v) params[k] = v;
+    const eqIdx = p.indexOf('=');
+    if (eqIdx !== -1) {
+      const k = p.slice(0, eqIdx).trim();
+      const v = p.slice(eqIdx + 1).trim();
+      if (k && v) params[k] = v;
+    }
   });
   return params;
 }

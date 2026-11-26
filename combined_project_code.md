@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 16:47:41 UTC 2026
+Generated on: Thu Nov 26 16:48:16 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -1577,6 +1577,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
           if (node.flow) params.set('flow', node.flow);
           if (node.sni) params.set('sni', node.sni);
           if (node.fingerprint) params.set('fp', node.fingerprint);
+          if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
           if (node.ech) {
             if (node.echDoh && node.echQueryServerName) {
               params.set('ech', `${node.echQueryServerName}+${node.echDoh}`);
@@ -1605,7 +1606,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
           if (node.network === 'grpc' && node.grpcServiceName) {
             params.set('serviceName', node.grpcServiceName);
           }
-          return `vless://${node.uuid}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+          return `vless://${encodeURIComponent(node.uuid || '')}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
         }
         if (node.type === 'hysteria2') {
           const params = new URLSearchParams();
@@ -1615,7 +1616,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
             if (node.obfsPassword) params.set('obfs-password', node.obfsPassword);
           }
           if (node.skipCertVerify) params.set('insecure', '1');
-          return `hysteria2://${node.password}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+          return `hysteria2://${encodeURIComponent(node.password || '')}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
         }
         if (node.type === 'vmess') {
           const vmessObj = {
@@ -1673,7 +1674,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
           if (node.udp_relay_mode) params.set('udp_relay_mode', node.udp_relay_mode);
           if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
           if (node.skipCertVerify) params.set('allow_insecure', '1');
-          return `tuic://${node.uuid || ''}:${node.password || ''}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+          return `tuic://${encodeURIComponent(node.uuid || '')}:${encodeURIComponent(node.password || '')}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
         }
         if (node.type === 'anytls') {
           const params = new URLSearchParams();
@@ -1683,7 +1684,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
           if (node.fingerprint) params.set('fp', node.fingerprint);
           if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
           params.set('type', 'tcp');
-          return `anytls://${node.password}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+          return `anytls://${encodeURIComponent(node.password || '')}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
         }
         if (node.type === 'trojan') {
           const params = new URLSearchParams();
@@ -1700,7 +1701,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
               params.set('ech', '1');
             }
           }
-          return `trojan://${node.password}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+          return `trojan://${encodeURIComponent(node.password || '')}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
         }
         if (node.type === 'wireguard' && node.wireguard) {
           const wg = node.wireguard;

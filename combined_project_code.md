@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 16:56:16 UTC 2026
+Generated on: Thu Nov 26 16:57:05 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -352,7 +352,7 @@ routing {
 ## File: argo.sh
 ````sh
 #!/bin/bash
-# Cloudflare Argo Tunnel 一鍵部署腳本 (增強版 2.0)
+# Cloudflare Argo Tunnel 一鍵部署腳本 (增強版 2.1)
 # 專案網址: https://github.com/sammy0101/cf-sub-converter
 
 GREEN='\033[0;32m'
@@ -377,16 +377,25 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# 1. 安裝 cloudflared
+# 1. 偵測 CPU 架構並安裝 cloudflared
 if ! command -v cloudflared &> /dev/null; then
-    echo "正在下載安裝 cloudflared..."
-    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+    ARCH=$(uname -m)
+    case "$ARCH" in
+        x86_64|amd64) CF_ARCH="amd64" ;;
+        aarch64|arm64) CF_ARCH="arm64" ;;
+        armv7l|armhf) CF_ARCH="arm" ;;
+        i386|i686) CF_ARCH="386" ;;
+        *) CF_ARCH="amd64" ;;
+    esac
+    echo "正在下載安裝 cloudflared (linux-${CF_ARCH})..."
+    curl -L "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}" -o /usr/local/bin/cloudflared
     chmod +x /usr/local/bin/cloudflared
 else
     echo "cloudflared 已存在，跳過安裝。"
 fi
 
-SAFE_NODE_NAME=$(echo "$NODE_NAME" | sed 's/[^a-zA-Z0-9]/_/g')
+NAME_HASH=$(printf '%s' "$NODE_NAME" | md5sum 2>/dev/null | cut -c1-6 || echo "0")
+SAFE_NODE_NAME="$(printf '%s' "$NODE_NAME" | sed 's/[^a-zA-Z0-9]/_/g')_${NAME_HASH}"
 
 # 2. 自動探測與修正連接埠
 DETECTED_PORT="$VLESS_PORT"
@@ -403,10 +412,10 @@ if command -v ss &> /dev/null; then
     fi
 fi
 
-# 3. 智慧探測 TLS
+# 3. 智慧探測 TLS（優先參考節點原始設定，再輔以本機探測）
 DETECTED_TLS="false"
-if curl -s -k --connect-timeout 2 "https://127.0.0.1:$DETECTED_PORT" &>/dev/null; then
-    echo "偵測到本地為 HTTPS 加密埠，開啟 TLS 轉發與 SNI 對齊。"
+if [ "$VLESS_TLS" = "true" ] || curl -s -k --connect-timeout 2 "https://127.0.0.1:$DETECTED_PORT" &>/dev/null; then
+    echo "偵測到本地為 HTTPS/TLS 加密埠，開啟 TLS 轉發與 SNI 對齊。"
     DETECTED_TLS="true"
 fi
 
@@ -435,9 +444,9 @@ if [ -n "$TUNNEL_TOKEN" ]; then
     echo -e "${GREEN}固定域名隧道部署完成！${NC}"
 else
     echo -e "${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...${NC}"
-    systemctl stop cloudflared-argo-${SAFE_NODE_NAME} &> /dev/null
-    
-    cat <<EOF > /etc/systemd/system/cloudflared-argo-${SAFE_NODE_NAME}.service
+    systemctl stop "cloudflared-argo-${SAFE_NODE_NAME}" &> /dev/null
+
+    cat <<EOF > "/etc/systemd/system/cloudflared-argo-${SAFE_NODE_NAME}.service"
 [Unit]
 Description=Cloudflare Argo Tunnel for ${NODE_NAME}
 After=network.target
@@ -454,19 +463,19 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    systemctl enable cloudflared-argo-${SAFE_NODE_NAME}
-    systemctl start cloudflared-argo-${SAFE_NODE_NAME}
-    
+    systemctl enable "cloudflared-argo-${SAFE_NODE_NAME}"
+    systemctl start "cloudflared-argo-${SAFE_NODE_NAME}"
+
     echo "正在等待 Cloudflare 分配臨時域名..."
     TEMP_DOMAIN=""
     for i in {1..15}; do
         sleep 1
-        TEMP_DOMAIN=$(journalctl -u cloudflared-argo-${SAFE_NODE_NAME} -n 50 --no-pager 2>/dev/null | grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' | tail -n 1 | cut -d'/' -f3)
+        TEMP_DOMAIN=$(journalctl -u "cloudflared-argo-${SAFE_NODE_NAME}" -n 50 --no-pager 2>/dev/null | grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' | tail -n 1 | cut -d'/' -f3)
         if [ -n "$TEMP_DOMAIN" ]; then
             break
         fi
     done
-    
+
     if [ -n "$TEMP_DOMAIN" ]; then
         echo -e "${GREEN}獲取臨時域名成功: $TEMP_DOMAIN${NC}"
     else

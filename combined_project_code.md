@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 15:05:21 UTC 2026
+Generated on: Thu Nov 26 15:05:44 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -5519,6 +5519,7 @@ export function parseVless(urlStr: string): ProxyNode {
   const cleanPath = rawPath ? rawPath.replace(/[?&]ed=[0-9]+/g, '').replace(/\?$/, '') || '/' : '/';
   const isXhttp = netType === 'xhttp' || netType === 'splithttp';
   const isGrpc = netType === 'grpc';
+  const grpcServiceName = isGrpc ? params.get('serviceName') || '' : undefined;
   const echInfo = parseEchInfo(params.get('ech'));
 
   const security =
@@ -5538,6 +5539,7 @@ export function parseVless(urlStr: string): ProxyNode {
     tls: isTls,
     flow: params.get('flow') || undefined,
     network: netType,
+    grpcServiceName,
     sni: sniHost,
     alpn: customAlpn,
     fingerprint: params.get('fp') || 'chrome',
@@ -5628,7 +5630,7 @@ export function parseVless(urlStr: string): ProxyNode {
   } else if (isGrpc) {
     sb.transport = {
       type: 'grpc',
-      service_name: params.get('serviceName') || ''
+      service_name: grpcServiceName || ''
     };
   }
   node.singboxObj = sb;
@@ -5679,7 +5681,7 @@ export function parseVless(urlStr: string): ProxyNode {
     cl['xhttp-opts'] = { path: cleanPath, host: node.xhttpHost, mode: node.xhttpMode };
   } else if (isGrpc) {
     cl.network = 'grpc';
-    cl['grpc-opts'] = { 'grpc-service-name': params.get('serviceName') || '' };
+    cl['grpc-opts'] = { 'grpc-service-name': grpcServiceName || '' };
   }
   node.clashObj = cl;
 

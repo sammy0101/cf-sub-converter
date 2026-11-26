@@ -19,14 +19,17 @@ export async function handleAdminRoutes(
   // --- Telegram 通知設定 API ---
   if (url.pathname === '/tg-config') {
     if (!hasPasswordConfigured(env)) {
-      return new Response(JSON.stringify({ error: '未設定管理密碼 (PAGE_PASSWORD)，禁止存取通知設定', unconfigured: true }), {
-        status: 403,
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-          'Access-Control-Allow-Origin': '*'
+      return new Response(
+        JSON.stringify({ error: '未設定管理密碼 (PAGE_PASSWORD)，禁止存取通知設定', unconfigured: true }),
+        {
+          status: 403,
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+            'Access-Control-Allow-Origin': '*'
+          }
         }
-      });
+      );
     }
     if (!checkAuth(request, env)) {
       if ((request.headers.get('X-Password') || '').trim() !== '') {
@@ -177,14 +180,17 @@ export async function handleAdminRoutes(
   // --- 操作日誌 API ---
   if (request.method === 'GET' && url.pathname === '/logs') {
     if (!hasPasswordConfigured(env)) {
-      return new Response(JSON.stringify({ error: '未設定管理密碼 (PAGE_PASSWORD)，日誌 API 預設禁止公開讀取', unconfigured: true }), {
-        status: 403,
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-          'Access-Control-Allow-Origin': '*'
+      return new Response(
+        JSON.stringify({ error: '未設定管理密碼 (PAGE_PASSWORD)，日誌 API 預設禁止公開讀取', unconfigured: true }),
+        {
+          status: 403,
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+            'Access-Control-Allow-Origin': '*'
+          }
         }
-      });
+      );
     }
     if (!checkAuth(request, env)) {
       if ((request.headers.get('X-Password') || '').trim() !== '') {
@@ -200,7 +206,15 @@ export async function handleAdminRoutes(
       });
     }
     const raw = env.SUB_CACHE ? await env.SUB_CACHE.get(LOGS_KEY) : null;
-    const logs: OperationLogEntry[] = raw ? (JSON.parse(raw) as OperationLogEntry[]) : [];
+    let logs: OperationLogEntry[] = [];
+    if (raw) {
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          logs = parsed as OperationLogEntry[];
+        }
+      } catch {}
+    }
     return new Response(JSON.stringify(logs), {
       headers: {
         'Content-Type': 'application/json',

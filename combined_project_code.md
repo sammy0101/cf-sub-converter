@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 15:32:21 UTC 2026
+Generated on: Thu Nov 26 15:32:45 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -2815,7 +2815,7 @@ export async function handleSubRoute(
     }
   }
 
-  const { nodes: allNodes, errors, traffic } = await loadNodesWithTraffic(urlParam);
+  const { nodes: allNodes, errors, traffic } = await loadNodesWithTraffic(urlParam, ctx, url.host);
 
   if (allNodes.length === 0) {
     const errorMsg = errors.length > 0 ? errors.join('\n') : '未解析到任何有效節點。';

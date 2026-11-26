@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 14:26:20 UTC 2026
+Generated on: Thu Nov 26 14:26:44 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -7552,6 +7552,7 @@ export async function sendTgNotification(env: Env, entry: OperationLogEntry): Pr
 import { ProxyNode } from '../types';
 import { parseContent } from '../parsers';
 import { deduplicateNodeNames, groupNodesByFlag } from '../utils';
+import { fetchWithTimeout } from '../generators/common';
 
 export interface TrafficInfo {
   totalUpload: number;
@@ -7568,69 +7569,67 @@ export interface LoadNodesResult {
 }
 
 export async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
-  const allNodes: ProxyNode[] = [];
   const trimmed = urlParam.trim();
-  if (!trimmed) return allNodes;
+  if (!trimmed) return [];
 
   if (/\[Interface\]/i.test(trimmed) && /\[Peer\]/i.test(trimmed)) {
     try {
-      const parsed = await parseContent(trimmed);
-      allNodes.push(...parsed);
-    } catch {}
-    return allNodes;
+      return await parseContent(trimmed);
+    } catch {
+      return [];
+    }
   }
 
   if (/["']private_key["']/i.test(trimmed) && (trimmed.includes('{') || trimmed.includes('['))) {
     try {
-      const parsed = await parseContent(trimmed);
-      allNodes.push(...parsed);
-    } catch {}
-    return allNodes;
+      return await parseContent(trimmed);
+    } catch {
+      return [];
+    }
   }
 
   if (/(^|\n)\s*proxies\s*:/i.test(trimmed)) {
     try {
-      const parsed = await parseContent(trimmed);
-      allNodes.push(...parsed);
-    } catch {}
-    return allNodes;
-  }
-
-  const inputs = urlParam.split(/[\n\r|]+/);
-  for (const input of inputs) {
-    const t = input.trim();
-    if (!t) continue;
-
-    if (t.startsWith('http')) {
-      try {
-        const separator = t.includes('?') ? '&' : '?';
-        const fetchUrl = `${t}${separator}t=${Date.now()}`;
-
-        const resp = await fetch(fetchUrl, {
-          headers: {
-            'User-Agent': 'v2rayNG/1.8.5',
-            Accept: '*/*'
-          }
-        });
-
-        if (resp.ok) {
-          const text = await resp.text();
-          if (!text.trim().startsWith('<')) {
-            try {
-              const parsed = await parseContent(text);
-              allNodes.push(...parsed);
-            } catch {}
-          }
-        }
-      } catch {}
-    } else {
-      try {
-        const parsed = await parseContent(t);
-        allNodes.push(...parsed);
-      } catch {}
+      return await parseContent(trimmed);
+    } catch {
+      return [];
     }
   }
-  return allNodes;
+
+  const inputs = urlParam
+    .split(/[\n\r|]+/)
+    .map(i => i.trim())
+    .filter(Boolean);
+
+  const results = await Promise.all(
+    inputs.map(async t => {
+      if (t.startsWith('http')) {
+        try {
+          const separator = t.includes('?') ? '&' : '?';
+          const fetchUrl = `${t}${separator}t=${Date.now()}`;
+          const resp = await fetchWithTimeout(
+            fetchUrl,
+            { headers: { 'User-Agent': 'v2rayNG/1.8.5', Accept: '*/*' } },
+            6000
+          );
+          if (resp.ok) {
+            const text = await resp.text();
+            if (!text.trim().startsWith('<')) {
+              return await parseContent(text);
+            }
+          }
+        } catch {}
+        return [] as ProxyNode[];
+      }
+      try {
+        return await parseContent(t);
+      } catch {
+        return [] as ProxyNode[];
+      }
+    })
+  );
+
+  return results.flat();
 }
 
 export async function loadNodesWithTraffic(urlParam: string): Promise<LoadNodesResult> {
@@ -7669,50 +7668,78 @@ export async function loadNodesWithTraffic(urlParam: string): Promise<LoadNodesR
       errors.push(`[Clash YAML 配置] 失敗原因: ${msg}`);
     }
   } else {
-    const inputs = urlParam.split(/[\n\r|]+/);
-    for (const input of inputs) {
-      const trimmed = input.trim();
-      if (!trimmed) continue;
+    const inputs = urlParam
+      .split(/[\n\r|]+/)
+      .map(s => s.trim())
+      .filter(Boolean);
 
-      if (trimmed.startsWith('http')) {
-        try {
-          const separator = trimmed.includes('?') ? '&' : '?';
-          const fetchUrl = `${trimmed}${separator}t=${Date.now()}`;
-          const resp = await fetch(fetchUrl, { headers: { 'User-Agent': 'v2rayNG/1.8.5' } });
+    // 並行抓取所有上游訂閱，並為每筆 HTTP 請求設定 6 秒超時保護
+    const batchResults = await Promise.all(
+      inputs.map(async trimmed => {
+        if (trimmed.startsWith('http')) {
+          try {
+            const separator = trimmed.includes('?') ? '&' : '?';
+            const fetchUrl = `${trimmed}${separator}t=${Date.now()}`;
+            const resp = await fetchWithTimeout(
+              fetchUrl,
+              { headers: { 'User-Agent': 'v2rayNG/1.8.5' } },
+              6000
+            );
 
-          if (resp.ok) {
-            const text = await resp.text();
-            const userInfo = resp.headers.get('subscription-userinfo');
-            if (userInfo) {
-              hasTrafficInfo = true;
-              const uploadMatch = userInfo.match(/upload=(\d+)/i);
-              const downloadMatch = userInfo.match(/download=(\d+)/i);
-              const totalMatch = userInfo.match(/total=(\d+)/i);
-              const expireMatch = userInfo.match(/expire=(\d+)/i);
+            if (resp.ok) {
+              const text = await resp.text();
+              const userInfo = resp.headers.get('subscription-userinfo');
+              let upload = 0;
+              let download = 0;
+              let total = 0;
+              let expire = 0;
+              let hasInfo = false;
 
-              totalUpload += uploadMatch ? parseInt(uploadMatch[1], 10) : 0;
-              totalDownload += downloadMatch ? parseInt(downloadMatch[1], 10) : 0;
-              totalTotal += totalMatch ? parseInt(totalMatch[1], 10) : 0;
+              if (userInfo) {
+                hasInfo = true;
+                const uploadMatch = userInfo.match(/upload=(\d+)/i);
+                const downloadMatch = userInfo.match(/download=(\d+)/i);
+                const totalMatch = userInfo.match(/total=(\d+)/i);
+                const expireMatch = userInfo.match(/expire=(\d+)/i);
 
-              const expireVal = expireMatch ? parseInt(expireMatch[1], 10) : 0;
-              if (expireVal > 0) {
-                if (minExpire === 0 || expireVal < minExpire) minExpire = expireVal;
+                upload = uploadMatch ? parseInt(uploadMatch[1], 10) : 0;
+                download = downloadMatch ? parseInt(downloadMatch[1], 10) : 0;
+                total = totalMatch ? parseInt(totalMatch[1], 10) : 0;
+                expire = expireMatch ? parseInt(expireMatch[1], 10) : 0;
               }
-            }
 
-            if (!text.trim().startsWith('<')) {
-              try {
-                const parsed = await parseContent(text);
-                allNodes.push(...parsed);
-              } catch {}
+              let parsed: ProxyNode[] = [];
+              if (!text.trim().startsWith('<')) {
+                try {
+                  parsed = await parseContent(text);
+                } catch {}
+              }
+
+              return { parsed, hasInfo, upload, download, total, expire };
             }
-          }
-        } catch {}
-      } else {
+          } catch {}
+          return { parsed: [] as ProxyNode[], hasInfo: false, upload: 0, download: 0, total: 0, expire: 0 };
+        }
+
         try {
           const parsed = await parseContent(trimmed);
-          allNodes.push(...parsed);
-        } catch {}
+          return { parsed, hasInfo: false, upload: 0, download: 0, total: 0, expire: 0 };
+        } catch {
+          return { parsed: [] as ProxyNode[], hasInfo: false, upload: 0, download: 0, total: 0, expire: 0 };
+        }
+      })
+    );
+
+    for (const item of batchResults) {
+      allNodes.push(...item.parsed);
+      if (item.hasInfo) {
+        hasTrafficInfo = true;
+        totalUpload += item.upload;
+        totalDownload += item.download;
+        totalTotal += item.total;
+        if (item.expire > 0 && (minExpire === 0 || item.expire < minExpire)) {
+          minExpire = item.expire;
+        }
       }
     }
   }

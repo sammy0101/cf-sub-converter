@@ -60,7 +60,7 @@ export async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
           const resp = await fetchWithTimeout(
             fetchUrl,
             { headers: { 'User-Agent': 'v2rayNG/1.8.5', Accept: '*/*' } },
-            6000
+            10000
           );
           if (resp.ok) {
             const text = await resp.text();
@@ -123,7 +123,7 @@ export async function loadNodesWithTraffic(urlParam: string): Promise<LoadNodesR
       .map(s => s.trim())
       .filter(Boolean);
 
-    // 並行抓取所有上游訂閱，並為每筆 HTTP 請求設定 6 秒超時保護
+    // 並行抓取所有上游訂閱，單筆給予 10 秒超時保護，不因單一慢速 VPS 阻塞其餘節點
     const batchResults = await Promise.all(
       inputs.map(async trimmed => {
         if (trimmed.startsWith('http')) {
@@ -133,7 +133,7 @@ export async function loadNodesWithTraffic(urlParam: string): Promise<LoadNodesR
             const resp = await fetchWithTimeout(
               fetchUrl,
               { headers: { 'User-Agent': 'v2rayNG/1.8.5' } },
-              6000
+              10000
             );
 
             if (resp.ok) {

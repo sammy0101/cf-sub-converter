@@ -434,12 +434,11 @@ export function parseClashProxyItem(p: Record<string, unknown>, index: number): 
     const mtu = parseInt(String(p.mtu || 1420), 10) || 1420;
     const reserved = Array.isArray(p.reserved) ? p.reserved.map(Number) : undefined;
 
-    let dnsList: string[] = [];
-    if (p.dns) {
-      dnsList = Array.isArray(p.dns) ? p.dns.map(String) : [String(p.dns)];
-    } else {
-      throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 dns 設定（例如 dns: [10.2.0.1]）`);
-    }
+    const dnsList: string[] = p.dns
+      ? Array.isArray(p.dns)
+        ? p.dns.map(String).filter(Boolean)
+        : [String(p.dns)].filter(Boolean)
+      : [];
 
     const wgConfig: WireGuardConfig = {
       privateKey,
@@ -450,6 +449,14 @@ export function parseClashProxyItem(p: Record<string, unknown>, index: number): 
       reserved,
       dns: dnsList[0]
     };
+
+    const clashCopy: Record<string, unknown> = { ...p };
+    if (dnsList.length > 0) {
+      clashCopy.dns = dnsList;
+    } else {
+      delete clashCopy.dns;
+    }
+
     const node: ProxyNode = {
       type: 'wireguard',
       name,
@@ -457,7 +464,7 @@ export function parseClashProxyItem(p: Record<string, unknown>, index: number): 
       port,
       udp: true,
       wireguard: wgConfig,
-      clashObj: { ...p, dns: dnsList }
+      clashObj: clashCopy
     };
     node.singboxObj = {
       type: 'wireguard',

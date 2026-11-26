@@ -173,7 +173,7 @@ global {
     log_file: ''
     tcp_check_url: 'https://www.gstatic.com/generate_204'
     tcp_check_http_method: HEAD
-    udp_check_dns: 'dns.google:53', '8.8.8.8', '2001:4860:4860::8888'
+    udp_check_dns: 'dns.google.com:53', '8.8.8.8', '2001:4860:4860::8888'
     check_interval: 300s
     check_tolerance: 50ms
     bootstrap_resolver: '1.1.1.1:53'
@@ -206,22 +206,22 @@ subscription {
 
 group {
     AI {
-        policy: score
+        policy: selector
     }
     Microsoft {
-        policy: score
+        policy: selector
     }
     Game {
-        policy: score
+        policy: selector
     }
     Apple {
-        policy: score
+        policy: selector
     }
     Global {
-        policy: score
+        policy: selector
     }
     Fallback {
-        policy: score
+        policy: selector
     }
 }
 
@@ -250,7 +250,7 @@ dns {
 }
 
 routing {
-    pname(dnsmasq, systemd-resolved) && dport(53) -> direct(must)
+    pname(dnsmasq, systemd-resolved) && l4proto(udp) && dport(53) -> direct(must)
     pname(NetworkManager, systemd-networkd, systemd-resolved, dhcpcd) -> direct
     pname(sing-box, mihomo, frpc, einat) -> direct(must)
     dip(224.0.0.0/3, 'ff00::/8') -> direct

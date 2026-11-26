@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 14:24:10 UTC 2026
+Generated on: Thu Nov 26 14:24:36 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -1020,7 +1020,7 @@ global {
     log_file: ''
     tcp_check_url: 'https://www.gstatic.com/generate_204'
     tcp_check_http_method: HEAD
-    udp_check_dns: 'dns.google.com:53', '8.8.8.8', '2001:4860:4860::8888'
+    udp_check_dns: 'dns.google:53', '8.8.8.8', '2001:4860:4860::8888'
     check_interval: 300s
     check_tolerance: 50ms
     bootstrap_resolver: '1.1.1.1:53'
@@ -1053,22 +1053,22 @@ subscription {
 
 group {
     AI {
-        policy: selector
+        policy: score
     }
     Microsoft {
-        policy: selector
+        policy: score
     }
     Game {
-        policy: selector
+        policy: score
     }
     Apple {
-        policy: selector
+        policy: score
     }
     Global {
-        policy: selector
+        policy: score
     }
     Fallback {
-        policy: selector
+        policy: score
     }
 }
 

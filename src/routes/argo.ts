@@ -3,6 +3,23 @@ import { Env, ProxyNode } from '../types';
 import { utf8ToBase64 } from '../utils';
 import { loadNodes } from '../services/node-loader';
 
+function escapeBashDoubleQuoted(val: string): string {
+  return val
+    .replace(/[\r\n\0]/g, '')
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\$/g, '\\$')
+    .replace(/`/g, '\\`');
+}
+
+function replaceAllTokens(template: string, token: string, value: string): string {
+  return template.split(token).join(escapeBashDoubleQuoted(value));
+}
+
+function formatHost(host: string): string {
+  return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+}
+
 async function getArgoScriptFromGithub(
   node: ProxyNode,
   port: string,
@@ -34,18 +51,20 @@ cloudflared tunnel --url http://127.0.0.1:{{VLESS_PORT}}
   const argoNodeName = `${node.name}_Argo`;
   const isTls = node.tls ? 'true' : 'false';
   const realHost = node.wsHeaders?.Host || node.sni || node.server;
+  const safePort = String(parseInt(port, 10) || 8080);
 
-  return template
-    .replace('{{NODE_TYPE}}', node.type)
-    .replace('{{VLESS_UUID}}', node.uuid || '')
-    .replace('{{VLESS_PATH}}', vlessPath)
-    .replace('{{VLESS_TYPE}}', vlessType)
-    .replace('{{VLESS_PORT}}', port)
-    .replace('{{NODE_NAME}}', argoNodeName)
-    .replace('{{TUNNEL_TOKEN}}', token.trim())
-    .replace('{{CUSTOM_DOMAIN}}', domain.trim())
-    .replace('{{VLESS_TLS}}', isTls)
-    .replace('{{ORIGIN_HOST}}', realHost);
+  let rendered = template;
+  rendered = replaceAllTokens(rendered, '{{NODE_TYPE}}', node.type);
+  rendered = replaceAllTokens(rendered, '{{VLESS_UUID}}', node.uuid || '');
+  rendered = replaceAllTokens(rendered, '{{VLESS_PATH}}', vlessPath);
+  rendered = replaceAllTokens(rendered, '{{VLESS_TYPE}}', vlessType);
+  rendered = replaceAllTokens(rendered, '{{VLESS_PORT}}', safePort);
+  rendered = replaceAllTokens(rendered, '{{NODE_NAME}}', argoNodeName);
+  rendered = replaceAllTokens(rendered, '{{TUNNEL_TOKEN}}', token.trim());
+  rendered = replaceAllTokens(rendered, '{{CUSTOM_DOMAIN}}', domain.trim());
+  rendered = replaceAllTokens(rendered, '{{VLESS_TLS}}', isTls);
+  rendered = replaceAllTokens(rendered, '{{ORIGIN_HOST}}', realHost);
+  return rendered;
 }
 
 export async function handleArgoRoutes(
@@ -134,32 +153,51 @@ export async function handleArgoRoutes(
 
       const allNodes = await loadNodes(rawUrl);
       const compatibleNodes = allNodes.filter(n => n.type === 'vless' || n.type === 'vmess');
-      const selectedObjects = selectedIndices.map(idx => compatibleNodes[idx]).filter(Boolean);
+      const selectedPairs = selectedIndices
+        .map(idx => ({ originalIndex: idx, node: compatibleNodes[idx] }))
+        .filter((item): item is { originalIndex: number; node: ProxyNode } => Boolean(item.node));
 
-      let scripts = '';
+      if (selectedPairs.length === 0) {
+        return new Response(JSON.stringify({ error: '找不到對應的節點索引' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+
+      const scriptParts: string[] = [];
       const generatedNodesData: Array<{ originalIndex: number; link: string }> = [];
+      const isFixedTunnel = Boolean(token.trim() && domain.trim());
 
-      for (let i = 0; i < selectedObjects.length; i++) {
-        const node = selectedObjects[i];
-        const originalIndex = selectedIndices[i];
+      for (let i = 0; i < selectedPairs.length; i++) {
+        const { originalIndex, node } = selectedPairs[i];
 
-        scripts += (await getArgoScriptFromGithub(node, port, token, domain)) + '\n\n';
+        // 固定隧道僅有一個全域 cloudflared 服務實例，避免重複卸載與安裝
+        if (!isFixedTunnel || i === 0) {
+          scriptParts.push(await getArgoScriptFromGithub(node, port, token, domain));
+        }
 
-        const targetDomain =
-          token.trim() && domain.trim()
-            ? domain.trim()
-            : '請在VPS執行一鍵安裝腳本獲取臨時域名.trycloudflare.com';
-        const connectionServer = cleanIp || targetDomain;
+        const targetDomain = isFixedTunnel
+          ? domain.trim()
+          : '請在VPS執行一鍵安裝腳本獲取臨時域名.trycloudflare.com';
+        const connectionServer = formatHost(cleanIp || targetDomain);
         const argoNodeName = `${node.name}_Argo${cleanIp ? '_優選' : ''}`;
 
         let argoLink = '';
         if (node.type === 'vless') {
-          argoLink = `vless://${node.uuid}@${connectionServer}:443?encryption=none&security=tls&type=${node.network || 'ws'}&host=${targetDomain}&sni=${targetDomain}&path=${node.wsPath || '/'}#${argoNodeName}`;
+          const params = new URLSearchParams({
+            encryption: 'none',
+            security: 'tls',
+            type: node.network || 'ws',
+            host: targetDomain,
+            sni: targetDomain,
+            path: node.wsPath || '/'
+          });
+          argoLink = `vless://${encodeURIComponent(node.uuid || '')}@${connectionServer}:443?${params.toString()}#${encodeURIComponent(argoNodeName)}`;
         } else {
           const vmessObj = {
             v: '2',
             ps: argoNodeName,
-            add: connectionServer,
+            add: cleanIp || targetDomain,
             port: 443,
             id: node.uuid,
             aid: 0,
@@ -177,6 +215,7 @@ export async function handleArgoRoutes(
         generatedNodesData.push({ originalIndex, link: argoLink });
       }
 
+      const scripts = scriptParts.join('\n\n');
       let scriptId = '';
       if (env.SUB_CACHE) {
         scriptId = crypto.randomUUID();

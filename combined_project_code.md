@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 17:01:11 UTC 2026
+Generated on: Thu Nov 26 17:02:14 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -282,7 +282,7 @@ id = "KV_ID_PLACEHOLDER"
 ````json
 {
   "name": "cf-sub-converter",
-  "version": "4.0.3",
+  "version": "4.1.0",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",

@@ -1,6 +1,6 @@
 # ⚡ CF Sub Converter Pro
 
-基於 Cloudflare Workers 的全能 Serverless 訂閱轉換與節點中樞。擁有現代深色 UI、GitHub 遠端規則即時直讀與內嵌容災架構（支援 **Sing-Box / Clash Meta / Honk** 三端模板獨立解耦）、自訂短代碼全字元（大小寫/符號）1:1 完整保留、**自訂高強度存取 Token 與防列舉隱匿保護**、私密配置管理安全鎖、**操作日誌審計與 Telegram Bot 即時通知系統**、國旗萬國對齊系統、**Argo 隧道 2.0 自動化生成器**，以及 **OpenWrt Honk / DAE (eBPF 內核級透明代理) 與 Doona Web UI 深度適配**。支援將各類代理節點一鍵轉換為 **Sing-Box / Clash Meta (Mihomo) / Honk (DAE) / Surge 5 / Quantumult X / Loon / Base64** 格式，並提供全平台專屬喚醒協議（Deep Link）與行動條碼掃描自動導入。
+基於 Cloudflare Workers 的全能 Serverless 訂閱轉換與節點中樞。擁有 **Dark Liquid Glass（深邃暗夜液態玻璃）** 現代介面、GitHub 遠端規則即時直讀與內嵌容災架構（支援 **Sing-Box / Clash Meta / Honk** 三端模板獨立解耦）、自訂短代碼全字元（大小寫/符號）1:1 完整保留、**自訂高強度存取 Token 與防列舉隱匿保護**、私密配置管理安全鎖、**操作日誌審計與 Telegram Bot 即時通知系統**、國旗萬國對齊系統、**Argo 隧道 2.0 自動化生成器**，以及 **OpenWrt Honk / DAE (eBPF 內核級透明代理) 與 Doona Web UI 深度適配**。支援將各類代理節點一鍵轉換為 **Sing-Box / Clash Meta (Mihomo) / Honk (DAE) / Surge 5 / Quantumult X / Loon / Base64** 格式，並提供全平台專屬喚醒協議（Deep Link）與行動條碼掃描自動導入。
 
 [![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/sammy0101/cf-sub-converter)
 
@@ -44,10 +44,10 @@
   - 國外代理流量採用 Fake-IP 封裝網域名稱，國內/內網流量自動使用 Real-IP 直連。
 - **OpenWrt Honk / DAE (`Honk_Rules.DAE` ➔ `/etc/honk/config.dae`)**：
   - **獨立遠端模板解耦**：可直接於 GitHub 修改 `Honk_Rules.DAE`，客戶端更新立即生效。
-  - **Honk 最新版核心特性調優**：配置 `dial_mode: domain`、`store_subscribe: true`（斷網重啟自動從快取恢復節點）、`nfqueue_enable: true`（持有 LAN UDP 首包防丟包）、`udp_warm_node_count: 0` 與 `preconnect_node_count: 0`（保護路由器記憶體），以及現代列表引號語法 `udp_check_dns`。
-  - **Doona 原生 Web UI 完整可編輯**：所有策略組採用標準識別碼（`AI`, `Microsoft`, `Game`, `Apple`, `Global`, `Fallback`）並設定為 `policy: selector` 與 `config_write: true`，在 `http://路由器IP:9527` 徹底解鎖 🔒 限制，允許自由點擊切換節點與編輯策略組屬性。
-  - **DNS 現代調優**：配置 `client_subnet: auto` 改善 CDN 在地性、`qtype(https) -> reject`，並具備海外 DoH 回傳中國 IP 時自動退回 `localdns` 重解析的挽救機制。
-  - **旁路由（雙網關）專屬優化**：私有網段規則採用純 `dip(geoip:private) -> direct`（排除 `must`），加上 `sing-box`、`mihomo`、`frpc`、`einat` 進程直連防回環。
+  - **Honk 最新版核心特性調優**：配置 `dial_mode: domain`、`store_subscribe: true`（斷網重啟自動從快取恢復節點）、`nfqueue_enable: true`（持有 LAN UDP 首包防丟包）、`udp_warm_node_count: 0` 與 `preconnect_node_count: 0`（保護路由器記憶體），以及現代列表引號語法 `udp_check_dns: 'dns.google:53', '8.8.8.8', '2001:4860:4860::8888'`。
+  - **自適應綜合評分策略 (`policy: score`) 與標準識別碼**：所有策略組採用標準識別碼（`AI`, `Microsoft`, `Game`, `Apple`, `Global`, `Fallback`）並全面配置為 Honk 主打的 **`policy: score`**，依據真實連線品質自動挑選最佳出站節點，同時保持 Doona AST 語法樹完整定位。
+  - **DNS 現代調優與防回環**：配置 `client_subnet: auto`、`qtype(https) -> reject` 與海外 DoH 挽救重解析；`dnsmasq` / `systemd-resolved` 規則採 **`dport(53)`（含 UDP 與 TCP 53）** 強制直連防回環，並加上 `sing-box`、`mihomo`、`frpc`、`einat` 進程直連。
+  - **旁路由（雙網關）專屬優化**：私有網段規則採用純 `dip(geoip:private) -> direct`（排除 `must`）。
   - **自動化訂閱與雲端 AI 規則連動**：透過 `subscription` 區塊每 12 小時直連更新 Base64 訂閱（若配置設有 Token 會自動透傳），並即時拉取 GitHub `geosite_ai_hk_proxy.dae`。
 - **Surge 5**：標準 `.conf` 格式，支援 Proxy、Proxy Group、分流規則與 `[WireGuard ...]` 獨立專屬區塊。
 - **Quantumult X**：支援包含 `vless=` 在內的標準 `server_remote` 節點清單。
@@ -55,7 +55,7 @@
 - **通用 Base64 / Shadowrocket (小火箭)**：
   - 完整對齊標準 URI 結構（私鑰、公鑰、IP、DNS、MTU、CCA/BBR 與 Keepalive 參數全規格映射），解決小火箭解碼錯誤並支援原生通連。
 - **🚀 專屬喚醒二維碼與自動命名**：
-  - 點擊 QR Code 圖示自動產生符合各客戶端規範的條碼。
+  - 點擊 QR Code 圖示自動產生符合各客戶端規範的條碼（採統一 Dark Liquid Glass 視窗）。
   - 手機相機或 App 掃描全自動填入名稱與網址，亦可點擊按鈕直接喚醒 App 一鍵導入。
 
 ### 3. 🏷️ 短連結雲端儲存與自訂存取 Token 防掃描保護
@@ -76,12 +76,12 @@
 ### 4. 🔐 私密配置管理、操作日誌審計與 Telegram Bot 推播 (`PAGE_PASSWORD`)
 - **公私分明與 Fail-Closed 安全設計**：
   - **公開使用**：通用訂閱轉換、節點過濾、Argo 隧道生成、客戶端訂閱更新一律開放。
-  - **私密保護**：下方的「已儲存的配置」、「📋 查看操作日誌」與「🔔 消息通知設定」共用同一組 `PAGE_PASSWORD` 安全鎖；**若未設定 `PAGE_PASSWORD`，日誌與通知 API 預設回傳 `403 Forbidden` 禁用讀取**，防止敏感憑證與訪客隱私外洩。
+  - **私密保護**：下方的「已儲存的配置」、「查看操作日誌」與「消息通知設定」共用同一組 `PAGE_PASSWORD` 安全鎖；**若未設定 `PAGE_PASSWORD`，日誌與通知 API 預設回傳 `403 Forbidden` 禁用讀取**，防止敏感憑證與訪客隱私外洩。
 - **永久記住登入狀態與精準錯誤透傳**：解鎖成功後瀏覽器（`localStorage`）自動保持登入，重開網頁免重複輸入（自動記錄一筆 `登入後台`），並提供隨時「🔒 鎖定」按鈕同步隱藏配置、日誌與通知設定；後端操作失敗時會結構化回傳真實 HTTP 狀態碼與異常原因，避免誤報。
 - **操作日誌審計與效能防護**：
   - **零延遲背景追蹤**：客戶端獲取訂閱與異常存取透過 `ctx.waitUntil()` 非同步寫入 KV，管理操作與錯誤登入嘗試則同步寫入確保即時呈現。
   - **完整遙測欄位（UTC+8）**：原生讀取 Cloudflare `request.cf` 記錄時間、訪客 IP、國家／城市、ASN 與電信業者、4 色操作標籤（🟢 `獲取訂閱` / 🟠 `登入後台` / 🔴 `登入失敗`、`異常存取` / 🔵 `新增/修改/刪除配置/儲存短連結`）、自動遮罩 `?token=` 與截斷過長 URL 後的請求路徑與 User-Agent。
-  - **Workers 免費版護欄與即時同步**：僅滾動保留最新 **200 筆** 紀錄（防止 10ms CPU 超時），支援首頁折疊預覽、彈窗全欄位檢視、15 秒／切回分頁自動同步、手動刷新與 **🗑️ 清空日誌**。
+  - **Workers 免費版護欄與即時同步**：僅滾動保留最新 **200 筆** 紀錄（防止 10ms CPU 超時），支援首頁折疊預覽、彈窗全欄位檢視、15 秒／切回分頁自動同步、手動刷新與 **清空日誌**。
 - **Telegram Bot 即時推播系統**：
   - 直接於網頁前端「參數配置」設定 **Bot Token** 與 **Chat ID**（後端讀取時自動遮罩敏感字元 `123456***abcd`），並提供一鍵 **「發送測試訊息」** 與 **「? 新手申請教學彈窗」**。
   - 啟用後，所有日誌事件（包含異常 Token 掃描警報）皆會透過 `ctx.waitUntil()` 背景即時推播至您的 Telegram，不影響訂閱下載速度。
@@ -95,9 +95,9 @@
   - 若遇 GitHub 服務波動、網路逾時或 429 限流，系統自動無縫回退至內建純淨版預設模板，確保訂閱拉取 100% 成功。
 - **專屬純淨儲存**：KV 空間專門用於儲存用戶自訂短連結、私密收藏配置、操作審計日誌、TG 通知設定與 Argo 部署腳本。
 
-### 6. 🌀 Argo 隧道 2.0 一鍵生成器
+### 6. 🌀 Argo 隧道 2.0 一鍵生成器（附完整內建教學彈窗 `?`）
 - **優選 IP / 官方域名注入**：支援填入 Cloudflare Clean IP（如 `104.16.80.1`）或優選網域，自動完成連接伺服器與 SNI/Host 映射，顯著降低延遲。
-- **極簡 VPS 命令**：腳本自動上傳至 KV 快取，透過 `curl -sSL ... | bash` 極速完成部署。
+- **極簡 VPS 命令**：腳本自動上傳至 KV 快取（1 小時有效），透過 `curl -sSL ... | bash` 極速完成部署。
 - **智慧探測與修復**：VPS 端自動探測 443 / 80 本地監聽連接埠、TLS 狀態與 Host Header 重寫。
 
 ### 7. 🔍 智慧篩選、名稱替換與黃金國旗排版
@@ -188,7 +188,7 @@
 
 ## 📖 使用指南
 
-### 1. 視覺化 Web 面板
+### 1. 視覺化 Web 面板 (Dark Liquid Glass)
 訪問您部署完成的 Workers 網址：
 - **資料來源設定**：
   - 貼上完整 **Clash Meta (.yaml) 設定檔**、機場訂閱連結、WireGuard `.conf` 設定檔（支援多組 `[Interface]...[Peer]` 連續貼入）、Cloudflare WARP MASQUE JSON（支援陣列或多個物件），或各類代理節點。
@@ -197,6 +197,7 @@
 - **多平台訂閱面板**：
   - 複製對應客戶端的訂閱連結（含 Sing-Box、Clash Meta、Honk/DAE、Surge、Base64 等，如有設定 Token 會自動附帶 `?token=`）。
   - 點擊 QR Code 圖示彈出專屬喚醒視窗，手機相機或 App 掃描自動填入，或點擊「🚀 一鍵打開並導入」直接喚醒 App。
+- **Argo 隧道 2.0**：可隨時點擊標題列右側 **`?`** 按鈕開啟詳細圖解教學，依步驟完成 VLESS / VMess 隧道轉換與 VPS 部署。
 - **配置收藏、操作日誌與 TG 通知**：輸入管理密碼解鎖後，可自由管理私密配置、於「查看操作日誌」即時追蹤所有請求與異常存取，並於「消息通知設定」配置與測試 Telegram Bot 即時推播。
 
 ---
@@ -238,12 +239,12 @@ https://your-worker.workers.dev/<自訂短連結名稱>?token=<Token>&target=hon
 
 ## 🛡️ 內建分流群組 (Sing-Box / Clash Meta / Honk)
 
-> *註：OpenWrt Honk (`Honk_Rules.DAE`) 為配合 Doona Web UI 語法樹定位並解鎖線上編輯功能，策略組採用標準識別碼（`AI`, `Microsoft`, `Game`, `Apple`, `Global`, `Fallback`）並統一設定為 `policy: selector`。*
+> *註：OpenWrt Honk (`Honk_Rules.DAE`) 採用標準識別碼（`AI`, `Microsoft`, `Game`, `Apple`, `Global`, `Fallback`）並全面啟用 Honk 主打的 **`policy: score`** 自適應綜合評分策略，系統會自動篩選品質最佳之節點出站。*
 
 | 圖示 | Sing-Box / Clash 策略組 | Honk 識別碼 | 路由邏輯 |
 | :--- | :--- | :--- | :--- |
-| 🚀 | 節點選擇 | *(直接於各分流組點選)* | 手動指定出站節點 / 主代理 |
-| ⚡ | 自動選擇 | *(支援於 Doona 自訂切換)* | URL Test 自動測速切換最低延遲節點 |
+| 🚀 | 節點選擇 | *(直接分流至對應群組)* | 手動指定出站節點 / 主代理 |
+| ⚡ | 自動選擇 | `policy: score` | URL Test / 綜合評分自動挑選最佳節點 |
 | 💬 | AI 服務 | `AI` | 針對 OpenAI / Claude / AI Studio 專屬分流 |
 | 🍎 | 蘋果服務 | `Apple` | Apple 相關服務直連或代理 |
 | Ⓜ️ | 微軟服務 | `Microsoft` | Microsoft 服務直連或代理 |
@@ -334,12 +335,12 @@ cf-sub-converter/
 │   │   ├── admin.ts             # /logs、/tg-config、/tg-test 管理與審計路由
 │   │   ├── favs.ts              # /favs、/save 短代碼防劫持與收藏 CRUD 路由
 │   │   ├── argo.ts              # /argo/sh/*、/api/parse-argo、/api/argo-generate
-│   │   └── sub.ts               # /sub 與短代碼 Token 防列舉校驗、訂閱轉換核心路由
+│   │   └── sub.ts               # /sub 與短代碼 Token 防列舉校驗、Liquid Glass 預覽頁路由
 │   └── ui/
-│       ├── index.ts             # 組合輸出完整響應式深色網頁介面
-│       ├── styles.ts            # CSS 樣式表
-│       ├── markup.ts            # 頁面結構與管理彈窗 DOM
-│       └── script.ts            # 前端互動、隨機 Token 生成、QR Code 與 API 串接腳本
+│       ├── index.ts             # 組合輸出完整響應式網頁介面
+│       ├── styles.ts            # Dark Liquid Glass CSS 樣式表（含效能與無障礙降級）
+│       ├── markup.ts            # 頁面結構、Argo/TG 說明彈窗與管理介面 DOM
+│       └── script.ts            # 前端互動、隨機 Token 生成、Liquid Glass QR 彈窗與 API 腳本
 ├── scripts/
 │   └── argo-converter.ts        # 本地 CLI Argo 互動式轉換工具
 ├── argo.sh                      # VPS Argo 隧道 2.0 一鍵安裝與自我修復通用腳本

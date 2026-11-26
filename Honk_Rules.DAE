@@ -19,8 +19,8 @@ global {
 
     tcp_check_url: 'https://www.gstatic.com/generate_204'
     tcp_check_http_method: HEAD
-    # 【已修復】個別獨立加上引號，符合 Honk 現代列表語法
-    udp_check_dns: 'dns.google.com:53', '8.8.8.8', '2001:4860:4860::8888'
+    # 個別獨立加上引號，並採用 Google Public DNS 官方正確域名 dns.google:53
+    udp_check_dns: 'dns.google:53', '8.8.8.8', '2001:4860:4860::8888'
     check_interval: 300s
     check_tolerance: 50ms
 
@@ -69,30 +69,36 @@ subscription {
 
 # ==============================================================================
 # 策略分流群組 (Group)
+# 全面採用 Honk 主打的 policy: score 自適應綜合評分策略，搭配標準識別碼確保 Doona AST 完整定位
 # ==============================================================================
 group {
-    '💬 AI 服務' {
-        policy: min_moving_avg
+    # AI 服務
+    AI {
+        policy: score
     }
 
-    'Ⓜ️ 微軟服務' {
-        policy: min_moving_avg
+    # 微軟服務
+    Microsoft {
+        policy: score
     }
 
-    '🎮 遊戲平台' {
-        policy: min_moving_avg
+    # 遊戲平台
+    Game {
+        policy: score
     }
 
-    '🍎 蘋果服務' {
-        policy: min_moving_avg
+    # 蘋果服務
+    Apple {
+        policy: score
     }
 
-    '🌐 非中國' {
-        policy: min_moving_avg
+    # 國外主流網站 (非中國)
+    Global {
+        policy: score
     }
 
-    # 🐟 漏網之魚專用：採用 score (綜合評分)
-    '🐟 漏網之魚' {
+    # 漏網之魚 (預設兜底)
+    Fallback {
         policy: score
     }
 }
@@ -132,8 +138,8 @@ dns {
 # eBPF 流量路由規則
 # ==============================================================================
 routing {
-    # 核心系統服務與 DNS 直連，防回環加固
-    pname(dnsmasq, systemd-resolved) && l4proto(udp) && dport(53) -> direct(must)
+    # 核心系統服務與 DNS 直連 (移除 l4proto(udp) 限制，同時覆蓋 UDP 53 與 TCP 53 防回環)
+    pname(dnsmasq, systemd-resolved) && dport(53) -> direct(must)
     pname(NetworkManager, systemd-networkd, systemd-resolved, dhcpcd) -> direct
     pname(sing-box, mihomo, frpc, einat) -> direct(must)
 
@@ -145,25 +151,25 @@ routing {
     # 2. 🛑 廣告攔截
     domain(geosite:category-ads-all) -> block
 
-    # 3. 💬 AI 服務 (由轉換器動態提取注入)
+    # 3. 💬 AI 服務 (動態注入目標為 AI 組)
     {{AI_RULES}}
 
     # 4. Ⓜ️ 微軟服務
-    domain(geosite:microsoft) -> 'Ⓜ️ 微軟服務'
+    domain(geosite:microsoft) -> Microsoft
 
     # 5. 🎮 遊戲平台
-    domain(geosite:steam, geosite:epicgames, geosite:ea, geosite:ubisoft, geosite:blizzard) -> '🎮 遊戲平台'
+    domain(geosite:steam, geosite:epicgames, geosite:ea, geosite:ubisoft, geosite:blizzard) -> Game
 
     # 6. 🍎 蘋果服務
-    domain(geosite:apple) -> '🍎 蘋果服務'
+    domain(geosite:apple) -> Apple
 
     # 7. 🌐 非中國 (國外網站)
-    domain(geosite:geolocation-!cn) -> '🌐 非中國'
+    domain(geosite:geolocation-!cn) -> Global
 
     # 8. 🇨🇳 國內服務 (中國國內網域與 IP 全部直連)
     domain(geosite:cn) -> direct
     dip(geoip:cn) -> direct
 
     # 9. 🐟 漏網之魚 (最終兜底)
-    fallback: '🐟 漏網之魚'
+    fallback: Fallback
 }

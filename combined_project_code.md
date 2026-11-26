@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 16:45:34 UTC 2026
+Generated on: Thu Nov 26 16:46:05 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -1790,7 +1790,8 @@ export async function fetchTemplateDirect(
   }
 
   try {
-    const fetchUrl = forceRefresh ? `${url}?t=${Date.now()}` : url;
+    const sep = url.includes('?') ? '&' : '?';
+    const fetchUrl = forceRefresh ? `${url}${sep}t=${Date.now()}` : url;
     const resp = await fetchWithTimeout(
       fetchUrl,
       { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },

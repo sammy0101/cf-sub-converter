@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 15:32:45 UTC 2026
+Generated on: Thu Nov 26 15:39:20 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -7634,7 +7634,7 @@ export async function sendTgNotification(env: Env, entry: OperationLogEntry): Pr
 ## File: src/services/node-loader.ts
 ````ts
 // src/services/node-loader.ts
-import { ProxyNode } from '../types';
+import { Env, ProxyNode } from '../types';
 import { parseContent } from '../parsers';
 import { deduplicateNodeNames, groupNodesByFlag } from '../utils';
 import { fetchWithTimeout } from '../generators/common';
@@ -7651,6 +7651,7 @@ export interface LoadNodesResult {
   nodes: ProxyNode[];
   errors: string[];
   traffic: TrafficInfo;
+  upstreamStatus: string;
 }
 
 interface UpstreamFetchOutcome {
@@ -7660,6 +7661,7 @@ interface UpstreamFetchOutcome {
   download: number;
   total: number;
   expire: number;
+  source: 'live' | 'edge-cache' | 'kv-lkg' | 'failed';
 }
 
 function parseUserInfoHeader(userInfo: string | null): {
@@ -7686,8 +7688,62 @@ function parseUserInfoHeader(userInfo: string | null): {
   };
 }
 
+async function computeShortHash(input: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+  const arr = Array.from(new Uint8Array(buf));
+  return arr
+    .slice(0, 12)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function saveUpstreamFallback(
+  text: string,
+  userInfoStr: string | null,
+  edgeCache: Cache | undefined,
+  cacheKey: Request | null,
+  env: Env | undefined,
+  lkgKey: string
+): Promise<void> {
+  let edgeAlreadyMatches = false;
+
+  if (edgeCache && cacheKey) {
+    try {
+      const prevEdge = await edgeCache.match(cacheKey);
+      if (prevEdge) {
+        const prevText = await prevEdge.text();
+        if (prevText === text) {
+          edgeAlreadyMatches = true;
+        }
+      }
+      if (!edgeAlreadyMatches) {
+        const cacheHeaders: Record<string, string> = {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'public, max-age=86400'
+        };
+        if (userInfoStr) {
+          cacheHeaders['subscription-userinfo'] = userInfoStr;
+        }
+        await edgeCache.put(cacheKey, new Response(text, { headers: cacheHeaders }));
+      }
+    } catch {}
+  }
+
+  // 僅當內容有實質變動或尚未備份至全域 KV 時才寫入，節省 KV 每日寫入額度
+  if (!edgeAlreadyMatches && env?.SUB_CACHE) {
+    try {
+      const payload = JSON.stringify({ text, userInfo: userInfoStr || '' });
+      const prevKv = await env.SUB_CACHE.get(lkgKey);
+      if (prevKv !== payload) {
+        await env.SUB_CACHE.put(lkgKey, payload, { expirationTtl: 604800 });
+      }
+    } catch {}
+  }
+}
+
 async function fetchUpstreamWithResilience(
   upstreamUrl: string,
+  env?: Env,
   ctx?: ExecutionContext,
   cacheHost?: string
 ): Promise<UpstreamFetchOutcome> {
@@ -7697,7 +7753,8 @@ async function fetchUpstreamWithResilience(
     upload: 0,
     download: 0,
     total: 0,
-    expire: 0
+    expire: 0,
+    source: 'failed'
   };
 
   const edgeCache =
@@ -7707,6 +7764,7 @@ async function fetchUpstreamWithResilience(
   const cacheKey = cacheHost
     ? new Request(`https://${cacheHost}/__upstream_cache?u=${encodeURIComponent(upstreamUrl)}`, { method: 'GET' })
     : null;
+  const lkgKey = `lkg:${await computeShortHash(upstreamUrl)}`;
 
   const userAgents = ['v2rayNG/1.8.5', 'clash.meta'];
 
@@ -7728,26 +7786,14 @@ async function fetchUpstreamWithResilience(
             const userInfoStr = resp.headers.get('subscription-userinfo');
             const info = parseUserInfoHeader(userInfoStr);
 
-            // 背景寫入 Last-Known-Good 邊緣容災快取 (24 小時有效，不消耗 KV 寫入額度)
-            if (edgeCache && cacheKey) {
-              const cacheHeaders: Record<string, string> = {
-                'Content-Type': 'text/plain; charset=utf-8',
-                'Cache-Control': 'public, max-age=86400'
-              };
-              if (userInfoStr) {
-                cacheHeaders['subscription-userinfo'] = userInfoStr;
-              }
-              const putPromise = edgeCache
-                .put(cacheKey, new Response(text, { headers: cacheHeaders }))
-                .catch(() => undefined);
-              if (ctx && typeof ctx.waitUntil === 'function') {
-                ctx.waitUntil(putPromise);
-              } else {
-                await putPromise;
-              }
+            const savePromise = saveUpstreamFallback(text, userInfoStr, edgeCache, cacheKey, env, lkgKey);
+            if (ctx && typeof ctx.waitUntil === 'function') {
+              ctx.waitUntil(savePromise);
+            } else {
+              await savePromise;
             }
 
-            return { parsed, ...info };
+            return { parsed, ...info, source: 'live' };
           }
         }
       }
@@ -7758,7 +7804,7 @@ async function fetchUpstreamWithResilience(
     }
   }
 
-  // 若實時抓取兩次皆失敗（例如單台 VPS 瞬斷或跨區超時），從邊緣快取搶救最後一次成功節點，避免截斷遺失
+  // 容災層 1：同機房邊緣快取
   if (edgeCache && cacheKey) {
     try {
       const cachedResp = await edgeCache.match(cacheKey);
@@ -7768,7 +7814,24 @@ async function fetchUpstreamWithResilience(
           const parsed = await parseContent(cachedText);
           if (parsed.length > 0) {
             const info = parseUserInfoHeader(cachedResp.headers.get('subscription-userinfo'));
-            return { parsed, ...info };
+            return { parsed, ...info, source: 'edge-cache' };
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // 容災層 2：跨機房全域 KV Last-Known-Good 快取
+  if (env?.SUB_CACHE) {
+    try {
+      const rawKv = await env.SUB_CACHE.get(lkgKey);
+      if (rawKv) {
+        const saved = JSON.parse(rawKv) as { text?: string; userInfo?: string };
+        if (saved.text && !saved.text.trim().startsWith('<')) {
+          const parsed = await parseContent(saved.text);
+          if (parsed.length > 0) {
+            const info = parseUserInfoHeader(saved.userInfo || null);
+            return { parsed, ...info, source: 'kv-lkg' };
           }
         }
       }
@@ -7830,6 +7893,7 @@ export async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
 
 export async function loadNodesWithTraffic(
   urlParam: string,
+  env?: Env,
   ctx?: ExecutionContext,
   cacheHost?: string
 ): Promise<LoadNodesResult> {
@@ -7840,6 +7904,10 @@ export async function loadNodesWithTraffic(
   let totalTotal = 0;
   let minExpire = 0;
   let hasTrafficInfo = false;
+
+  let liveCount = 0;
+  let cacheCount = 0;
+  let failedCount = 0;
 
   const trimmedParam = urlParam.trim();
 
@@ -7874,22 +7942,26 @@ export async function loadNodesWithTraffic(
       .filter(Boolean);
 
     const batchResults = await Promise.all(
-      inputs.map(async trimmed => {
+      inputs.map(async (trimmed): Promise<UpstreamFetchOutcome> => {
         if (trimmed.startsWith('http')) {
-          return fetchUpstreamWithResilience(trimmed, ctx, cacheHost);
+          return fetchUpstreamWithResilience(trimmed, env, ctx, cacheHost);
         }
 
         try {
           const parsed = await parseContent(trimmed);
-          return { parsed, hasInfo: false, upload: 0, download: 0, total: 0, expire: 0 };
+          return { parsed, hasInfo: false, upload: 0, download: 0, total: 0, expire: 0, source: 'live' };
         } catch {
-          return { parsed: [] as ProxyNode[], hasInfo: false, upload: 0, download: 0, total: 0, expire: 0 };
+          return { parsed: [], hasInfo: false, upload: 0, download: 0, total: 0, expire: 0, source: 'failed' };
         }
       })
     );
 
     for (const item of batchResults) {
       allNodes.push(...item.parsed);
+      if (item.source === 'live') liveCount++;
+      else if (item.source === 'edge-cache' || item.source === 'kv-lkg') cacheCount++;
+      else failedCount++;
+
       if (item.hasInfo) {
         hasTrafficInfo = true;
         totalUpload += item.upload;
@@ -7905,7 +7977,8 @@ export async function loadNodesWithTraffic(
   return {
     nodes: allNodes,
     errors,
-    traffic: { totalUpload, totalDownload, totalTotal, minExpire, hasTrafficInfo }
+    traffic: { totalUpload, totalDownload, totalTotal, minExpire, hasTrafficInfo },
+    upstreamStatus: `live=${liveCount};cache=${cacheCount};failed=${failedCount}`
   };
 }
 

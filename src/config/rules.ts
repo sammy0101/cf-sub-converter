@@ -5,51 +5,52 @@ export const REMOTE_CONFIG = {
   honk: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Honk_Rules.DAE'
 };
 
-// 內嵌緊急降級模板 (Sing-Box 純 IPv4 純淨版，已修正 Fake-IP 查詢過濾)
+// 內嵌緊急降級模板 (Sing-Box 純 IPv4 獨立可用版，不依賴外部遠端 rule_set)
 export const FALLBACK_SINGBOX_RULES = JSON.stringify({
-  log: { level: "info" },
-  http_clients: [
-    { tag: "default" }
-  ],
+  log: { level: 'info' },
+  http_clients: [{ tag: 'default' }],
   dns: {
     servers: [
-      { tag: "remote-dns", type: "https", server: "8.8.8.8", detour: "🚀 節點選擇" },
-      { tag: "remote-cf-dns", type: "https", server: "1.1.1.1", detour: "🚀 節點選擇" },
-      { tag: "system-dns", type: "local" },
-      { tag: "local-dns", type: "local" },
-      { tag: "fakeip-dns", type: "fakeip", inet4_range: "198.18.0.0/15" }
+      { tag: 'remote-dns', type: 'https', server: '8.8.8.8', detour: '🚀 節點選擇' },
+      { tag: 'remote-cf-dns', type: 'https', server: '1.1.1.1', detour: '🚀 節點選擇' },
+      { tag: 'system-dns', type: 'local' },
+      { tag: 'fakeip-dns', type: 'fakeip', inet4_range: '198.18.0.0/15' }
     ],
     rules: [
-      { rule_set: ["rs-private"], server: "system-dns" },
-      { rule_set: ["rs-cn"], server: "system-dns", disable_cache: true },
-      { rule_set: ["rs-apple"], server: "system-dns", disable_cache: true },
-      {
-        query_type: ["A", "AAAA"],
-        rule_set: [
-          "rs-geolocation-!cn",
-          "rs-ai"
-        ],
-        server: "fakeip-dns"
-      }
+      { clash_mode: 'Direct', server: 'system-dns' },
+      { clash_mode: 'Global', query_type: ['A', 'AAAA'], server: 'fakeip-dns' },
+      { query_type: ['A', 'AAAA'], server: 'fakeip-dns' }
     ],
-    final: "remote-dns",
-    strategy: "ipv4_only"
+    final: 'remote-dns',
+    strategy: 'ipv4_only'
   },
-  inbounds: [{ type: "tun", tag: "tun-in", interface_name: "tun0", auto_route: true, address: ["172.19.0.1/30"], stack: "mixed" }],
+  inbounds: [
+    {
+      type: 'tun',
+      tag: 'tun-in',
+      interface_name: 'tun0',
+      auto_route: true,
+      strict_route: true,
+      address: ['172.19.0.1/30'],
+      stack: 'mixed'
+    }
+  ],
   outbounds: [
-    { type: "selector", tag: "🚀 節點選擇", outbounds: ["⚡ 自動選擇", "direct"] },
-    { type: "urltest", tag: "⚡ 自動選擇", outbounds: [], url: "https://www.gstatic.com/generate_204", interval: "3m" },
-    { type: "selector", tag: "🛑 廣告攔截", outbounds: ["block", "direct"] },
-    { type: "direct", tag: "direct" },
-    { type: "block", tag: "block" }
+    { type: 'selector', tag: '🚀 節點選擇', outbounds: ['⚡ 自動選擇', 'DIRECT'] },
+    { type: 'urltest', tag: '⚡ 自動選擇', outbounds: [], url: 'https://www.gstatic.com/generate_204', interval: '3m' },
+    { type: 'direct', tag: 'DIRECT' },
+    { type: 'block', tag: 'REJECT' }
   ],
   route: {
-    default_domain_resolver: "system-dns",
-    default_http_client: "default",
+    default_domain_resolver: 'system-dns',
+    default_http_client: 'default',
     rules: [
-      { action: "sniff" },
-      { protocol: "dns", action: "hijack-dns" },
-      { rule_set: "rs-ads", outbound: "🛑 廣告攔截" }
+      { action: 'sniff' },
+      { protocol: 'dns', action: 'hijack-dns' },
+      { clash_mode: 'Direct', outbound: 'DIRECT' },
+      { clash_mode: 'Global', outbound: '🚀 節點選擇' },
+      { ip_is_private: true, outbound: 'DIRECT' },
+      { outbound: '🚀 節點選擇' }
     ],
     auto_detect_interface: true
   },
@@ -58,6 +59,7 @@ export const FALLBACK_SINGBOX_RULES = JSON.stringify({
   }
 });
 
+// 內嵌緊急降級模板 (Clash Meta 獨立可用版，不依賴未定義的 rule-providers)
 export const FALLBACK_CLASH_RULES = `
 port: 7890
 allow-lan: true
@@ -75,11 +77,6 @@ proxy-groups:
     url: http://www.gstatic.com/generate_204
     interval: 300
     proxies: []
-  - name: 🛑 廣告攔截
-    type: select
-    proxies:
-      - REJECT
-      - DIRECT
 dns:
   enable: true
   enhanced-mode: fake-ip
@@ -128,9 +125,6 @@ dns:
     - '+.googleapis.cn'
     - '+.xn--ngstr-lra8j.com'
     - 'clientservices.googleapis.com'
-    - 'rule-set:cn'
-    - 'rule-set:private'
-    - 'rule-set:apple'
   default-nameserver:
     - system
     - 119.29.29.29
@@ -140,19 +134,18 @@ dns:
   direct-nameserver:
     - system
   nameserver-policy:
-    "rule-set:private":
-      - system
-    "rule-set:cn":
+    "+.cn":
       - system
       - https://223.5.5.5/dns-query
       - https://doh.pub/dns-query
-    "rule-set:apple":
-      - system
   nameserver:
     - https://8.8.8.8/dns-query
     - https://1.1.1.1/dns-query
 rules:
-  - RULE-SET,category-ads-all,🛑 廣告攔截
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
   - GEOIP,CN,DIRECT
   - MATCH,🚀 節點選擇
 `;

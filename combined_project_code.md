@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 15:57:32 UTC 2026
+Generated on: Thu Nov 26 16:44:22 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -2942,12 +2942,25 @@ a:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(59,130,246,0
 // src/utils.ts
 import { ProxyNode } from './types';
 
+// --- Constant-Time 字串比對（防時序側信道） ---
+export function timingSafeEqualStr(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const bufA = enc.encode(a);
+  const bufB = enc.encode(b);
+  const maxLen = Math.max(bufA.length, bufB.length);
+  let diff = bufA.length ^ bufB.length;
+  for (let i = 0; i < maxLen; i++) {
+    diff |= (bufA[i] ?? 0) ^ (bufB[i] ?? 0);
+  }
+  return diff === 0;
+}
+
 // --- 安全 Base64 解碼 ---
 export function safeBase64Decode(str: string): string {
   try {
     let b64 = str.replace(/-/g, '+').replace(/_/g, '/').replace(/[^A-Za-z0-9+/=]/g, '');
     while (b64.length % 4) b64 += '=';
-    
+
     const binaryStr = atob(b64);
     const bytes = new Uint8Array(binaryStr.length);
     for (let i = 0; i < binaryStr.length; i++) {
@@ -2961,9 +2974,11 @@ export function safeBase64Decode(str: string): string {
 
 export function utf8ToBase64(str: string): string {
   try {
-    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => {
-      return String.fromCharCode(parseInt(p1, 16));
-    }));
+    return btoa(
+      encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => {
+        return String.fromCharCode(parseInt(p1, 16));
+      })
+    );
   } catch {
     return btoa(str);
   }
@@ -3006,10 +3021,11 @@ export function addFlag(name: string): string {
   if (isMatch('KH|KHM|PNH', '柬埔寨|金边|金邊|CAMBODIA')) return '🇰🇭 ' + name;
   if (isMatch('GR|GRC|ATH', '希腊|希臘|雅典|GREECE')) return '🇬🇷 ' + name;
   if (isMatch('PL|POL|WAW', '波兰|波蘭|华沙|華沙|POLAND')) return '🇵🇱 ' + name;
-  if (isMatch('IT|ITA|MIL', '意大利|義大和|米兰|羅馬|ITALY')) return '🇮🇹 ' + name;
+  if (isMatch('IT|ITA|MIL', '意大利|義大利|米兰|羅馬|ITALY')) return '🇮🇹 ' + name;
   if (isMatch('ES|ESP|MAD', '西班牙|马德里|巴塞隆納|SPAIN')) return '🇪🇸 ' + name;
-  if (isMatch('DE|DEU|FRA', '德国|德國|法兰克福|GERMANY')) return '🇩🇪 ' + name;
-  if (isMatch('FR|FRA|CDG', '法国|法國|巴黎|FRANCE')) return '🇫🇷 ' + name;
+  // 先匹配法國明確標識（避免 "France FRA" 被 FRA 當成法蘭克福）
+  if (isMatch('FR|CDG|PAR', '法国|法國|巴黎|FRANCE')) return '🇫🇷 ' + name;
+  if (isMatch('DE|DEU|FRA', '德国|德國|法兰克福|法蘭克福|GERMANY|FRANKFURT')) return '🇩🇪 ' + name;
   if (isMatch('RU|RUS', '俄罗斯|俄羅斯|莫斯科|RUSSIA')) return '🇷🇺 ' + name;
   if (isMatch('CH|CHE|ZRH', '瑞士|苏黎世|日内瓦|SWITZERLAND')) return '🇨🇭 ' + name;
   if (isMatch('SE|SWE|ARN', '瑞典|斯德哥尔摩|SWEDEN')) return '🇸🇪 ' + name;
@@ -3042,44 +3058,44 @@ export function addFlag(name: string): string {
 export function groupNodesByFlag(nodes: ProxyNode[]): ProxyNode[] {
   const groups = new Map<string, ProxyNode[]>();
   const flagOrder: string[] = [];
-  
+
   for (const node of nodes) {
     const flaggedName = addFlag(node.name || 'node');
-    
+
     let flag = '🇺🇳';
     const match = flaggedName.match(/^([\uD83C][\uDDE6-\uDDFF][\uD83C][\uDDE6-\uDDFF])/);
     if (match) {
       flag = match[1];
     }
-    
+
     if (!groups.has(flag)) {
       groups.set(flag, []);
       flagOrder.push(flag);
     }
     groups.get(flag)!.push(node);
   }
-  
+
   const standardOrder = [
     '🇭🇰', '🇹🇼', '🇯🇵', '🇸🇬', '🇰🇷',
     '🇺🇸', '🇬🇧', '🇨🇦', '🇦🇺',
     '🇲🇴', '🇨🇳', '🇹🇭', '🇻🇳', '🇲🇾', '🇵🇭', '🇮🇩',
     '🇩🇪', '🇫🇷', '🇳🇱', '🇷🇺', '🇮🇳', '🇹🇷'
   ];
-  
+
   flagOrder.sort((a, b) => {
     if (a === '🇺🇳' && b !== '🇺🇳') return -1;
     if (b === '🇺🇳' && a !== '🇺🇳') return 1;
-    
+
     const idxA = standardOrder.indexOf(a);
     const idxB = standardOrder.indexOf(b);
-    
+
     if (idxA !== -1 && idxB !== -1) return idxA - idxB;
     if (idxA !== -1) return -1;
     if (idxB !== -1) return 1;
-    
+
     return a.localeCompare(b);
   });
-  
+
   const result: ProxyNode[] = [];
   for (const flag of flagOrder) {
     result.push(...groups.get(flag)!);
@@ -3093,7 +3109,14 @@ export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
   const nameCount = new Map<string, number>();
 
   return nodes.filter(node => {
-    const key = `${node.server}:${node.port}:${node.uuid || node.password || ''}:${node.type}`;
+    const credKey =
+      node.type === 'wireguard'
+        ? `${node.wireguard?.privateKey || ''}:${node.wireguard?.publicKey || ''}:${node.wireguard?.localAddress.join(',') || ''}`
+        : node.type === 'masque'
+          ? `${node.masque?.privateKey || ''}:${node.masque?.publicKey || ''}:${node.masque?.localIpv4 || ''}`
+          : `${node.uuid || ''}:${node.password || ''}:${node.cipher || ''}`;
+    const transportKey = `${node.network || ''}:${node.wsPath || node.xhttpPath || node.grpcServiceName || ''}:${node.sni || ''}:${node.wsHeaders?.Host || ''}`;
+    const key = `${node.type}:${node.server}:${node.port}:${credKey}:${transportKey}`;
 
     if (seenKey.has(key)) return false;
     seenKey.add(key);

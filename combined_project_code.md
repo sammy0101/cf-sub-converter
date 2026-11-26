@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 16:44:22 UTC 2026
+Generated on: Thu Nov 26 16:44:51 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -7525,6 +7525,7 @@ export function scheduleLog(
 ````ts
 // src/services/auth.ts
 import { Env } from '../types';
+import { timingSafeEqualStr } from '../utils';
 
 export function hasPasswordConfigured(env: Env): boolean {
   return Boolean(env.PAGE_PASSWORD && env.PAGE_PASSWORD.trim() !== '');
@@ -7535,7 +7536,7 @@ export function checkAuth(request: Request, env: Env): boolean {
     return true;
   }
   const clientPwd = request.headers.get('X-Password') || '';
-  return clientPwd === env.PAGE_PASSWORD!.trim();
+  return timingSafeEqualStr(clientPwd, env.PAGE_PASSWORD!.trim());
 }
 
 ````

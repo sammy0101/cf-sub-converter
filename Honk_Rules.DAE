@@ -19,8 +19,8 @@ global {
 
     tcp_check_url: 'https://www.gstatic.com/generate_204'
     tcp_check_http_method: HEAD
-    # 個別獨立加上引號，並採用 Google Public DNS 官方正確域名 dns.google:53
-    udp_check_dns: 'dns.google:53', '8.8.8.8', '2001:4860:4860::8888'
+    # 個別獨立加上引號，符合 Honk 現代列表語法
+    udp_check_dns: 'dns.google.com:53', '8.8.8.8', '2001:4860:4860::8888'
     check_interval: 300s
     check_tolerance: 50ms
 
@@ -69,37 +69,37 @@ subscription {
 
 # ==============================================================================
 # 策略分流群組 (Group)
-# 全面採用 Honk 主打的 policy: score 自適應綜合評分策略，搭配標準識別碼確保 Doona AST 完整定位
+# 採用標準識別碼宣告，使 Doona 能 100% 精準綁定設定檔語法樹，完整解鎖 ✏️ 編輯與手動點選功能！
 # ==============================================================================
 group {
     # AI 服務
     AI {
-        policy: score
+        policy: selector
     }
 
     # 微軟服務
     Microsoft {
-        policy: score
+        policy: selector
     }
 
     # 遊戲平台
     Game {
-        policy: score
+        policy: selector
     }
 
     # 蘋果服務
     Apple {
-        policy: score
+        policy: selector
     }
 
     # 國外主流網站 (非中國)
     Global {
-        policy: score
+        policy: selector
     }
 
     # 漏網之魚 (預設兜底)
     Fallback {
-        policy: score
+        policy: selector
     }
 }
 
@@ -138,8 +138,8 @@ dns {
 # eBPF 流量路由規則
 # ==============================================================================
 routing {
-    # 核心系統服務與 DNS 直連 (移除 l4proto(udp) 限制，同時覆蓋 UDP 53 與 TCP 53 防回環)
-    pname(dnsmasq, systemd-resolved) && dport(53) -> direct(must)
+    # 核心系統服務與 DNS 直連，防回環加固
+    pname(dnsmasq, systemd-resolved) && l4proto(udp) && dport(53) -> direct(must)
     pname(NetworkManager, systemd-networkd, systemd-resolved, dhcpcd) -> direct
     pname(sing-box, mihomo, frpc, einat) -> direct(must)
 

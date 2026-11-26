@@ -43,12 +43,12 @@
   - **DNS 域名解析器自動補齊**：為所有採用網域名稱的 DoH 伺服器（含動態生成的 ECH DoH）自動注入 `domain_resolver: "system-dns"`，完整相容 Sing-Box 1.14+ 規範。
   - 國外代理流量採用 Fake-IP 封裝網域名稱，國內/內網流量自動使用 Real-IP 直連。
 - **OpenWrt Honk / DAE (`Honk_Rules.DAE` ➔ `/etc/honk/config.dae`)**：
-  - **獨立遠端模板解耦**：可直接於 GitHub 修改 `Honk_Rules.DAE`，客戶端更新立即生效。
+  - **獨立遠端模板解耦與極速生成**：可直接於 GitHub 修改 `Honk_Rules.DAE`；請求 `?target=honk` 時自動跳過冗餘的上游節點下載與並行抓取模板，實現毫秒級產出。
   - **Honk 最新版核心特性調優**：配置 `dial_mode: domain`、`store_subscribe: true`（斷網重啟自動從快取恢復節點）、`nfqueue_enable: true`（持有 LAN UDP 首包防丟包）、`udp_warm_node_count: 0` 與 `preconnect_node_count: 0`（保護路由器記憶體），以及現代列表引號語法 `udp_check_dns: 'dns.google:53', '8.8.8.8', '2001:4860:4860::8888'`。
   - **自適應綜合評分策略 (`policy: score`) 與標準識別碼**：所有策略組採用標準識別碼（`AI`, `Microsoft`, `Game`, `Apple`, `Global`, `Fallback`）並全面配置為 Honk 主打的 **`policy: score`**，依據真實連線品質自動挑選最佳出站節點，同時保持 Doona AST 語法樹完整定位。
-  - **DNS 現代調優與防回環**：配置 `client_subnet: auto`、`qtype(https) -> reject` 與海外 DoH 挽救重解析；`dnsmasq` / `systemd-resolved` 規則採 **`dport(53)`（含 UDP 與 TCP 53）** 強制直連防回環，並加上 `sing-box`、`mihomo`、`frpc`、`einat` 進程直連。
-  - **旁路由（雙網關）專屬優化**：私有網段規則採用純 `dip(geoip:private) -> direct`（排除 `must`）。
-  - **自動化訂閱與雲端 AI 規則連動**：透過 `subscription` 區塊每 12 小時直連更新 Base64 訂閱（若配置設有 Token 會自動透傳），並即時拉取 GitHub `geosite_ai_hk_proxy.dae`。
+  - **DNS 現代調優**：配置 `client_subnet: auto` 改善 CDN 在地性、`qtype(https) -> reject`，並具備海外 DoH 回傳中國 IP 時自動退回 `localdns` 重解析的挽救機制。
+  - **旁路由（雙網關）專屬優化**：私有網段規則採用純 `dip(geoip:private) -> direct`（排除 `must`），加上 `sing-box`、`mihomo`、`frpc`、`einat` 進程直連防回環。
+  - **自動化訂閱與雲端 AI 規則連動**：透過 `subscription` 區塊每 12 小時直連更新與轉換結果 1:1 完全一致的 Base64 訂閱網址（若配置設有 Token 會自動透傳），並即時拉取 GitHub `geosite_ai_hk_proxy.dae`。
 - **Surge 5**：標準 `.conf` 格式，支援 Proxy、Proxy Group、分流規則與 `[WireGuard ...]` 獨立專屬區塊。
 - **Quantumult X**：支援包含 `vless=` 在內的標準 `server_remote` 節點清單。
 - **Loon**：標準 `[Proxy]` 格式。
@@ -86,12 +86,13 @@
   - 直接於網頁前端「參數配置」設定 **Bot Token** 與 **Chat ID**（後端讀取時自動遮罩敏感字元 `123456***abcd`），並提供一鍵 **「發送測試訊息」** 與 **「? 新手申請教學彈窗」**。
   - 啟用後，所有日誌事件（包含異常 Token 掃描警報）皆會透過 `ctx.waitUntil()` 背景即時推播至您的 Telegram，不影響訂閱下載速度。
 
-### 5. 🛡️ 99.99% GitHub 模板即時直讀與雙重容災架構 (Zero Downtime)
-- **GitHub 遠端直讀 (零 KV 模板冗餘)**：
-  - 遠端規則模板直接向 GitHub 倉庫請求最新內容（涵蓋 `Sing-Box_Rules.JSON`、`Clash_Rules.YAML` 與 `Honk_Rules.DAE`），徹底移除寫入 KV 之 `tpl:*` 鍵值，邊緣資料庫乾淨純粹。
-  - 修改 GitHub 上的規則模板後，客戶端更新立即生效，無需手動清除快取或重新部署 Worker。
+### 5. 🛡️ 99.99% GitHub 模板邊緣加速、極速並行抓取與雙重容災架構
+- **GitHub 遠端模板邊緣快取 (60 秒 TTL + `?force=1` 強制刷新)**：
+  - 遠端規則模板（`Sing-Box_Rules.JSON`、`Clash_Rules.YAML`、`Honk_Rules.DAE`）整合 Cloudflare `caches.default` 60 秒邊緣快取，徹底移除寫入 KV 之 `tpl:*` 冗餘鍵值，重複更新毫秒級響應；若剛修改 GitHub 模板需立即生效，只需在訂閱網址加上 `&force=1` 即可強制穿透刷新。
+- **多上游並行抓取與超時保護**：
+  - 多筆上游機場連結採用 `Promise.all` 並發下載並設定 6 秒獨立超時護欄，徹底解決單一慢速或失效上游拖垮整體訂閱更新速度的問題。
 - **雙重容災降級保證**：
-  - 請求流程為：`GitHub 即時獲取` ➔ `內嵌應急模板兜底`。
+  - 請求流程為：`邊緣快取` ➔ `GitHub 即時獲取 (4秒超時)` ➔ `內嵌應急模板兜底`。
   - 若遇 GitHub 服務波動、網路逾時或 429 限流，系統自動無縫回退至內建純淨版預設模板，確保訂閱拉取 100% 成功。
 - **專屬純淨儲存**：KV 空間專門用於儲存用戶自訂短連結、私密收藏配置、操作審計日誌、TG 通知設定與 Argo 部署腳本。
 
@@ -221,7 +222,7 @@ https://your-worker.workers.dev
 | `exclude` | 排除符合正則之節點（自動相容乘號 `×`） | `exclude=5x\|官網` |
 | `rename` | 名稱替換（刪除：`DEL-字串`、替換：`A-B`、統改：`ALL-名稱`） | `rename=DEL-[69云]\|ALL-JP` |
 | `name` | 自訂客戶端訂閱名稱（覆蓋預設檔名） | `name=my-vip-sub` |
-| `force` / `nocache` | 兼容保留參數（模板已全面改為 GitHub 即時獲取） | `force=1` |
+| `force` / `nocache` | 強制穿透 60 秒邊緣快取，立即向 GitHub 抓取最新模板 | `force=1` |
 
 **完整調用範例**：
 ```http
@@ -231,7 +232,7 @@ https://your-worker.workers.dev/sub?url=<URL編碼>&target=clash&include=HK&rena
 # 讀取設有 Token 保護的短連結為 Sing-Box 格式
 https://your-worker.workers.dev/<自訂短連結名稱>?token=<Token>&target=singbox
 
-# 讀取短連結為 OpenWrt Honk (config.dae) 格式（內部 subscription 會自動透傳 Token）
+# 讀取短連結為 OpenWrt Honk (config.dae) 格式（內部 subscription 與前端 Base64 連結 1:1 一致）
 https://your-worker.workers.dev/<自訂短連結名稱>?token=<Token>&target=honk
 ```
 
@@ -320,22 +321,22 @@ cf-sub-converter/
 │   │   └── clash-yaml.ts        # 完整 Clash YAML proxies 陣列解析
 │   ├── generators/
 │   │   ├── index.ts             # 多平台格式生成器統一匯出
-│   │   ├── common.ts            # 遠端模板讀取與 JSON 註解防禦濾網
+│   │   ├── common.ts            # 邊緣快取模板讀取、超時保護與 JSON 註解防禦濾網
 │   │   ├── uri.ts               # 明文 URI 與 Base64 導出
 │   │   ├── singbox.ts           # Sing-Box 1.14+ 現代規範配置生成
 │   │   ├── clash.ts             # Clash Meta (Mihomo) YAML 配置生成
-│   │   ├── honk.ts              # OpenWrt Honk / DAE (Honk_Rules.DAE) 生成
+│   │   ├── honk.ts              # OpenWrt Honk / DAE (Honk_Rules.DAE) 並行生成
 │   │   └── legacy.ts            # Surge 5 / Quantumult X / Loon 配置生成
 │   ├── services/
 │   │   ├── auth.ts              # PAGE_PASSWORD 鑒權與 Fail-Closed 安全檢查
 │   │   ├── audit.ts             # UTC+8 操作日誌記錄、Token 遮罩與 200 筆滾動清理
 │   │   ├── telegram.ts          # Telegram Bot 推播與測試訊息服務
-│   │   └── node-loader.ts       # 上游訂閱抓取、流量標頭彙總與節點篩選/重命名
+│   │   └── node-loader.ts       # 上游訂閱並行抓取 (6s 超時)、流量標頭彙總與篩選
 │   ├── routes/
 │   │   ├── admin.ts             # /logs、/tg-config、/tg-test 管理與審計路由
 │   │   ├── favs.ts              # /favs、/save 短代碼防劫持與收藏 CRUD 路由
 │   │   ├── argo.ts              # /argo/sh/*、/api/parse-argo、/api/argo-generate
-│   │   └── sub.ts               # /sub 與短代碼 Token 防列舉校驗、Liquid Glass 預覽頁路由
+│   │   └── sub.ts               # /sub 與短代碼 Token 防列舉校驗、Honk 快速通道路由
 │   └── ui/
 │       ├── index.ts             # 組合輸出完整響應式網頁介面
 │       ├── styles.ts            # Dark Liquid Glass CSS 樣式表（含效能與無障礙降級）

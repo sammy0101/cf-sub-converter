@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 12:23:01 UTC 2026
+Generated on: Thu Nov 26 12:25:42 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -480,7 +480,7 @@ fi
 ````json
 {
   "name": "cf-sub-converter",
-  "version": "4.0.2",
+  "version": "4.0.3",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",

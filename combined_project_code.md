@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 16:46:43 UTC 2026
+Generated on: Thu Nov 26 16:47:16 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -1839,6 +1839,9 @@ import { Env, ProxyNode } from '../types';
 import { REMOTE_CONFIG, FALLBACK_CLASH_RULES } from '../config/rules';
 import { isIpAddress, fetchTemplateDirect } from './common';
 
+const SKIP_NODE_INJECTION_GROUPS = new Set(['🏠 私有網絡', '🛑 廣告攔截']);
+const BUILTIN_ONLY_PROXIES = new Set(['DIRECT', 'REJECT']);
+
 export async function toClashWithTemplate(
   nodes: ProxyNode[],
   _env?: Env,
@@ -1849,7 +1852,6 @@ export async function toClashWithTemplate(
 
   const proxies = nodes.map(n => {
     const obj = JSON.parse(JSON.stringify(n.clashObj));
-    Object.keys(obj).forEach(key => obj[key] === undefined && delete obj[key]);
 
     if (n.ech) {
       const echOpts: Record<string, unknown> = { enable: true };
@@ -1859,9 +1861,9 @@ export async function toClashWithTemplate(
       obj['ech-opts'] = echOpts;
     }
 
-    return obj;
+    return obj as Record<string, unknown>;
   });
-  const proxyNames = proxies.map((p: Record<string, unknown>) => p.name as string);
+  const proxyNames = proxies.map(p => p.name as string);
 
   if (!Array.isArray(config.proxies)) config.proxies = [];
   config.proxies.push(...proxies);
@@ -1870,8 +1872,15 @@ export async function toClashWithTemplate(
     const groups = config['proxy-groups'] as Array<Record<string, unknown>>;
 
     groups.forEach(group => {
+      const groupName = String(group.name || '');
+      if (SKIP_NODE_INJECTION_GROUPS.has(groupName)) return;
+
       if (!Array.isArray(group.proxies)) group.proxies = [];
       const arr = group.proxies as string[];
+      if (arr.length > 0 && arr.every(item => BUILTIN_ONLY_PROXIES.has(item))) {
+        return;
+      }
+
       proxyNames.forEach(name => {
         if (!arr.includes(name)) arr.push(name);
       });

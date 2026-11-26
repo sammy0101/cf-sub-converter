@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 16:48:16 UTC 2026
+Generated on: Thu Nov 26 16:48:47 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -1254,7 +1254,7 @@ export function toSurge(nodes: ProxyNode[]): string {
         wgSec += `dns-server = ${wg.dns}\n`;
       }
       wgSec += `peer = (public-key = ${wg.publicKey || ''}, allowed-ips = "0.0.0.0/0, ::/0", endpoint = ${node.server}:${node.port}, keepalive = 25)\n`;
-      wgSections.push(wgSections.length > 0 ? '\n' + wgSec : wgSec);
+      wgSections.push(wgSec);
     }
 
     if (line) {
@@ -1323,7 +1323,7 @@ export function toLoon(nodes: ProxyNode[]): string {
   const lines: string[] = ['[Proxy]'];
 
   for (const node of nodes) {
-    const name = node.name.replace(/,/g, '');
+    const name = node.name.replace(/[,=]/g, '').trim();
     if (node.type === 'shadowsocks') {
       lines.push(`${name} = Shadowsocks,${node.server},${node.port},${node.cipher},"${node.password}",fast-open=false,udp=true`);
     } else if (node.type === 'trojan') {

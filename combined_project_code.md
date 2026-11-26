@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 14:27:38 UTC 2026
+Generated on: Thu Nov 26 15:05:21 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -7256,6 +7256,7 @@ export interface ProxyNode {
   network?: string;
   wsPath?: string;
   wsHeaders?: Record<string, string>;
+  grpcServiceName?: string;
   reality?: RealityConfig;
   obfs?: string;
   obfsPassword?: string;

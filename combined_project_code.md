@@ -1,155 +1,182 @@
 # Complete Project Codebase
-Generated on: Thu Nov 19 16:55:29 UTC 2026
+Generated on: Thu Nov 26 12:22:03 UTC 2026
 
-## File: argo.sh
-````sh
-#!/bin/bash
-# Cloudflare Argo Tunnel 一鍵部署腳本 (增強版 2.0)
-# 專案網址: https://github.com/sammy0101/cf-sub-converter
+## File: Honk_Rules.DAE
+````DAE
+# ==============================================================================
+# OpenWrt Honk-Core / DAE 完整設定檔 (由 CF Sub Converter 動態產生，適配 Honk 最新規範)
+# 儲存路徑: /etc/honk/config.dae
+# 可在 GitHub 倉庫直接修改此檔案，客戶端拉取時即時生效！
+# ==============================================================================
 
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-NC='\033[0m'
+global {
+    # 綁定外網介面 (預設 auto 自動偵測。若為 PPPoE 撥接上網，可能需手動改為 pppoe-wan)
+    wan_interface: auto
+    # 綁定內網介面 (請務必確認你的路由器 LAN 網卡名稱，預設為 br-lan。多網卡可用逗號隔開)
+    lan_interface: br-lan
 
-NODE_TYPE="{{NODE_TYPE}}"
-VLESS_UUID="{{VLESS_UUID}}"
-VLESS_PATH="{{VLESS_PATH}}"
-VLESS_TYPE="{{VLESS_TYPE}}"
-VLESS_PORT="{{VLESS_PORT}}"
-NODE_NAME="{{NODE_NAME}}"
-TUNNEL_TOKEN="{{TUNNEL_TOKEN}}"
-CUSTOM_DOMAIN="{{CUSTOM_DOMAIN}}"
-VLESS_TLS="{{VLESS_TLS}}"
-ORIGIN_HOST="{{ORIGIN_HOST}}"
+    dial_mode: domain
+    allow_insecure: false
+    auto_config_kernel_parameter: true
+    data_dir: '/etc/honk'
+    log_level: info
+    log_file: ''
 
-echo -e "${GREEN}=== 開始部署 Cloudflare Argo 隧道 (${NODE_NAME}) ===${NC}"
+    tcp_check_url: 'https://www.gstatic.com/generate_204'
+    tcp_check_http_method: HEAD
+    # 個別獨立加上引號，並採用 Google Public DNS 官方正確域名 dns.google:53
+    udp_check_dns: 'dns.google:53', '8.8.8.8', '2001:4860:4860::8888'
+    check_interval: 300s
+    check_tolerance: 50ms
 
-if [ "$EUID" -ne 0 ]; then
-  echo -e "${RED}錯誤: 請使用 root 權限執行此腳本！${NC}"
-  exit 1
-fi
+    # 基礎引導 DNS (用於節點與訂閱連結的初始解析)
+    bootstrap_resolver: '1.1.1.1:53'
 
-# 1. 安裝 cloudflared
-if ! command -v cloudflared &> /dev/null; then
-    echo "正在下載安裝 cloudflared..."
-    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
-    chmod +x /usr/local/bin/cloudflared
-else
-    echo "cloudflared 已存在，跳過安裝。"
-fi
+    # 【Honk 最新特性】保存成功獲取的訂閱正文到運行目錄，重啟或斷網時可離線恢復節點
+    store_subscribe: true
 
-SAFE_NODE_NAME=$(echo "$NODE_NAME" | sed 's/[^a-zA-Z0-9]/_/g')
+    # 【Honk 最新特性】持有有歧義 LAN 轉發 UDP 首包，徹底消除遊戲或 UDP 連線首包丟失
+    nfqueue_enable: true
 
-# 2. 自動探測與修正連接埠
-DETECTED_PORT="$VLESS_PORT"
-if command -v ss &> /dev/null; then
-    if ! ss -tln | grep -qE ":$VLESS_PORT([[:space:]]|$)"; then
-        echo -e "${RED}警告: 本地轉發埠 $VLESS_PORT 未監聽，正在探測...${NC}"
-        if ss -tln | grep -qE ":443([[:space:]]|$)"; then
-            echo -e "${GREEN}自動修正：轉發目標為 443 埠。${NC}"
-            DETECTED_PORT="443"
-        elif ss -tln | grep -qE ":80([[:space:]]|$)"; then
-            echo -e "${GREEN}自動修正：轉發目標為 80 埠。${NC}"
-            DETECTED_PORT="80"
-        fi
-    fi
-fi
+    # 【Honk 最新特性】預熱與撥號預算：大訂閱基線關閉額外 UDP/TCP 預熱，保護路由器記憶體
+    udp_warm_node_count: 0
+    preconnect_node_count: 0
+}
 
-# 3. 智慧探測 TLS
-DETECTED_TLS="false"
-if curl -s -k --connect-timeout 2 "https://127.0.0.1:$DETECTED_PORT" &>/dev/null; then
-    echo "偵測到本地為 HTTPS 加密埠，開啟 TLS 轉發與 SNI 對齊。"
-    DETECTED_TLS="true"
-fi
+# ==============================================================================
+# 原生 Web API 與 Doona Web UI (內網瀏覽 http://<路由器IP>:9527)
+# ==============================================================================
+experimental {
+    native_api {
+        enabled: true
+        # Doona 面板監聽位址 (0.0.0.0 代表允許內網所有設備透過路由器 IP 訪問)
+        listen: '0.0.0.0:9527'
+        password_auth: true
+        config_write: true
+        ui: 'embedded'
+    }
+    cache_file {
+        enabled: true
+        store_dns: true
+    }
+}
 
-LOCAL_URL="http://127.0.0.1:$DETECTED_PORT"
-EXTRA_ARGS=""
-if [ "$DETECTED_TLS" = "true" ]; then
-    LOCAL_URL="https://127.0.0.1:$DETECTED_PORT"
-    EXTRA_ARGS="--no-tls-verify"
-fi
+# ==============================================================================
+# 訂閱配置 (直連下載，每 12 小時自動更新)
+# ==============================================================================
+subscription {
+    {{SUB_TAG}}: '{{SUB_URL}}' {
+        route: direct
+        # 訂閱自動更新間隔 (43200 秒 = 12 小時，可自行更改)
+        interval: 43200s
+    }
+}
 
-if [ -n "$ORIGIN_HOST" ]; then
-    EXTRA_ARGS="$EXTRA_ARGS --http-host-header $ORIGIN_HOST"
-    if [ "$DETECTED_TLS" = "true" ]; then
-        EXTRA_ARGS="$EXTRA_ARGS --origin-server-name $ORIGIN_HOST"
-    fi
-fi
+# ==============================================================================
+# 策略分流群組 (Group)
+# 全面採用 Honk 主打的 policy: score 自適應綜合評分策略，搭配標準識別碼確保 Doona AST 完整定位
+# ==============================================================================
+group {
+    # AI 服務
+    AI {
+        policy: score
+    }
 
-# 4. 啟動隧道
-if [ -n "$TUNNEL_TOKEN" ]; then
-    echo -e "${GREEN}【固定隧道模式】正在啟動服務...${NC}"
-    cloudflared service uninstall &> /dev/null
-    cloudflared service install "$TUNNEL_TOKEN"
-    systemctl daemon-reload
-    systemctl enable cloudflared
-    systemctl restart cloudflared
-    echo -e "${GREEN}固定域名隧道部署完成！${NC}"
-else
-    echo -e "${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...${NC}"
-    systemctl stop cloudflared-argo-${SAFE_NODE_NAME} &> /dev/null
-    
-    cat <<EOF > /etc/systemd/system/cloudflared-argo-${SAFE_NODE_NAME}.service
-[Unit]
-Description=Cloudflare Argo Tunnel for ${NODE_NAME}
-After=network.target
+    # 微軟服務
+    Microsoft {
+        policy: score
+    }
 
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/cloudflared tunnel --url $LOCAL_URL $EXTRA_ARGS
-Restart=always
-RestartSec=5
+    # 遊戲平台
+    Game {
+        policy: score
+    }
 
-[Install]
-WantedBy=multi-user.target
-EOF
+    # 蘋果服務
+    Apple {
+        policy: score
+    }
 
-    systemctl daemon-reload
-    systemctl enable cloudflared-argo-${SAFE_NODE_NAME}
-    systemctl start cloudflared-argo-${SAFE_NODE_NAME}
-    
-    echo "正在等待 Cloudflare 分配臨時域名..."
-    TEMP_DOMAIN=""
-    for i in {1..15}; do
-        sleep 1
-        TEMP_DOMAIN=$(journalctl -u cloudflared-argo-${SAFE_NODE_NAME} -n 50 --no-pager 2>/dev/null | grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' | tail -n 1 | cut -d'/' -f3)
-        if [ -n "$TEMP_DOMAIN" ]; then
-            break
-        fi
-    done
-    
-    if [ -n "$TEMP_DOMAIN" ]; then
-        echo -e "${GREEN}獲取臨時域名成功: $TEMP_DOMAIN${NC}"
-    else
-        echo -e "${RED}超時未獲取到域名，請手動檢查 journalctl -u cloudflared-argo-${SAFE_NODE_NAME}${NC}"
-    fi
-fi
+    # 國外主流網站 (非中國)
+    Global {
+        policy: score
+    }
 
-````
+    # 漏網之魚 (預設兜底)
+    Fallback {
+        policy: score
+    }
+}
 
-## File: package.json
-````json
-{
-  "name": "cf-sub-converter",
-  "version": "4.0.2",
-  "private": true,
-  "scripts": {
-    "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
-    "start": "wrangler dev",
-    "argo": "tsx scripts/argo-converter.ts"
-  },
-  "dependencies": {
-    "js-yaml": "^4.1.0"
-  },
-  "devDependencies": {
-    "@cloudflare/workers-types": "^4.20240208.0",
-    "@types/js-yaml": "^4.0.9",
-    "tsx": "^4.7.1",
-    "typescript": "^5.3.3",
-    "wrangler": "^3.28.1"
-  }
+# ==============================================================================
+# DNS 智慧解析 (localdns 走本機 dnsmasq，即 OpenWrt 原生 system DNS)
+# ==============================================================================
+dns {
+    # 向上游攜帶 ECS (客戶端近似網段)，改善國內 CDN 解析在地性
+    client_subnet: auto
+
+    upstream {
+        googledns: 'tcp+udp://8.8.8.8:53'
+        googledoh: 'https://8.8.8.8/dns-query'
+        cfdns: 'tcp+udp://1.1.1.1:53'
+        cfdoh: 'https://1.1.1.1/dns-query'
+        localdns: 'udp://127.0.0.1:53'
+    }
+    routing {
+        request {
+            # 拒絕 HTTPS 記錄查詢，防止客戶端因 ECH 握手異常中斷
+            qtype(https) -> reject
+            qname(geosite:category-ads-all) -> reject
+            qname(geosite:cn) -> localdns
+            fallback: googledoh
+        }
+        response {
+            # 漏網國內網域挽救：若海外 DoH 回傳中國大陸 IP，退回 localdns 重新解析以獲得最優 CDN
+            upstream(googledoh) && ip(geoip:cn) -> localdns
+            upstream(cfdoh) && ip(geoip:cn) -> localdns
+            fallback: accept
+        }
+    }
+}
+
+# ==============================================================================
+# eBPF 流量路由規則
+# ==============================================================================
+routing {
+    # 核心系統服務與 DNS 直連 (移除 l4proto(udp) 限制，同時覆蓋 UDP 53 與 TCP 53 防回環)
+    pname(dnsmasq, systemd-resolved) && dport(53) -> direct(must)
+    pname(NetworkManager, systemd-networkd, systemd-resolved, dhcpcd) -> direct
+    pname(sing-box, mihomo, frpc, einat) -> direct(must)
+
+    dip(224.0.0.0/3, 'ff00::/8') -> direct
+
+    # 1. 🏠 私有網絡 (旁路由環境採用純 direct，保留 eBPF 狀態追蹤)
+    dip(geoip:private) -> direct
+
+    # 2. 🛑 廣告攔截
+    domain(geosite:category-ads-all) -> block
+
+    # 3. 💬 AI 服務 (動態注入目標為 AI 組)
+    {{AI_RULES}}
+
+    # 4. Ⓜ️ 微軟服務
+    domain(geosite:microsoft) -> Microsoft
+
+    # 5. 🎮 遊戲平台
+    domain(geosite:steam, geosite:epicgames, geosite:ea, geosite:ubisoft, geosite:blizzard) -> Game
+
+    # 6. 🍎 蘋果服務
+    domain(geosite:apple) -> Apple
+
+    # 7. 🌐 非中國 (國外網站)
+    domain(geosite:geolocation-!cn) -> Global
+
+    # 8. 🇨🇳 國內服務 (中國國內網域與 IP 全部直連)
+    domain(geosite:cn) -> direct
+    dip(geoip:cn) -> direct
+
+    # 9. 🐟 漏網之魚 (最終兜底)
+    fallback: Fallback
 }
 
 ````
@@ -322,55 +349,690 @@ fi
 
 ````
 
-## File: Honk_Rules.DAE
-````DAE
-# ==============================================================================
-# OpenWrt Honk-Core / DAE 完整設定檔 (由 CF Sub Converter 動態產生，適配 Honk 最新規範)
+## File: argo.sh
+````sh
+#!/bin/bash
+# Cloudflare Argo Tunnel 一鍵部署腳本 (增強版 2.0)
+# 專案網址: https://github.com/sammy0101/cf-sub-converter
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+NODE_TYPE="{{NODE_TYPE}}"
+VLESS_UUID="{{VLESS_UUID}}"
+VLESS_PATH="{{VLESS_PATH}}"
+VLESS_TYPE="{{VLESS_TYPE}}"
+VLESS_PORT="{{VLESS_PORT}}"
+NODE_NAME="{{NODE_NAME}}"
+TUNNEL_TOKEN="{{TUNNEL_TOKEN}}"
+CUSTOM_DOMAIN="{{CUSTOM_DOMAIN}}"
+VLESS_TLS="{{VLESS_TLS}}"
+ORIGIN_HOST="{{ORIGIN_HOST}}"
+
+echo -e "${GREEN}=== 開始部署 Cloudflare Argo 隧道 (${NODE_NAME}) ===${NC}"
+
+if [ "$EUID" -ne 0 ]; then
+  echo -e "${RED}錯誤: 請使用 root 權限執行此腳本！${NC}"
+  exit 1
+fi
+
+# 1. 安裝 cloudflared
+if ! command -v cloudflared &> /dev/null; then
+    echo "正在下載安裝 cloudflared..."
+    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+    chmod +x /usr/local/bin/cloudflared
+else
+    echo "cloudflared 已存在，跳過安裝。"
+fi
+
+SAFE_NODE_NAME=$(echo "$NODE_NAME" | sed 's/[^a-zA-Z0-9]/_/g')
+
+# 2. 自動探測與修正連接埠
+DETECTED_PORT="$VLESS_PORT"
+if command -v ss &> /dev/null; then
+    if ! ss -tln | grep -qE ":$VLESS_PORT([[:space:]]|$)"; then
+        echo -e "${RED}警告: 本地轉發埠 $VLESS_PORT 未監聽，正在探測...${NC}"
+        if ss -tln | grep -qE ":443([[:space:]]|$)"; then
+            echo -e "${GREEN}自動修正：轉發目標為 443 埠。${NC}"
+            DETECTED_PORT="443"
+        elif ss -tln | grep -qE ":80([[:space:]]|$)"; then
+            echo -e "${GREEN}自動修正：轉發目標為 80 埠。${NC}"
+            DETECTED_PORT="80"
+        fi
+    fi
+fi
+
+# 3. 智慧探測 TLS
+DETECTED_TLS="false"
+if curl -s -k --connect-timeout 2 "https://127.0.0.1:$DETECTED_PORT" &>/dev/null; then
+    echo "偵測到本地為 HTTPS 加密埠，開啟 TLS 轉發與 SNI 對齊。"
+    DETECTED_TLS="true"
+fi
+
+LOCAL_URL="http://127.0.0.1:$DETECTED_PORT"
+EXTRA_ARGS=""
+if [ "$DETECTED_TLS" = "true" ]; then
+    LOCAL_URL="https://127.0.0.1:$DETECTED_PORT"
+    EXTRA_ARGS="--no-tls-verify"
+fi
+
+if [ -n "$ORIGIN_HOST" ]; then
+    EXTRA_ARGS="$EXTRA_ARGS --http-host-header $ORIGIN_HOST"
+    if [ "$DETECTED_TLS" = "true" ]; then
+        EXTRA_ARGS="$EXTRA_ARGS --origin-server-name $ORIGIN_HOST"
+    fi
+fi
+
+# 4. 啟動隧道
+if [ -n "$TUNNEL_TOKEN" ]; then
+    echo -e "${GREEN}【固定隧道模式】正在啟動服務...${NC}"
+    cloudflared service uninstall &> /dev/null
+    cloudflared service install "$TUNNEL_TOKEN"
+    systemctl daemon-reload
+    systemctl enable cloudflared
+    systemctl restart cloudflared
+    echo -e "${GREEN}固定域名隧道部署完成！${NC}"
+else
+    echo -e "${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...${NC}"
+    systemctl stop cloudflared-argo-${SAFE_NODE_NAME} &> /dev/null
+    
+    cat <<EOF > /etc/systemd/system/cloudflared-argo-${SAFE_NODE_NAME}.service
+[Unit]
+Description=Cloudflare Argo Tunnel for ${NODE_NAME}
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/cloudflared tunnel --url $LOCAL_URL $EXTRA_ARGS
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable cloudflared-argo-${SAFE_NODE_NAME}
+    systemctl start cloudflared-argo-${SAFE_NODE_NAME}
+    
+    echo "正在等待 Cloudflare 分配臨時域名..."
+    TEMP_DOMAIN=""
+    for i in {1..15}; do
+        sleep 1
+        TEMP_DOMAIN=$(journalctl -u cloudflared-argo-${SAFE_NODE_NAME} -n 50 --no-pager 2>/dev/null | grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' | tail -n 1 | cut -d'/' -f3)
+        if [ -n "$TEMP_DOMAIN" ]; then
+            break
+        fi
+    done
+    
+    if [ -n "$TEMP_DOMAIN" ]; then
+        echo -e "${GREEN}獲取臨時域名成功: $TEMP_DOMAIN${NC}"
+    else
+        echo -e "${RED}超時未獲取到域名，請手動檢查 journalctl -u cloudflared-argo-${SAFE_NODE_NAME}${NC}"
+    fi
+fi
+
+````
+
+## File: package.json
+````json
+{
+  "name": "cf-sub-converter",
+  "version": "4.0.2",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "start": "wrangler dev",
+    "argo": "tsx scripts/argo-converter.ts"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240208.0",
+    "@types/js-yaml": "^4.0.9",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3",
+    "wrangler": "^3.28.1"
+  }
+}
+
+````
+
+## File: Clash_Rules.YAML
+````YAML
+port: 7890
+socks-port: 7891
+mixed-port: 7893
+redir-port: 7892
+tproxy-port: 7895
+allow-lan: true
+bind-address: "*"
+mode: rule
+log-level: info
+ipv6: false
+external-controller: 0.0.0.0:9090
+tcp-concurrent: true
+unified-delay: true
+
+fast-open: false
+
+profile:
+  store-selected: true
+  store-fake-ip: true
+
+sniffer:
+  enable: true
+  override-destination: true
+  sniff:
+    QUIC:
+      ports: [443]
+    TLS:
+      ports: [443, 8443]
+    HTTP:
+      ports: [80, 8080, 8880]
+      override-destination: true
+  force-domain:
+    - "+.netflix.com"
+    - "+.nflxvideo.net"
+    - "+.amazonaws.com"
+    - "+.media.dssott.com"
+  skip-domain:
+    - "+.apple.com"
+    - "Mijia Cloud"
+    - "dlg.io.mi.com"
+    - "+.oray.com"
+    - "+.sunlogin.net"
+    - "+.push.apple.com"
+  parse-pure-ip: true
+  force-dns-mapping: true
+
+dns:
+  enable: true
+  ipv6: false
+  listen: 0.0.0.0:1053
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter-mode: blacklist
+  respect-rules: true
+  fake-ip-filter:
+    # 1. 本地局域網與保留頂級域
+    - '*.lan'
+    - '*.localdomain'
+    - '*.example'
+    - '*.invalid'
+    - '*.localhost'
+    - '*.test'
+    - '*.local'
+    - '*.home.arpa'
+    # 2. 網絡連通性測試 (NCSI / 門戶認證)
+    - '*.msftconnecttest.com'
+    - '*.msftncsi.com'
+    - 'msftconnecttest.com'
+    - 'msftncsi.com'
+    - 'captive.apple.com'
+    - 'connectivitycheck.gstatic.com'
+    - 'connectivitycheck.platform.hicloud.com'
+    - 'detectportal.firefox.com'
+    - '+.market.xiaomi.com'
+    # 3. NTP 時間同步服務
+    - 'time.*.com'
+    - 'time.*.gov'
+    - 'time.*.edu.cn'
+    - 'time.*.apple.com'
+    - 'time.apple.com'
+    - 'time-ios.apple.com'
+    - 'ntp.*.com'
+    - '+.pool.ntp.org'
+    # 4. 主機遊戲聯機與 STUN NAT 穿透
+    - 'stun.*.*'
+    - 'stun.*.*.*'
+    - '+.stun.*.*'
+    - '+.stun.*.*.*'
+    - '*.srv.nintendo.net'
+    - '*.stun.playstation.net'
+    - '+.playstation.net'
+    - '+.playstation.com'
+    - '+.sonyentertainmentnetwork.com'
+    - 'xbox.*.microsoft.com'
+    - '*.xboxlive.com'
+    - '*.battlenet.com.cn'
+    - '*.wotblitz.cn'
+    - '*.wggames.cn'
+    - '*.wowsblitz.cn'
+    # 5. Aethersailor 專屬推薦：Google Play 商店更新防轉圈
+    - '+.services.googleapis.cn'
+    - '+.googleapis.cn'
+    - '+.xn--ngstr-lra8j.com'
+    - 'clientservices.googleapis.com'
+    # 6. 規則集直連 (國內域名與私有網段返回真實 IP)
+    - 'rule-set:cn'
+    - 'rule-set:private'
+    - 'rule-set:apple'
+
+  default-nameserver:
+    - system
+    - 119.29.29.29
+    - 223.5.5.5
+    - 1.1.1.1
+    - 8.8.8.8
+
+  direct-nameserver:
+    - system
+
+  proxy-server-nameserver:
+    - https://223.5.5.5/dns-query
+    - https://doh.pub/dns-query
+    - https://1.1.1.1/dns-query
+
+  nameserver-policy:
+    "rule-set:private":
+      - system
+    "rule-set:cn":
+      - system
+      - https://223.5.5.5/dns-query
+      - https://doh.pub/dns-query
+    "rule-set:apple":
+      - system
+
+  nameserver:
+    - https://8.8.8.8/dns-query
+    - https://1.1.1.1/dns-query
+
+proxies:
+
+proxy-groups:
+  - name: 🚀 節點選擇
+    type: select
+    proxies:
+      - ⚡ 自動選擇
+      - DIRECT
+
+  - name: ⚡ 自動選擇
+    type: url-test
+    url: http://www.gstatic.com/generate_204
+    interval: 300
+    tolerance: 50
+    proxies:
+
+  - name: 💬 AI 服務
+    type: select
+    proxies:
+      - ⚡ 自動選擇
+      - 🚀 節點選擇
+
+  - name: 🍎 蘋果服務
+    type: select
+    proxies:
+      - DIRECT
+      - 🚀 節點選擇
+
+  - name: Ⓜ️ 微軟服務
+    type: select
+    proxies:
+      - DIRECT
+      - 🚀 節點選擇
+
+  - name: 🎮 遊戲平台
+    type: select
+    proxies:
+      - DIRECT
+      - 🚀 節點選擇
+
+  - name: 🌐 非中國
+    type: select
+    proxies:
+      - 🚀 節點選擇
+      - DIRECT
+
+  - name: 🇨🇳 國內服務
+    type: select
+    proxies:
+      - DIRECT
+      - 🚀 節點選擇
+
+  - name: 🏠 私有網絡
+    type: select
+    proxies:
+      - DIRECT
+
+  - name: 🐟 漏網之魚
+    type: select
+    proxies:
+      - 🚀 節點選擇
+      - DIRECT
+
+  - name: 🛑 廣告攔截
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+
+rule-providers:
+  my-ai:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.mrs"
+    path: ./ruleset/my-ai.mrs
+    interval: 86400
+
+  category-ads-all:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/category-ads-all.mrs"
+    path: ./ruleset/category-ads-all.mrs
+    interval: 86400
+
+  private:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/private.mrs"
+    path: ./ruleset/private.mrs
+    interval: 86400
+
+  private-ip:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/private.mrs"
+    path: ./ruleset/private-ip.mrs
+    interval: 86400
+
+  microsoft:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/microsoft.mrs"
+    path: ./ruleset/microsoft.mrs
+    interval: 86400
+
+  steam:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/steam.mrs"
+    path: ./ruleset/steam.mrs
+    interval: 86400
+
+  epicgames:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/epicgames.mrs"
+    path: ./ruleset/epicgames.mrs
+    interval: 86400
+
+  ea:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/ea.mrs"
+    path: ./ruleset/ea.mrs
+    interval: 86400
+
+  ubisoft:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/ubisoft.mrs"
+    path: ./ruleset/ubisoft.mrs
+    interval: 86400
+
+  blizzard:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/blizzard.mrs"
+    path: ./ruleset/blizzard.mrs
+    interval: 86400
+
+  apple:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/apple.mrs"
+    path: ./ruleset/apple.mrs
+    interval: 86400
+
+  geolocation-non-cn:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/geolocation-!cn.mrs"
+    path: ./ruleset/geolocation-non-cn.mrs
+    interval: 86400
+
+  cn:
+    type: http
+    behavior: domain
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/cn.mrs"
+    path: ./ruleset/cn.mrs
+    interval: 86400
+
+  cn-ip:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/cn.mrs"
+    path: ./ruleset/cn-ip.mrs
+    interval: 86400
+
+rules:
+  - RULE-SET,category-ads-all,🛑 廣告攔截
+  - RULE-SET,private,🏠 私有網絡
+  - RULE-SET,private-ip,🏠 私有網絡,no-resolve
+  - RULE-SET,my-ai,💬 AI 服務
+  - RULE-SET,microsoft,Ⓜ️ 微軟服務
+  - RULE-SET,steam,🎮 遊戲平台
+  - RULE-SET,epicgames,🎮 遊戲平台
+  - RULE-SET,ea,🎮 遊戲平台
+  - RULE-SET,ubisoft,🎮 遊戲平台
+  - RULE-SET,blizzard,🎮 遊戲平台
+  - RULE-SET,apple,🍎 蘋果服務
+  - RULE-SET,geolocation-non-cn,🌐 非中國
+  - RULE-SET,cn,🇨🇳 國內服務
+  - RULE-SET,cn-ip,🇨🇳 國內服務,no-resolve
+  - MATCH,🐟 漏網之魚
+
+````
+
+## File: src/config/rules.ts
+````ts
+// src/config/rules.ts
+export const REMOTE_CONFIG = {
+  singbox: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Sing-Box_Rules.JSON',
+  clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML',
+  honk: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Honk_Rules.DAE'
+};
+
+// 內嵌緊急降級模板 (Sing-Box 純 IPv4 純淨版，已修正 Fake-IP 查詢過濾)
+export const FALLBACK_SINGBOX_RULES = JSON.stringify({
+  log: { level: "info" },
+  http_clients: [
+    { tag: "default" }
+  ],
+  dns: {
+    servers: [
+      { tag: "remote-dns", type: "https", server: "8.8.8.8", detour: "🚀 節點選擇" },
+      { tag: "remote-cf-dns", type: "https", server: "1.1.1.1", detour: "🚀 節點選擇" },
+      { tag: "system-dns", type: "local" },
+      { tag: "local-dns", type: "local" },
+      { tag: "fakeip-dns", type: "fakeip", inet4_range: "198.18.0.0/15" }
+    ],
+    rules: [
+      { rule_set: ["rs-private"], server: "system-dns" },
+      { rule_set: ["rs-cn"], server: "system-dns", disable_cache: true },
+      { rule_set: ["rs-apple"], server: "system-dns", disable_cache: true },
+      {
+        query_type: ["A", "AAAA"],
+        rule_set: [
+          "rs-geolocation-!cn",
+          "rs-ai"
+        ],
+        server: "fakeip-dns"
+      }
+    ],
+    final: "remote-dns",
+    strategy: "ipv4_only"
+  },
+  inbounds: [{ type: "tun", tag: "tun-in", interface_name: "tun0", auto_route: true, address: ["172.19.0.1/30"], stack: "mixed" }],
+  outbounds: [
+    { type: "selector", tag: "🚀 節點選擇", outbounds: ["⚡ 自動選擇", "direct"] },
+    { type: "urltest", tag: "⚡ 自動選擇", outbounds: [], url: "https://www.gstatic.com/generate_204", interval: "3m" },
+    { type: "selector", tag: "🛑 廣告攔截", outbounds: ["block", "direct"] },
+    { type: "direct", tag: "direct" },
+    { type: "block", tag: "block" }
+  ],
+  route: {
+    default_domain_resolver: "system-dns",
+    default_http_client: "default",
+    rules: [
+      { action: "sniff" },
+      { protocol: "dns", action: "hijack-dns" },
+      { rule_set: "rs-ads", outbound: "🛑 廣告攔截" }
+    ],
+    auto_detect_interface: true
+  },
+  experimental: {
+    cache_file: { enabled: true, store_fakeip: true }
+  }
+});
+
+export const FALLBACK_CLASH_RULES = `
+port: 7890
+allow-lan: true
+mode: rule
+log-level: info
+proxies: []
+proxy-groups:
+  - name: 🚀 節點選擇
+    type: select
+    proxies:
+      - ⚡ 自動選擇
+      - DIRECT
+  - name: ⚡ 自動選擇
+    type: url-test
+    url: http://www.gstatic.com/generate_204
+    interval: 300
+    proxies: []
+  - name: 🛑 廣告攔截
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+dns:
+  enable: true
+  enhanced-mode: fake-ip
+  fake-ip-filter:
+    - '*.lan'
+    - '*.localdomain'
+    - '*.example'
+    - '*.invalid'
+    - '*.localhost'
+    - '*.test'
+    - '*.local'
+    - '*.home.arpa'
+    - '*.msftconnecttest.com'
+    - '*.msftncsi.com'
+    - 'msftconnecttest.com'
+    - 'msftncsi.com'
+    - 'captive.apple.com'
+    - 'connectivitycheck.gstatic.com'
+    - 'connectivitycheck.platform.hicloud.com'
+    - 'detectportal.firefox.com'
+    - '+.market.xiaomi.com'
+    - 'time.*.com'
+    - 'time.*.gov'
+    - 'time.*.edu.cn'
+    - 'time.*.apple.com'
+    - 'time.apple.com'
+    - 'time-ios.apple.com'
+    - 'ntp.*.com'
+    - '+.pool.ntp.org'
+    - 'stun.*.*'
+    - 'stun.*.*.*'
+    - '+.stun.*.*'
+    - '+.stun.*.*.*'
+    - '*.srv.nintendo.net'
+    - '*.stun.playstation.net'
+    - '+.playstation.net'
+    - '+.playstation.com'
+    - '+.sonyentertainmentnetwork.com'
+    - 'xbox.*.microsoft.com'
+    - '*.xboxlive.com'
+    - '*.battlenet.com.cn'
+    - '*.wotblitz.cn'
+    - '*.wggames.cn'
+    - '*.wowsblitz.cn'
+    - '+.services.googleapis.cn'
+    - '+.googleapis.cn'
+    - '+.xn--ngstr-lra8j.com'
+    - 'clientservices.googleapis.com'
+    - 'rule-set:cn'
+    - 'rule-set:private'
+    - 'rule-set:apple'
+  default-nameserver:
+    - system
+    - 119.29.29.29
+    - 223.5.5.5
+    - 1.1.1.1
+    - 8.8.8.8
+  direct-nameserver:
+    - system
+  nameserver-policy:
+    "rule-set:private":
+      - system
+    "rule-set:cn":
+      - system
+      - https://223.5.5.5/dns-query
+      - https://doh.pub/dns-query
+    "rule-set:apple":
+      - system
+  nameserver:
+    - https://8.8.8.8/dns-query
+    - https://1.1.1.1/dns-query
+rules:
+  - RULE-SET,category-ads-all,🛑 廣告攔截
+  - GEOIP,CN,DIRECT
+  - MATCH,🚀 節點選擇
+`;
+
+export const FALLBACK_HONK_RULES = `# ==============================================================================
+# OpenWrt Honk-Core / DAE 完整設定檔 (降級應急模板)
 # 儲存路徑: /etc/honk/config.dae
-# 可在 GitHub 倉庫直接修改此檔案，客戶端拉取時即時生效！
 # ==============================================================================
 
 global {
-    # 綁定外網介面 (預設 auto 自動偵測。若為 PPPoE 撥接上網，可能需手動改為 pppoe-wan)
     wan_interface: auto
-    # 綁定內網介面 (請務必確認你的路由器 LAN 網卡名稱，預設為 br-lan。多網卡可用逗號隔開)
     lan_interface: br-lan
-
     dial_mode: domain
     allow_insecure: false
     auto_config_kernel_parameter: true
     data_dir: '/etc/honk'
     log_level: info
     log_file: ''
-
     tcp_check_url: 'https://www.gstatic.com/generate_204'
     tcp_check_http_method: HEAD
-    # 【已修復】個別獨立加上引號，符合 Honk 現代列表語法
     udp_check_dns: 'dns.google.com:53', '8.8.8.8', '2001:4860:4860::8888'
     check_interval: 300s
     check_tolerance: 50ms
-
-    # 基礎引導 DNS (用於節點與訂閱連結的初始解析)
     bootstrap_resolver: '1.1.1.1:53'
-
-    # 【Honk 最新特性】保存成功獲取的訂閱正文到運行目錄，重啟或斷網時可離線恢復節點
     store_subscribe: true
-
-    # 【Honk 最新特性】持有有歧義 LAN 轉發 UDP 首包，徹底消除遊戲或 UDP 連線首包丟失
     nfqueue_enable: true
-
-    # 【Honk 最新特性】預熱與撥號預算：大訂閱基線關閉額外 UDP/TCP 預熱，保護路由器記憶體
     udp_warm_node_count: 0
     preconnect_node_count: 0
 }
 
-# ==============================================================================
-# 原生 Web API 與 Doona Web UI (內網瀏覽 http://<路由器IP>:9527)
-# ==============================================================================
 experimental {
     native_api {
         enabled: true
-        # Doona 面板監聽位址 (0.0.0.0 代表允許內網所有設備透過路由器 IP 訪問)
         listen: '0.0.0.0:9527'
         password_auth: true
         config_write: true
@@ -382,54 +1044,36 @@ experimental {
     }
 }
 
-# ==============================================================================
-# 訂閱配置 (直連下載，每 12 小時自動更新)
-# ==============================================================================
 subscription {
     {{SUB_TAG}}: '{{SUB_URL}}' {
         route: direct
-        # 訂閱自動更新間隔 (43200 秒 = 12 小時，可自行更改)
         interval: 43200s
     }
 }
 
-# ==============================================================================
-# 策略分流群組 (Group)
-# ==============================================================================
 group {
-    '💬 AI 服務' {
-        policy: min_moving_avg
+    AI {
+        policy: selector
     }
-
-    'Ⓜ️ 微軟服務' {
-        policy: min_moving_avg
+    Microsoft {
+        policy: selector
     }
-
-    '🎮 遊戲平台' {
-        policy: min_moving_avg
+    Game {
+        policy: selector
     }
-
-    '🍎 蘋果服務' {
-        policy: min_moving_avg
+    Apple {
+        policy: selector
     }
-
-    '🌐 非中國' {
-        policy: min_moving_avg
+    Global {
+        policy: selector
     }
-
-    # 🐟 漏網之魚專用：採用 score (綜合評分)
-    '🐟 漏網之魚' {
-        policy: score
+    Fallback {
+        policy: selector
     }
 }
 
-# ==============================================================================
-# DNS 智慧解析 (localdns 走本機 dnsmasq，即 OpenWrt 原生 system DNS)
-# ==============================================================================
 dns {
-    # 向上游攜帶 ECS (客戶端近似網段)，改善國內 CDN 解析在地性
     client_subnet: auto
-
     upstream {
         googledns: 'tcp+udp://8.8.8.8:53'
         googledoh: 'https://8.8.8.8/dns-query'
@@ -439,14 +1083,12 @@ dns {
     }
     routing {
         request {
-            # 拒絕 HTTPS 記錄查詢，防止客戶端因 ECH 握手異常中斷
             qtype(https) -> reject
             qname(geosite:category-ads-all) -> reject
             qname(geosite:cn) -> localdns
             fallback: googledoh
         }
         response {
-            # 漏網國內網域挽救：若海外 DoH 回傳中國大陸 IP，退回 localdns 重新解析以獲得最優 CDN
             upstream(googledoh) && ip(geoip:cn) -> localdns
             upstream(cfdoh) && ip(geoip:cn) -> localdns
             fallback: accept
@@ -454,45 +1096,1982 @@ dns {
     }
 }
 
-# ==============================================================================
-# eBPF 流量路由規則
-# ==============================================================================
 routing {
-    # 核心系統服務與 DNS 直連，防回環加固
     pname(dnsmasq, systemd-resolved) && l4proto(udp) && dport(53) -> direct(must)
     pname(NetworkManager, systemd-networkd, systemd-resolved, dhcpcd) -> direct
     pname(sing-box, mihomo, frpc, einat) -> direct(must)
-
     dip(224.0.0.0/3, 'ff00::/8') -> direct
-
-    # 1. 🏠 私有網絡 (旁路由環境採用純 direct，保留 eBPF 狀態追蹤)
     dip(geoip:private) -> direct
-
-    # 2. 🛑 廣告攔截
     domain(geosite:category-ads-all) -> block
 
-    # 3. 💬 AI 服務 (由轉換器動態提取注入)
     {{AI_RULES}}
 
-    # 4. Ⓜ️ 微軟服務
-    domain(geosite:microsoft) -> 'Ⓜ️ 微軟服務'
-
-    # 5. 🎮 遊戲平台
-    domain(geosite:steam, geosite:epicgames, geosite:ea, geosite:ubisoft, geosite:blizzard) -> '🎮 遊戲平台'
-
-    # 6. 🍎 蘋果服務
-    domain(geosite:apple) -> '🍎 蘋果服務'
-
-    # 7. 🌐 非中國 (國外網站)
-    domain(geosite:geolocation-!cn) -> '🌐 非中國'
-
-    # 8. 🇨🇳 國內服務 (中國國內網域與 IP 全部直連)
+    domain(geosite:microsoft) -> Microsoft
+    domain(geosite:steam, geosite:epicgames, geosite:ea, geosite:ubisoft, geosite:blizzard) -> Game
+    domain(geosite:apple) -> Apple
+    domain(geosite:geolocation-!cn) -> Global
     domain(geosite:cn) -> direct
     dip(geoip:cn) -> direct
-
-    # 9. 🐟 漏網之魚 (最終兜底)
-    fallback: '🐟 漏網之魚'
+    fallback: Fallback
 }
+`;
+
+````
+
+## File: src/index.ts
+````ts
+// src/index.ts
+// @ts-ignore
+import packageJson from '../package.json';
+import { Env } from './types';
+import { handleArgoRoutes } from './routes/argo';
+import { handleAdminRoutes } from './routes/admin';
+import { handleFavsRoutes } from './routes/favs';
+import { handleSubRoute } from './routes/sub';
+
+const version = packageJson.version;
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, X-Password, X-Login-Attempt'
+        }
+      });
+    }
+
+    if (request.method === 'GET' && url.pathname === '/version') {
+      return new Response(`subconverter v${version} ${url.host} backend\n`, {
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    }
+
+    const argoResp = await handleArgoRoutes(request, env, url);
+    if (argoResp) return argoResp;
+
+    const adminResp = await handleAdminRoutes(request, env, ctx, url);
+    if (adminResp) return adminResp;
+
+    const favsResp = await handleFavsRoutes(request, env, ctx, url);
+    if (favsResp) return favsResp;
+
+    return handleSubRoute(request, env, ctx, url, version);
+  }
+};
+
+````
+
+## File: src/generators/honk.ts
+````ts
+// src/generators/honk.ts
+import { ProxyNode } from '../types';
+import { REMOTE_CONFIG, FALLBACK_HONK_RULES } from '../config/rules';
+import { fetchTemplateDirect } from './common';
+
+export async function toHonk(_nodes: ProxyNode[], subUrl?: string, profileName?: string): Promise<string> {
+  const AI_DAE_URL = 'https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.dae';
+  let aiRulesBody = 'domain(geosite:openai, geosite:anthropic) -> AI';
+
+  try {
+    const aiResp = await fetch(`${AI_DAE_URL}?t=${Date.now()}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+    });
+    if (aiResp.ok) {
+      const text = await aiResp.text();
+      if (text.includes('domain(')) {
+        aiRulesBody = text.replace(/->\s*proxy/g, '-> AI').trim();
+      }
+    }
+  } catch {}
+
+  const finalSubTag = (profileName || 'My_Sub').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const targetSubUrl = subUrl || 'https://sub.myvs.dpdns.org/EDT?target=base64';
+
+  const template = await fetchTemplateDirect(REMOTE_CONFIG.honk, FALLBACK_HONK_RULES);
+
+  return template
+    .replace(/{{SUB_TAG}}/g, finalSubTag)
+    .replace(/{{SUB_URL}}/g, targetSubUrl)
+    .replace(/{{AI_RULES}}/g, aiRulesBody);
+}
+
+````
+
+## File: src/generators/legacy.ts
+````ts
+// src/generators/legacy.ts
+import { ProxyNode } from '../types';
+
+export function toSurge(nodes: ProxyNode[]): string {
+  const lines: string[] = ['[Proxy]'];
+  const nodeNames: string[] = [];
+  const wgSections: string[] = [];
+
+  for (const node of nodes) {
+    let line = '';
+    const name = node.name.replace(/[,=]/g, '').trim();
+
+    if (node.type === 'shadowsocks') {
+      line = `${name} = ss, ${node.server}, ${node.port}, encrypt-method=${node.cipher}, password=${node.password}, udp-relay=true`;
+      if (node.sni) line += `, sni=${node.sni}`;
+    } else if (node.type === 'trojan') {
+      line = `${name} = trojan, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
+      if (node.network === 'ws') {
+        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
+        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
+      }
+    } else if (node.type === 'vmess') {
+      line = `${name} = vmess, ${node.server}, ${node.port}, username=${node.uuid}, tls=${node.tls ? 'true' : 'false'}, udp-relay=true`;
+      if (node.sni) line += `, sni=${node.sni}`;
+      if (node.network === 'ws') {
+        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
+        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
+      }
+    } else if (node.type === 'vless') {
+      line = `${name} = vless, ${node.server}, ${node.port}, username=${node.uuid}, tls=${node.tls ? 'true' : 'false'}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
+      if (node.network === 'ws') {
+        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
+        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
+      }
+    } else if (node.type === 'hysteria2') {
+      line = `${name} = hysteria2, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
+    } else if (node.type === 'tuic') {
+      line = `${name} = tuic, ${node.server}, ${node.port}, token=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}`;
+    } else if (node.type === 'wireguard' && node.wireguard) {
+      const wg = node.wireguard;
+      const safeSecName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
+      line = `${name} = wireguard, section-name=${safeSecName}`;
+
+      let wgSec = `\n[WireGuard ${safeSecName}]\n`;
+      wgSec += `private-key = ${wg.privateKey}\n`;
+      wgSec += `self-ip = ${wg.localAddress[0]?.split('/')[0] || '10.2.0.2'}\n`;
+      if (wg.localAddress[1]) {
+        wgSec += `self-ip-v6 = ${wg.localAddress[1]?.split('/')[0]}\n`;
+      }
+      if (wg.dns) {
+        wgSec += `dns-server = ${wg.dns}\n`;
+      }
+      wgSec += `peer = (public-key = ${wg.publicKey || ''}, allowed-ips = "0.0.0.0/0, ::/0", endpoint = ${node.server}:${node.port}, keepalive = 25)\n`;
+      wgSections.push(wgSections.length > 0 ? '\n' + wgSec : wgSec);
+    }
+
+    if (line) {
+      lines.push(line);
+      nodeNames.push(name);
+    }
+  }
+
+  lines.push('\n[Proxy Group]');
+  if (nodeNames.length > 0) {
+    lines.push(`🚀 節點選擇 = select, ⚡ 自動選擇, DIRECT, ${nodeNames.join(', ')}`);
+    lines.push(`⚡ 自動選擇 = url-test, ${nodeNames.join(', ')}, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50`);
+  } else {
+    lines.push('🚀 節點選擇 = select, DIRECT');
+    lines.push('⚡ 自動選擇 = select, DIRECT');
+  }
+  lines.push('🐟 漏網之魚 = select, 🚀 節點選擇, DIRECT');
+
+  lines.push('\n[Rule]');
+  lines.push('GEOIP,CN,DIRECT');
+  lines.push('FINAL,🐟 漏網之魚\n');
+
+  if (wgSections.length > 0) {
+    lines.push(wgSections.join('\n'));
+  }
+
+  return lines.join('\n');
+}
+
+export function toQuantumultX(nodes: ProxyNode[]): string {
+  const lines: string[] = [];
+
+  for (const node of nodes) {
+    const name = node.name.replace(/[,=]/g, '').trim();
+
+    if (node.type === 'shadowsocks') {
+      lines.push(`shadowsocks=${node.server}:${node.port}, method=${node.cipher}, password=${node.password}, fast-open=false, udp-relay=true, tag=${name}`);
+    } else if (node.type === 'trojan') {
+      lines.push(`trojan=${node.server}:${node.port}, password=${node.password}, over-tls=true, tls-host=${node.sni || node.server}, fast-open=false, udp-relay=true, tag=${name}`);
+    } else if (node.type === 'vmess') {
+      let vmessLine = `vmess=${node.server}:${node.port}, method=none, password=${node.uuid}, fast-open=false, udp-relay=true, tag=${name}`;
+      if (node.tls) vmessLine += `, over-tls=true, tls-host=${node.sni || node.server}`;
+      if (node.network === 'ws') vmessLine += `, obfs=ws, obfs-uri=${node.wsPath || '/'}`;
+      lines.push(vmessLine);
+    } else if (node.type === 'vless') {
+      let vlessLine = `vless=${node.server}:${node.port}, method=none, password=${node.uuid}, fast-open=false, udp-relay=true, tag=${name}`;
+      if (node.tls) vlessLine += `, over-tls=true, tls-host=${node.sni || node.server}`;
+      if (node.network === 'ws') {
+        vlessLine += `, obfs=ws, obfs-uri=${node.wsPath || '/'}`;
+        if (node.wsHeaders?.Host) vlessLine += `, obfs-host=${node.wsHeaders.Host}`;
+      }
+      lines.push(vlessLine);
+    } else if (node.type === 'hysteria2') {
+      lines.push(`hysteria2=${node.server}:${node.port}, password=${node.password}, tls-host=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, tag=${name}`);
+    }
+  }
+
+  if (lines.length === 0) {
+    return '# 未在該訂閱中找到相容的節點';
+  }
+
+  return lines.join('\n');
+}
+
+export function toLoon(nodes: ProxyNode[]): string {
+  const lines: string[] = ['[Proxy]'];
+
+  for (const node of nodes) {
+    const name = node.name.replace(/,/g, '');
+    if (node.type === 'shadowsocks') {
+      lines.push(`${name} = Shadowsocks,${node.server},${node.port},${node.cipher},"${node.password}",fast-open=false,udp=true`);
+    } else if (node.type === 'trojan') {
+      lines.push(`${name} = Trojan,${node.server},${node.port},"${node.password}",sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`);
+    } else if (node.type === 'vless') {
+      let l = `${name} = Vless,${node.server},${node.port},"${node.uuid}",tls=${node.tls ? 'true' : 'false'},sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`;
+      if (node.network === 'ws') l += `,transport=ws,path=${node.wsPath || '/'}`;
+      lines.push(l);
+    } else if (node.type === 'vmess') {
+      let v = `${name} = vmess,${node.server},${node.port},auto,"${node.uuid}",fast-open=false,udp=true`;
+      if (node.tls) v += `,over-tls=true,tls-name=${node.sni || node.server}`;
+      if (node.network === 'ws') v += `,transport=ws,path=${node.wsPath || '/'}`;
+      lines.push(v);
+    } else if (node.type === 'hysteria2') {
+      lines.push(`${name} = Hysteria2,${node.server},${node.port},password=${node.password},sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+````
+
+## File: src/generators/singbox.ts
+````ts
+// src/generators/singbox.ts
+import { Env, ProxyNode } from '../types';
+import { REMOTE_CONFIG, FALLBACK_SINGBOX_RULES } from '../config/rules';
+import { isIpAddress, stripJsonComments, fetchTemplateDirect } from './common';
+
+export async function toSingBoxWithTemplate(
+  nodes: ProxyNode[],
+  _env?: Env,
+  _forceRefresh = false
+): Promise<string> {
+  const text = await fetchTemplateDirect(REMOTE_CONFIG.singbox, FALLBACK_SINGBOX_RULES);
+  const config = JSON.parse(stripJsonComments(text));
+
+  if (!config.http_clients || !Array.isArray(config.http_clients) || config.http_clients.length === 0) {
+    config.http_clients = [{ tag: 'default' }];
+  } else {
+    config.http_clients.forEach((hc: Record<string, unknown>) => {
+      if (hc.detour === 'direct' || hc.detour === 'DIRECT') {
+        delete hc.detour;
+      }
+    });
+  }
+
+  if (config.dns) {
+    config.dns.final = 'remote-dns';
+    if (Array.isArray(config.dns.servers)) {
+      config.dns.servers = config.dns.servers.filter((s: Record<string, unknown>) => s.type !== 'rcode');
+      config.dns.servers.forEach((s: Record<string, unknown>) => {
+        if (s.detour === 'direct' || s.detour === 'DIRECT') delete s.detour;
+      });
+    }
+    if (Array.isArray(config.dns.rules)) {
+      config.dns.rules = config.dns.rules.filter((r: Record<string, unknown>) => !('outbound' in r));
+    }
+
+    const nodesWithCustomDoh = nodes.filter(n => n.ech && n.echDoh && /^https?:\/\//i.test(n.echDoh));
+    if (nodesWithCustomDoh.length > 0) {
+      const dohMap = new Map<string, string>();
+      for (const n of nodesWithCustomDoh) {
+        const domain = n.echQueryServerName || n.sni || n.server;
+        const dohUrl = n.echDoh!;
+        if (domain && !isIpAddress(domain) && !dohMap.has(domain)) {
+          dohMap.set(domain, dohUrl);
+        }
+      }
+
+      for (const [domain, dohUrl] of dohMap.entries()) {
+        let serverHost = dohUrl;
+        let serverPath = '/dns-query';
+        try {
+          const u = new URL(dohUrl);
+          serverHost = u.hostname;
+          serverPath = u.pathname || '/dns-query';
+        } catch {}
+
+        const tag = `ech-doh-${domain.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+        if (!config.dns.servers.some((s: Record<string, unknown>) => s.tag === tag)) {
+          const dnsServerObj: Record<string, unknown> = {
+            tag,
+            type: 'https',
+            server: serverHost,
+            domain_resolver: 'system-dns'
+          };
+          if (serverPath && serverPath !== '/') {
+            dnsServerObj.path = serverPath;
+          }
+          config.dns.servers.push(dnsServerObj);
+        }
+
+        const alreadyExists = config.dns.rules.some((r: Record<string, unknown>) => {
+          const doms = r.domain as string[] | undefined;
+          return Array.isArray(doms) && doms.includes(domain);
+        });
+
+        if (!alreadyExists) {
+          config.dns.rules.unshift({
+            domain: [domain],
+            domain_suffix: [domain],
+            server: tag
+          });
+        }
+      }
+    }
+
+    // 遍歷所有 DNS 伺服器，確保域名地址均帶有 domain_resolver (Sing-Box 1.14+ 強制規範)
+    if (Array.isArray(config.dns.servers)) {
+      config.dns.servers.forEach((s: Record<string, unknown>) => {
+        if (s.server && typeof s.server === 'string' && !isIpAddress(s.server)) {
+          if (!s.domain_resolver) {
+            s.domain_resolver = 'system-dns';
+          }
+        }
+      });
+    }
+  }
+
+  if (!config.route) config.route = {};
+  config.route.default_domain_resolver = 'system-dns';
+  config.route.default_http_client = 'default';
+
+  if (Array.isArray(config.route.rule_set)) {
+    config.route.rule_set.forEach((rs: Record<string, unknown>) => {
+      delete rs.download_detour;
+    });
+  }
+
+  if (Array.isArray(config.inbounds)) {
+    config.inbounds.forEach((ib: Record<string, unknown>) => {
+      delete ib.sniff;
+      delete ib.sniff_override_destination;
+      delete ib.domain_strategy;
+    });
+  }
+
+  const outbounds: Record<string, unknown>[] = [];
+  const endpoints: Record<string, unknown>[] = [];
+  const allNodeTags: string[] = [];
+
+  nodes.forEach(n => {
+    allNodeTags.push(n.name);
+
+    if (n.type === 'wireguard' && n.wireguard) {
+      const wg = n.wireguard;
+      const peerObj: Record<string, unknown> = {
+        address: n.server,
+        port: n.port,
+        public_key: wg.publicKey,
+        allowed_ips: ['0.0.0.0/0', '::/0']
+      };
+      if (wg.presharedKey) peerObj.pre_shared_key = wg.presharedKey;
+      if (wg.reserved && wg.reserved.length > 0) peerObj.reserved = wg.reserved;
+
+      endpoints.push({
+        type: 'wireguard',
+        tag: n.name,
+        address: wg.localAddress,
+        private_key: wg.privateKey,
+        peers: [peerObj],
+        mtu: wg.mtu || 1420
+      });
+    } else {
+      const obj = JSON.parse(JSON.stringify(n.singboxObj));
+      if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {
+        obj.tls.alpn = ['http/1.1'];
+      }
+
+      if (n.ech && obj.tls) {
+        const echObj: Record<string, unknown> = { enabled: true };
+        if (n.echQueryServerName && !isIpAddress(n.echQueryServerName)) {
+          echObj.query_server_name = n.echQueryServerName;
+        }
+        obj.tls.ech = echObj;
+      }
+
+      outbounds.push(obj);
+    }
+  });
+
+  if (endpoints.length > 0) {
+    if (!config.endpoints || !Array.isArray(config.endpoints)) {
+      config.endpoints = [];
+    }
+    config.endpoints.push(...endpoints);
+  }
+
+  if (!Array.isArray(config.outbounds)) config.outbounds = [];
+  config.outbounds.push(...outbounds);
+
+  config.outbounds.forEach((out: Record<string, unknown>) => {
+    if (out.type === 'selector' || out.type === 'urltest') {
+      if (!Array.isArray(out.outbounds)) out.outbounds = [];
+      const arr = out.outbounds as string[];
+      allNodeTags.forEach(tag => {
+        if (!arr.includes(tag)) arr.push(tag);
+      });
+    }
+  });
+
+  return JSON.stringify(config, null, 2);
+}
+
+````
+
+## File: src/generators/index.ts
+````ts
+// src/generators/index.ts
+export { toRawLinks, toBase64 } from './uri';
+export { toSingBoxWithTemplate } from './singbox';
+export { toClashWithTemplate } from './clash';
+export { toHonk } from './honk';
+export { toSurge, toQuantumultX, toLoon } from './legacy';
+
+````
+
+## File: src/generators/uri.ts
+````ts
+// src/generators/uri.ts
+import { ProxyNode } from '../types';
+import { utf8ToBase64 } from '../utils';
+
+export function toRawLinks(nodes: ProxyNode[]): string {
+  const links = nodes
+    .map(node => {
+      try {
+        if (node.type === 'vless') {
+          const params = new URLSearchParams();
+          params.set('security', node.reality ? 'reality' : node.tls ? 'tls' : 'none');
+          params.set('type', node.network || 'tcp');
+          if (node.flow) params.set('flow', node.flow);
+          if (node.sni) params.set('sni', node.sni);
+          if (node.fingerprint) params.set('fp', node.fingerprint);
+          if (node.ech) {
+            if (node.echDoh && node.echQueryServerName) {
+              params.set('ech', `${node.echQueryServerName}+${node.echDoh}`);
+            } else if (node.echDoh) {
+              params.set('ech', node.echDoh);
+            } else if (node.echQueryServerName) {
+              params.set('ech', node.echQueryServerName);
+            } else {
+              params.set('ech', '1');
+            }
+          }
+          if (node.reality) {
+            params.set('pbk', node.reality.publicKey);
+            params.set('sid', node.reality.shortId);
+            if (node.reality.spiderX) params.set('spx', node.reality.spiderX);
+          }
+          if (node.network === 'ws') {
+            if (node.wsPath) params.set('path', node.wsPath);
+            if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host);
+          }
+          if (node.network === 'xhttp' || node.network === 'splithttp') {
+            if (node.xhttpPath) params.set('path', node.xhttpPath);
+            if (node.xhttpHost) params.set('host', node.xhttpHost);
+            if (node.xhttpMode) params.set('mode', node.xhttpMode);
+          }
+          return `vless://${node.uuid}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+        }
+        if (node.type === 'hysteria2') {
+          const params = new URLSearchParams();
+          if (node.sni) params.set('sni', node.sni);
+          if (node.obfs) {
+            params.set('obfs', node.obfs);
+            if (node.obfsPassword) params.set('obfs-password', node.obfsPassword);
+          }
+          if (node.skipCertVerify) params.set('insecure', '1');
+          return `hysteria2://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+        }
+        if (node.type === 'vmess') {
+          const vmessObj = {
+            v: '2',
+            ps: node.name,
+            add: node.server,
+            port: node.port,
+            id: node.uuid,
+            aid: (node.clashObj as Record<string, unknown>)?.alterId || 0,
+            scy: 'auto',
+            net: node.network,
+            type: 'none',
+            host: node.wsHeaders?.Host || '',
+            path: node.wsPath || '',
+            tls: node.tls ? 'tls' : '',
+            sni: node.sni || ''
+          };
+          return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
+        }
+        if (node.type === 'shadowsocks') {
+          const method = encodeURIComponent(node.cipher || '');
+          const pass = encodeURIComponent(node.password || '');
+          const params = new URLSearchParams();
+          if (node.tls) {
+            params.set('security', 'tls');
+            if (node.sni) params.set('sni', node.sni);
+            if (node.alpn) params.set('alpn', node.alpn.join(','));
+            if (node.fingerprint) params.set('fp', node.fingerprint);
+            if (node.ech) {
+              if (node.echDoh && node.echQueryServerName) {
+                params.set('ech', `${node.echQueryServerName}+${node.echDoh}`);
+              } else if (node.echDoh) {
+                params.set('ech', node.echDoh);
+              } else if (node.echQueryServerName) {
+                params.set('ech', node.echQueryServerName);
+              } else {
+                params.set('ech', '1');
+              }
+            }
+            params.set('type', node.network || 'tcp');
+          }
+          const clashPlugin = (node.clashObj as Record<string, unknown>)?.plugin as string | undefined;
+          if (clashPlugin && !node.tls) {
+            const pluginOpts = (node.clashObj as Record<string, unknown>)?.['plugin-opts'] as Record<string, string> | undefined;
+            const optStr = pluginOpts ? ';' + new URLSearchParams(pluginOpts).toString().replace(/&/g, ';') : '';
+            params.set('plugin', clashPlugin + optStr);
+          }
+          const query = params.toString();
+          return `ss://${method}:${pass}@${node.server}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
+        }
+        if (node.type === 'tuic') {
+          const params = new URLSearchParams();
+          if (node.sni) params.set('sni', node.sni);
+          if (node.congestion_control) params.set('congestion_control', node.congestion_control);
+          if (node.udp_relay_mode) params.set('udp_relay_mode', node.udp_relay_mode);
+          if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
+          if (node.skipCertVerify) params.set('allow_insecure', '1');
+          return `tuic://${node.uuid || ''}:${node.password || ''}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+        }
+        if (node.type === 'anytls') {
+          const params = new URLSearchParams();
+          params.set('security', 'tls');
+          if (node.sni) params.set('sni', node.sni);
+          params.set('insecure', node.skipCertVerify ? '1' : '0');
+          if (node.fingerprint) params.set('fp', node.fingerprint);
+          if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
+          params.set('type', 'tcp');
+          return `anytls://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+        }
+        if (node.type === 'trojan') {
+          const params = new URLSearchParams();
+          if (node.sni) params.set('sni', node.sni);
+          if (node.skipCertVerify) params.set('allowInsecure', '1');
+          if (node.ech) {
+            if (node.echDoh && node.echQueryServerName) {
+              params.set('ech', `${node.echQueryServerName}+${node.echDoh}`);
+            } else if (node.echDoh) {
+              params.set('ech', node.echDoh);
+            } else if (node.echQueryServerName) {
+              params.set('ech', node.echQueryServerName);
+            } else {
+              params.set('ech', '1');
+            }
+          }
+          return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+        }
+        if (node.type === 'wireguard' && node.wireguard) {
+          const wg = node.wireguard;
+          const cleanIp = wg.localAddress[0]?.split('/')[0] || '10.2.0.2';
+          const params = new URLSearchParams();
+          params.set('publickey', wg.publicKey || '');
+          params.set('privatekey', wg.privateKey || '');
+          params.set('ip', cleanIp);
+          params.set('address', cleanIp);
+          if (wg.dns) params.set('dns', wg.dns);
+          if (wg.presharedKey) params.set('presharedkey', wg.presharedKey);
+          params.set('mtu', String(wg.mtu || 1420));
+          params.set('keepalive', '25');
+          return `wireguard://${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+        }
+        if (node.type === 'masque' && node.masque) {
+          const m = node.masque;
+          const params = new URLSearchParams();
+          params.set('public_key', m.publicKey);
+          if (m.localIpv4) params.set('ip', m.localIpv4.split('/')[0]);
+          if (m.localIpv6) params.set('ipv6', m.localIpv6.split('/')[0]);
+          if (m.mtu) params.set('mtu', String(m.mtu));
+          if (m.uri) params.set('uri', m.uri);
+          if (m.sni) params.set('sni', m.sni);
+
+          const cc = m.congestion_controller || 'bbr';
+          params.set('cca', cc);
+          params.set('cc', cc);
+          params.set('congestion_control', cc);
+          params.set('congestion_controller', cc);
+          params.set('congestion-controller', cc);
+
+          if (m.dns && m.dns.length > 0) params.set('dns', m.dns.join(','));
+          return `masque://${encodeURIComponent(m.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    })
+    .filter((l): l is string => Boolean(l));
+
+  return links.join('\n');
+}
+
+export function toBase64(nodes: ProxyNode[]): string {
+  const rawLinks = toRawLinks(nodes);
+  return utf8ToBase64(rawLinks);
+}
+
+````
+
+## File: src/generators/common.ts
+````ts
+// src/generators/common.ts
+export function isIpAddress(str: string): boolean {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(str) || str.includes(':');
+}
+
+// 防禦性濾網：安全過濾 JSON 字串中意外存在的單行與多行註解，防止 JSON.parse 報錯
+export function stripJsonComments(jsonStr: string): string {
+  return jsonStr.replace(/\\"|"(?:\\"|[^"])*"|(\/\/.*|\/\*[\s\S]*?\*\/)/g, (match, group) => {
+    return group ? '' : match;
+  });
+}
+
+// 直接自 GitHub 讀取遠端模板，失敗時無縫回退至內嵌應急模板
+export async function fetchTemplateDirect(url: string, fallbackStr: string): Promise<string> {
+  try {
+    const resp = await fetch(`${url}?t=${Date.now()}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+    });
+    if (resp.ok) {
+      return await resp.text();
+    }
+  } catch {}
+
+  return fallbackStr;
+}
+
+````
+
+## File: src/generators/clash.ts
+````ts
+// src/generators/clash.ts
+import yaml from 'js-yaml';
+import { Env, ProxyNode } from '../types';
+import { REMOTE_CONFIG, FALLBACK_CLASH_RULES } from '../config/rules';
+import { isIpAddress, fetchTemplateDirect } from './common';
+
+export async function toClashWithTemplate(
+  nodes: ProxyNode[],
+  _env?: Env,
+  _forceRefresh = false
+): Promise<string> {
+  const text = await fetchTemplateDirect(REMOTE_CONFIG.clash, FALLBACK_CLASH_RULES);
+  const config = yaml.load(text) as Record<string, unknown>;
+
+  const proxies = nodes.map(n => {
+    const obj = JSON.parse(JSON.stringify(n.clashObj));
+    Object.keys(obj).forEach(key => obj[key] === undefined && delete obj[key]);
+
+    if (n.ech) {
+      const echOpts: Record<string, unknown> = { enable: true };
+      if (n.echQueryServerName && !isIpAddress(n.echQueryServerName)) {
+        echOpts['query-server-name'] = n.echQueryServerName;
+      }
+      obj['ech-opts'] = echOpts;
+    }
+
+    return obj;
+  });
+  const proxyNames = proxies.map((p: Record<string, unknown>) => p.name as string);
+
+  if (!Array.isArray(config.proxies)) config.proxies = [];
+  config.proxies.push(...proxies);
+
+  if (Array.isArray(config['proxy-groups'])) {
+    const groups = config['proxy-groups'] as Array<Record<string, unknown>>;
+
+    groups.forEach(group => {
+      if (!Array.isArray(group.proxies)) group.proxies = [];
+      const arr = group.proxies as string[];
+      proxyNames.forEach(name => {
+        if (!arr.includes(name)) arr.push(name);
+      });
+    });
+  }
+
+  const nodesWithCustomDoh = nodes.filter(n => n.ech && n.echDoh && /^https?:\/\//i.test(n.echDoh));
+  if (nodesWithCustomDoh.length > 0 && config.dns && typeof config.dns === 'object') {
+    const dnsObj = config.dns as Record<string, unknown>;
+    if (!dnsObj['nameserver-policy'] || typeof dnsObj['nameserver-policy'] !== 'object') {
+      dnsObj['nameserver-policy'] = {};
+    }
+    const policy = dnsObj['nameserver-policy'] as Record<string, string[]>;
+    for (const n of nodesWithCustomDoh) {
+      const domain = n.echQueryServerName || n.sni || n.server;
+      if (domain && !isIpAddress(domain)) {
+        policy[domain] = [n.echDoh!];
+      }
+    }
+  }
+
+  return yaml.dump(config, { indent: 2, noRefs: true });
+}
+
+````
+
+## File: src/routes/argo.ts
+````ts
+// src/routes/argo.ts
+import { Env, ProxyNode } from '../types';
+import { utf8ToBase64 } from '../utils';
+import { loadNodes } from '../services/node-loader';
+
+async function getArgoScriptFromGithub(
+  node: ProxyNode,
+  port: string,
+  token: string,
+  domain: string
+): Promise<string> {
+  const GITHUB_TEMPLATE_URL = `https://raw.githubusercontent.com/sammy0101/cf-sub-converter/main/argo.sh?t=${Date.now()}`;
+  let template = '';
+
+  try {
+    const res = await fetch(GITHUB_TEMPLATE_URL, { headers: { 'User-Agent': 'v2rayNG/1.8.5' } });
+    if (res.ok) {
+      template = await res.text();
+    } else {
+      throw new Error('GitHub Fetch Failed');
+    }
+  } catch {
+    template = `#!/bin/bash
+if ! command -v cloudflared &> /dev/null; then
+  curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+  chmod +x /usr/local/bin/cloudflared
+fi
+cloudflared tunnel --url http://127.0.0.1:{{VLESS_PORT}}
+`;
+  }
+
+  const vlessType = node.network || 'ws';
+  const vlessPath = node.wsPath || '/';
+  const argoNodeName = `${node.name}_Argo`;
+  const isTls = node.tls ? 'true' : 'false';
+  const realHost = node.wsHeaders?.Host || node.sni || node.server;
+
+  return template
+    .replace('{{NODE_TYPE}}', node.type)
+    .replace('{{VLESS_UUID}}', node.uuid || '')
+    .replace('{{VLESS_PATH}}', vlessPath)
+    .replace('{{VLESS_TYPE}}', vlessType)
+    .replace('{{VLESS_PORT}}', port)
+    .replace('{{NODE_NAME}}', argoNodeName)
+    .replace('{{TUNNEL_TOKEN}}', token.trim())
+    .replace('{{CUSTOM_DOMAIN}}', domain.trim())
+    .replace('{{VLESS_TLS}}', isTls)
+    .replace('{{ORIGIN_HOST}}', realHost);
+}
+
+export async function handleArgoRoutes(
+  request: Request,
+  env: Env,
+  url: URL
+): Promise<Response | null> {
+  if (request.method === 'GET' && url.pathname.startsWith('/argo/sh/')) {
+    const scriptId = url.pathname.split('/').pop();
+    if (env.SUB_CACHE && scriptId) {
+      const script = await env.SUB_CACHE.get(`script:${scriptId}`);
+      if (script) {
+        return new Response(script, {
+          headers: {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      }
+    }
+    return new Response('# 錯誤: 該腳本不存在或已過期，請重新在網頁上生成。\nexit 1\n', {
+      status: 404,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
+    });
+  }
+
+  if (request.method === 'POST' && (url.pathname === '/api/parse-vless' || url.pathname === '/api/parse-argo')) {
+    try {
+      const body = (await request.json()) as { url?: string };
+      const rawUrl = body.url || '';
+      if (!rawUrl.trim()) {
+        return new Response(JSON.stringify({ error: '請輸入有效的節點內容' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+
+      const allNodes = await loadNodes(rawUrl);
+      const argoCompatibleNodes = allNodes
+        .filter(n => n.type === 'vless' || n.type === 'vmess')
+        .map((n, idx) => ({
+          index: idx,
+          name: n.name,
+          server: n.server,
+          port: n.port,
+          type: n.type,
+          host: n.wsHeaders?.Host || n.sni || n.server
+        }));
+
+      return new Response(JSON.stringify(argoCompatibleNodes), {
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return new Response(JSON.stringify({ error: msg }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/argo-generate') {
+    try {
+      const body = (await request.json()) as {
+        url?: string;
+        indices?: number[];
+        port?: string;
+        cleanIp?: string;
+        token?: string;
+        domain?: string;
+      };
+
+      const rawUrl = body.url || '';
+      const selectedIndices = body.indices || [];
+      const port = body.port || '8080';
+      const cleanIp = (body.cleanIp || '').trim();
+      const token = body.token || '';
+      const domain = body.domain || '';
+
+      if (!rawUrl.trim() || selectedIndices.length === 0) {
+        return new Response(JSON.stringify({ error: '無效的參數或未選擇節點' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+
+      const allNodes = await loadNodes(rawUrl);
+      const compatibleNodes = allNodes.filter(n => n.type === 'vless' || n.type === 'vmess');
+      const selectedObjects = selectedIndices.map(idx => compatibleNodes[idx]).filter(Boolean);
+
+      let scripts = '';
+      const generatedNodesData: Array<{ originalIndex: number; link: string }> = [];
+
+      for (let i = 0; i < selectedObjects.length; i++) {
+        const node = selectedObjects[i];
+        const originalIndex = selectedIndices[i];
+
+        scripts += (await getArgoScriptFromGithub(node, port, token, domain)) + '\n\n';
+
+        const targetDomain =
+          token.trim() && domain.trim()
+            ? domain.trim()
+            : '請在VPS執行一鍵安裝腳本獲取臨時域名.trycloudflare.com';
+        const connectionServer = cleanIp || targetDomain;
+        const argoNodeName = `${node.name}_Argo${cleanIp ? '_優選' : ''}`;
+
+        let argoLink = '';
+        if (node.type === 'vless') {
+          argoLink = `vless://${node.uuid}@${connectionServer}:443?encryption=none&security=tls&type=${node.network || 'ws'}&host=${targetDomain}&sni=${targetDomain}&path=${node.wsPath || '/'}#${argoNodeName}`;
+        } else {
+          const vmessObj = {
+            v: '2',
+            ps: argoNodeName,
+            add: connectionServer,
+            port: 443,
+            id: node.uuid,
+            aid: 0,
+            scy: 'auto',
+            net: node.network || 'ws',
+            type: 'none',
+            host: targetDomain,
+            path: node.wsPath || '/',
+            tls: 'tls',
+            sni: targetDomain
+          };
+          argoLink = 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
+        }
+
+        generatedNodesData.push({ originalIndex, link: argoLink });
+      }
+
+      let scriptId = '';
+      if (env.SUB_CACHE) {
+        scriptId = crypto.randomUUID();
+        await env.SUB_CACHE.put('script:' + scriptId, scripts, { expirationTtl: 3600 });
+      }
+
+      return new Response(
+        JSON.stringify({
+          scriptId,
+          argoNodes: generatedNodesData
+        }),
+        {
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        }
+      );
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return new Response(JSON.stringify({ error: msg }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+  }
+
+  return null;
+}
+
+````
+
+## File: src/routes/admin.ts
+````ts
+// src/routes/admin.ts
+import { Env, OperationLogEntry, TgConfig } from '../types';
+import { hasPasswordConfigured, checkAuth } from '../services/auth';
+import { LOGS_KEY, getClientMeta, formatUtc8Time, appendOperationLog } from '../services/audit';
+import {
+  TG_CONFIG_KEY,
+  getStoredTgConfig,
+  toPublicTgView,
+  postTelegramMessage,
+  escapeHtmlForTg
+} from '../services/telegram';
+
+export async function handleAdminRoutes(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  url: URL
+): Promise<Response | null> {
+  // --- Telegram 通知設定 API ---
+  if (url.pathname === '/tg-config') {
+    if (!hasPasswordConfigured(env)) {
+      return new Response(JSON.stringify({ error: '未設定管理密碼 (PAGE_PASSWORD)，禁止存取通知設定', unconfigured: true }), {
+        status: 403,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    }
+    if (!checkAuth(request, env)) {
+      if ((request.headers.get('X-Password') || '').trim() !== '') {
+        await appendOperationLog(request, env, '登入失敗', ctx);
+      }
+      return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
+        status: 401,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    }
+
+    if (request.method === 'GET') {
+      const cfg = await getStoredTgConfig(env);
+      return new Response(JSON.stringify(toPublicTgView(cfg)), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    }
+
+    if (request.method === 'POST') {
+      try {
+        const body = (await request.json()) as { enabled?: boolean; botToken?: string; chatId?: string };
+        const existing = await getStoredTgConfig(env);
+
+        const rawToken = typeof body.botToken === 'string' ? body.botToken.trim() : '';
+        const nextToken = rawToken && !rawToken.includes('***') ? rawToken : existing.botToken;
+        const nextChatId = typeof body.chatId === 'string' ? body.chatId.trim() : existing.chatId;
+        const nextEnabled = typeof body.enabled === 'boolean' ? body.enabled : existing.enabled;
+
+        if (nextEnabled && (!nextToken || !nextChatId)) {
+          return new Response(JSON.stringify({ error: '請先填寫有效的 Bot Token 與 Chat ID 後再啟用通知' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+          });
+        }
+
+        const updated: TgConfig = {
+          enabled: nextEnabled,
+          botToken: nextToken,
+          chatId: nextChatId
+        };
+
+        if (env.SUB_CACHE) {
+          await env.SUB_CACHE.put(TG_CONFIG_KEY, JSON.stringify(updated));
+        }
+
+        return new Response(JSON.stringify(toPublicTgView(updated)), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      } catch {
+        return new Response(JSON.stringify({ error: '儲存 Telegram 設定失敗' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+    }
+
+    if (request.method === 'DELETE') {
+      if (env.SUB_CACHE) {
+        await env.SUB_CACHE.delete(TG_CONFIG_KEY);
+      }
+      return new Response(JSON.stringify(toPublicTgView({ enabled: false, botToken: '', chatId: '' })), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    }
+  }
+
+  // --- Telegram 測試訊息發送 API ---
+  if (request.method === 'POST' && url.pathname === '/tg-test') {
+    if (!hasPasswordConfigured(env)) {
+      return new Response(JSON.stringify({ ok: false, error: '未設定管理密碼 (PAGE_PASSWORD)' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+    if (!checkAuth(request, env)) {
+      if ((request.headers.get('X-Password') || '').trim() !== '') {
+        await appendOperationLog(request, env, '登入失敗', ctx);
+      }
+      return new Response(JSON.stringify({ ok: false, error: '密碼錯誤或未授權' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+
+    try {
+      const body = (await request.json()) as { botToken?: string; chatId?: string };
+      const existing = await getStoredTgConfig(env);
+      const rawToken = typeof body.botToken === 'string' ? body.botToken.trim() : '';
+      const tokenToUse = rawToken && !rawToken.includes('***') ? rawToken : existing.botToken;
+      const chatIdToUse =
+        typeof body.chatId === 'string' && body.chatId.trim() ? body.chatId.trim() : existing.chatId;
+
+      if (!tokenToUse || !chatIdToUse) {
+        return new Response(JSON.stringify({ ok: false, error: '請先輸入 Bot Token 與 Chat ID' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+
+      const meta = getClientMeta(request);
+      const testMsg = [
+        `✅ <b>SubConverter Pro Telegram 測試通知</b>`,
+        ``,
+        `🎉 恭喜！您的機器人連線正常，已準備好接收即時操作通知。`,
+        `🕒 <b>時間 (UTC+8)：</b><code>${escapeHtmlForTg(formatUtc8Time())}</code>`,
+        `🌐 <b>測試來源 IP：</b><code>${escapeHtmlForTg(meta.ip)}</code>`,
+        `📍 <b>地區：</b>${escapeHtmlForTg(meta.region)}`
+      ].join('\n');
+
+      const sendRes = await postTelegramMessage(tokenToUse, chatIdToUse, testMsg);
+      if (!sendRes.ok) {
+        return new Response(JSON.stringify({ ok: false, error: sendRes.error || 'Telegram API 回傳失敗' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return new Response(JSON.stringify({ ok: false, error: msg }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+  }
+
+  // --- 操作日誌 API ---
+  if (request.method === 'GET' && url.pathname === '/logs') {
+    if (!hasPasswordConfigured(env)) {
+      return new Response(JSON.stringify({ error: '未設定管理密碼 (PAGE_PASSWORD)，日誌 API 預設禁止公開讀取', unconfigured: true }), {
+        status: 403,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    }
+    if (!checkAuth(request, env)) {
+      if ((request.headers.get('X-Password') || '').trim() !== '') {
+        await appendOperationLog(request, env, '登入失敗', ctx);
+      }
+      return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
+        status: 401,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    }
+    const raw = env.SUB_CACHE ? await env.SUB_CACHE.get(LOGS_KEY) : null;
+    const logs: OperationLogEntry[] = raw ? (JSON.parse(raw) as OperationLogEntry[]) : [];
+    return new Response(JSON.stringify(logs), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        'Access-Control-Allow-Origin': '*'
+      }
+    });
+  }
+
+  if (request.method === 'DELETE' && url.pathname === '/logs') {
+    if (!hasPasswordConfigured(env)) {
+      return new Response(JSON.stringify({ error: '未設定 PAGE_PASSWORD，禁止操作', unconfigured: true }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+    if (!checkAuth(request, env)) {
+      if ((request.headers.get('X-Password') || '').trim() !== '') {
+        await appendOperationLog(request, env, '登入失敗', ctx);
+      }
+      return new Response(JSON.stringify({ error: '未授權' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+    if (env.SUB_CACHE) {
+      await env.SUB_CACHE.put(LOGS_KEY, '[]');
+    }
+    return new Response('OK', {
+      status: 200,
+      headers: { 'Access-Control-Allow-Origin': '*' }
+    });
+  }
+
+  return null;
+}
+
+````
+
+## File: src/routes/favs.ts
+````ts
+// src/routes/favs.ts
+import { Env } from '../types';
+import { hasPasswordConfigured, checkAuth } from '../services/auth';
+import { appendOperationLog } from '../services/audit';
+
+const FAVS_KEY = 'favorites';
+
+async function getFavs(env: Env): Promise<Array<Record<string, string>>> {
+  const data = await env.SUB_CACHE.get(FAVS_KEY);
+  return data ? (JSON.parse(data) as Array<Record<string, string>>) : [];
+}
+
+async function saveFavs(env: Env, favs: Array<Record<string, string>>): Promise<void> {
+  await env.SUB_CACHE.put(FAVS_KEY, JSON.stringify(favs));
+}
+
+function jsonError(error: string, status: number): Response {
+  return new Response(JSON.stringify({ error }), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*'
+    }
+  });
+}
+
+export async function handleFavsRoutes(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  url: URL
+): Promise<Response | null> {
+  if (request.method === 'POST' && url.pathname === '/save') {
+    try {
+      const body = (await request.json()) as {
+        path?: string;
+        content?: string;
+        include?: string;
+        exclude?: string;
+        rename?: string;
+        token?: string;
+      };
+      const cleanPath = (body.path || '').trim();
+      if (!cleanPath || !body.content) return jsonError('缺少短連結名稱或節點內容', 400);
+
+      const cleanToken = (body.token || '').trim();
+
+      // 安全防線：若該短連結已存在且設有 Token 保護，禁止未經管理密碼授權的公開覆蓋
+      const existingRaw =
+        (await env.SUB_CACHE.get(cleanPath)) ||
+        (cleanPath !== cleanPath.toLowerCase() ? await env.SUB_CACHE.get(cleanPath.toLowerCase()) : null);
+      if (existingRaw) {
+        try {
+          const existingParsed = JSON.parse(existingRaw) as { token?: string };
+          const existingToken = (existingParsed.token || '').trim();
+          if (existingToken) {
+            if (hasPasswordConfigured(env) && !checkAuth(request, env)) {
+              return jsonError('該短連結已受 Token 保護，需要管理密碼授權才可修改', 403);
+            }
+            if (!hasPasswordConfigured(env) && cleanToken !== existingToken) {
+              return jsonError('Token 不符，禁止覆蓋', 403);
+            }
+          }
+        } catch {}
+      }
+
+      const saveData = {
+        content: body.content,
+        include: body.include || '',
+        exclude: body.exclude || '',
+        rename: body.rename || '',
+        token: cleanToken
+      };
+      const jsonStr = JSON.stringify(saveData);
+
+      await env.SUB_CACHE.put(cleanPath, jsonStr);
+      if (cleanPath !== cleanPath.toLowerCase()) {
+        await env.SUB_CACHE.put(cleanPath.toLowerCase(), jsonStr);
+      }
+
+      await appendOperationLog(request, env, '儲存短連結', ctx);
+
+      return new Response('OK', {
+        status: 200,
+        headers: { 'Access-Control-Allow-Origin': '*' }
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return jsonError(`儲存短連結失敗: ${msg}`, 500);
+    }
+  }
+
+  if (url.pathname !== '/favs') {
+    return null;
+  }
+
+  if (request.method === 'GET') {
+    if (!checkAuth(request, env)) {
+      if ((request.headers.get('X-Password') || '').trim() !== '') {
+        await appendOperationLog(request, env, '登入失敗', ctx);
+      }
+      return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
+        status: 401,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    }
+    if (hasPasswordConfigured(env) && request.headers.get('X-Login-Attempt') === '1') {
+      await appendOperationLog(request, env, '登入後台', ctx);
+    }
+    const favs = await getFavs(env);
+    return new Response(JSON.stringify(favs), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        'Access-Control-Allow-Origin': '*'
+      }
+    });
+  }
+
+  if (request.method === 'POST') {
+    if (!checkAuth(request, env)) {
+      if ((request.headers.get('X-Password') || '').trim() !== '') {
+        await appendOperationLog(request, env, '登入失敗', ctx);
+      }
+      return jsonError('密碼錯誤或未授權', 401);
+    }
+    try {
+      const body = (await request.json()) as Record<string, string>;
+      if (!body.name || !body.url) return jsonError('缺少配置名稱或節點內容', 400);
+      const cleanToken = (body.token || '').trim();
+      const favs = await getFavs(env);
+      favs.push({
+        name: body.name,
+        url: body.url,
+        include: body.include || '',
+        exclude: body.exclude || '',
+        rename: body.rename || '',
+        token: cleanToken
+      });
+      await saveFavs(env, favs);
+
+      const cleanName = body.name.trim();
+      const syncData = JSON.stringify({
+        content: body.url,
+        include: body.include || '',
+        exclude: body.exclude || '',
+        rename: body.rename || '',
+        token: cleanToken
+      });
+      await env.SUB_CACHE.put(cleanName, syncData);
+      if (cleanName !== cleanName.toLowerCase()) {
+        await env.SUB_CACHE.put(cleanName.toLowerCase(), syncData);
+      }
+
+      await appendOperationLog(request, env, '新增配置', ctx);
+
+      return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return jsonError(`新增配置寫入 KV 失敗: ${msg}`, 500);
+    }
+  }
+
+  if (request.method === 'PUT') {
+    if (!checkAuth(request, env)) {
+      if ((request.headers.get('X-Password') || '').trim() !== '') {
+        await appendOperationLog(request, env, '登入失敗', ctx);
+      }
+      return jsonError('密碼錯誤或未授權', 401);
+    }
+    try {
+      const body = (await request.json()) as {
+        index?: number;
+        name?: string;
+        url?: string;
+        include?: string;
+        exclude?: string;
+        rename?: string;
+        token?: string;
+      };
+      if (body.index === undefined || !body.name || !body.url) {
+        return jsonError('缺少配置索引、名稱或節點內容', 400);
+      }
+      const cleanToken = (body.token || '').trim();
+      const favs = await getFavs(env);
+      if (body.index < 0 || body.index >= favs.length) {
+        return jsonError('欲修改的配置索引不存在，請重新整理頁面', 400);
+      }
+
+      const oldName = favs[body.index]?.name?.trim();
+      const newName = body.name.trim();
+
+      favs[body.index] = {
+        name: body.name,
+        url: body.url,
+        include: body.include || '',
+        exclude: body.exclude || '',
+        rename: body.rename || '',
+        token: cleanToken
+      };
+      await saveFavs(env, favs);
+
+      if (oldName && oldName !== newName) {
+        await env.SUB_CACHE.delete(oldName);
+        if (oldName !== oldName.toLowerCase()) {
+          await env.SUB_CACHE.delete(oldName.toLowerCase());
+        }
+      }
+
+      const syncData = JSON.stringify({
+        content: body.url,
+        include: body.include || '',
+        exclude: body.exclude || '',
+        rename: body.rename || '',
+        token: cleanToken
+      });
+      await env.SUB_CACHE.put(newName, syncData);
+      if (newName !== newName.toLowerCase()) {
+        await env.SUB_CACHE.put(newName.toLowerCase(), syncData);
+      }
+
+      await appendOperationLog(request, env, '修改配置', ctx);
+
+      return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return jsonError(`修改配置寫入 KV 失敗: ${msg}`, 500);
+    }
+  }
+
+  if (request.method === 'DELETE') {
+    if (!checkAuth(request, env)) {
+      if ((request.headers.get('X-Password') || '').trim() !== '') {
+        await appendOperationLog(request, env, '登入失敗', ctx);
+      }
+      return jsonError('密碼錯誤或未授權', 401);
+    }
+    try {
+      const body = (await request.json()) as { index?: number };
+      if (body.index === undefined) return jsonError('缺少索引參數', 400);
+      const favs = await getFavs(env);
+      if (body.index >= 0 && body.index < favs.length) {
+        const removed = favs.splice(body.index, 1)[0];
+        await saveFavs(env, favs);
+        if (removed && removed.name) {
+          const rName = removed.name.trim();
+          await env.SUB_CACHE.delete(rName);
+          if (rName !== rName.toLowerCase()) {
+            await env.SUB_CACHE.delete(rName.toLowerCase());
+          }
+        }
+        await appendOperationLog(request, env, '刪除配置', ctx);
+      }
+      return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return jsonError(`刪除配置失敗: ${msg}`, 500);
+    }
+  }
+
+  return null;
+}
+
+````
+
+## File: src/routes/sub.ts
+````ts
+// src/routes/sub.ts
+import { Env } from '../types';
+import { HTML_PAGE } from '../ui';
+import {
+  toSingBoxWithTemplate,
+  toClashWithTemplate,
+  toBase64,
+  toSurge,
+  toQuantumultX,
+  toLoon,
+  toHonk
+} from '../generators';
+import { loadNodesWithTraffic, filterAndRenameNodes } from '../services/node-loader';
+import { scheduleLog } from '../services/audit';
+
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const bufA = enc.encode(a);
+  const bufB = enc.encode(b);
+  if (bufA.length !== bufB.length) return false;
+  let diff = 0;
+  for (let i = 0; i < bufA.length; i++) {
+    diff |= bufA[i] ^ bufB[i];
+  }
+  return diff === 0;
+}
+
+export async function handleSubRoute(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  url: URL,
+  version: string
+): Promise<Response> {
+  let urlParam = url.searchParams.get('url') || '';
+  let includeParam = url.searchParams.get('include') || '';
+  let excludeParam = url.searchParams.get('exclude') || '';
+  let renameParam = url.searchParams.get('rename') || '';
+  const nameParam = url.searchParams.get('name') || '';
+  const forceRefresh = url.searchParams.has('force') || url.searchParams.has('nocache');
+
+  const rawPath = url.pathname.replace(/^\/+/, '');
+  const path = decodeURIComponent(rawPath).trim();
+  let detectedProfileName = nameParam;
+  let storedToken = '';
+  let foundInKv = false;
+
+  if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
+    if (!detectedProfileName) {
+      detectedProfileName = path;
+    }
+
+    let stored = await env.SUB_CACHE.get(path);
+    if (!stored && path !== path.toLowerCase()) {
+      stored = await env.SUB_CACHE.get(path.toLowerCase());
+    }
+    if (!stored && path !== path.toUpperCase()) {
+      stored = await env.SUB_CACHE.get(path.toUpperCase());
+    }
+
+    if (stored) {
+      foundInKv = true;
+      try {
+        const parsed = JSON.parse(stored) as {
+          content?: string;
+          include?: string;
+          exclude?: string;
+          rename?: string;
+          token?: string;
+        };
+        if (parsed && parsed.content) {
+          urlParam = parsed.content;
+          if (!includeParam) includeParam = parsed.include || '';
+          if (!excludeParam) excludeParam = parsed.exclude || '';
+          if (!renameParam) renameParam = parsed.rename || '';
+          storedToken = (parsed.token || '').trim();
+        }
+      } catch {
+        urlParam = stored;
+      }
+    }
+
+    if (!urlParam || urlParam.trim() === '') {
+      try {
+        const favsData = await env.SUB_CACHE.get('favorites');
+        if (favsData) {
+          const favsList = JSON.parse(favsData) as Array<Record<string, string>>;
+          const matched = favsList.find(f => f.name && f.name.trim().toLowerCase() === path.toLowerCase());
+          if (matched && matched.url) {
+            foundInKv = true;
+            urlParam = matched.url;
+            if (!includeParam) includeParam = matched.include || '';
+            if (!excludeParam) excludeParam = matched.exclude || '';
+            if (!renameParam) renameParam = matched.rename || '';
+            storedToken = (matched.token || '').trim();
+            detectedProfileName = matched.name;
+          }
+        }
+      } catch {}
+    }
+
+    // 防掃描校驗：若配置設有 Token，無 Token 或錯誤 Token 統一回傳 404 Not Found（防列舉），並記為異常存取
+    if (foundInKv && storedToken) {
+      const providedToken = (url.searchParams.get('token') || '').trim();
+      if (!providedToken || !timingSafeEqualStr(providedToken, storedToken)) {
+        scheduleLog(request, env, ctx, '異常存取');
+        return new Response('Not Found', {
+          status: 404,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+        });
+      }
+    }
+  }
+
+  if (!urlParam || urlParam.trim() === '') {
+    if (path === 'sub') {
+      return new Response('Error: Missing parameter "url"', { status: 400 });
+    }
+    if (path === 'favicon.ico') {
+      return new Response(null, { status: 204 });
+    }
+    if (path !== '') {
+      return new Response('Not Found', {
+        status: 404,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+      });
+    }
+    const dynamicHtml = HTML_PAGE.replace('id="appVersionBadge">PRO</span>', `id="appVersionBadge">v${version}</span>`);
+    return new Response(dynamicHtml, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  }
+
+  const { nodes: allNodes, errors, traffic } = await loadNodesWithTraffic(urlParam);
+
+  if (allNodes.length === 0) {
+    const errorMsg = errors.length > 0 ? errors.join('\n') : '未解析到任何有效節點。';
+    return new Response(errorMsg, { status: 400 });
+  }
+
+  const uniqueNodes = filterAndRenameNodes(allNodes, includeParam, excludeParam, renameParam);
+
+  let target = url.searchParams.get('target');
+
+  if (!target) {
+    const ua = (request.headers.get('User-Agent') || '').toLowerCase();
+    if (ua.includes('clash') || ua.includes('mihomo') || ua.includes('stash') || ua.includes('surfboard')) {
+      target = 'clash';
+    } else if (ua.includes('sing-box') || ua.includes('singbox') || ua.includes('hiddify')) {
+      target = 'singbox';
+    } else if (ua.includes('surge')) {
+      target = 'surge';
+    } else if (ua.includes('quantumult')) {
+      target = 'quanx';
+    } else if (ua.includes('loon')) {
+      target = 'loon';
+    } else if (ua.includes('honk') || ua.includes('dae')) {
+      target = 'honk';
+    } else if (ua.includes('v2ray') || ua.includes('shadowrocket')) {
+      target = 'base64';
+    }
+  }
+
+  const finalProfileName = detectedProfileName || 'subscription';
+
+  if (!target) {
+    scheduleLog(request, env, ctx, '獲取訂閱');
+
+    const host = `https://${url.host}`;
+    let basePreview = `${host}/?url=${encodeURIComponent(urlParam)}`;
+    if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
+      basePreview = `${host}/${encodeURIComponent(path)}`;
+      if (storedToken) basePreview += `?token=${encodeURIComponent(storedToken)}`;
+    }
+    const sep = basePreview.includes('?') ? '&' : '?';
+
+    let filterQuery = '';
+    if (includeParam && !foundInKv) filterQuery += `&include=${encodeURIComponent(includeParam)}`;
+    if (excludeParam && !foundInKv) filterQuery += `&exclude=${encodeURIComponent(excludeParam)}`;
+    if (renameParam && !foundInKv) filterQuery += `&rename=${encodeURIComponent(renameParam)}`;
+    if (detectedProfileName && !foundInKv) filterQuery += `&name=${encodeURIComponent(detectedProfileName)}`;
+
+    const htmlInfo = `<!DOCTYPE html><html lang="zh-TW"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>轉換完成</title><style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: radial-gradient(ellipse at 50% 0%, #0d1633 0%, #040711 75%); color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; position: relative; overflow-x: hidden; }
+body::before, body::after { content: ""; position: fixed; border-radius: 50%; filter: blur(90px); pointer-events: none; z-index: -1; }
+body::before { width: 420px; height: 420px; top: -100px; left: -80px; background: rgba(59, 130, 246, 0.34); }
+body::after { width: 440px; height: 440px; bottom: -120px; right: -80px; background: rgba(6, 182, 212, 0.25); }
+.glass-panel { background: linear-gradient(145deg, rgba(255,255,255,0.085) 0%, rgba(255,255,255,0.025) 100%); backdrop-filter: blur(24px) saturate(180%); -webkit-backdrop-filter: blur(24px) saturate(180%); border: 1px solid rgba(255,255,255,0.16); border-radius: 24px; padding: 36px 28px; max-width: 680px; width: 100%; text-align: center; box-shadow: 0 24px 56px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.22); }
+h1 { font-size: 1.5rem; margin-bottom: 22px; font-weight: 700; }
+.links { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+a { display: inline-flex; align-items: center; justify-content: center; padding: 12px 20px; background: linear-gradient(135deg, rgba(59,130,246,0.88), rgba(37,99,235,0.85)); color: #fff; text-decoration: none; border-radius: 14px; font-weight: 600; font-size: 0.92rem; border: 1px solid rgba(255,255,255,0.24); box-shadow: 0 8px 20px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.32); transition: transform 0.2s, box-shadow 0.2s; }
+a:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(59,130,246,0.48), inset 0 1px 0 rgba(255,255,255,0.4); }
+@media (prefers-reduced-motion: reduce) { a { transition: none; } }
+</style></head>
+<body>
+  <div class="glass-panel">
+    <h1>⚡ 成功轉換 ${uniqueNodes.length} 個節點</h1>
+    <div class="links">
+      <a href="${basePreview}${sep}target=clash${filterQuery}">Clash Meta (YAML)</a>
+      <a href="${basePreview}${sep}target=singbox${filterQuery}">Sing-Box (JSON)</a>
+      <a href="${basePreview}${sep}target=surge${filterQuery}">Surge 5</a>
+      <a href="${basePreview}${sep}target=quanx${filterQuery}">Quantumult X</a>
+      <a href="${basePreview}${sep}target=loon${filterQuery}">Loon</a>
+      <a href="${basePreview}${sep}target=base64${filterQuery}">Base64</a>
+      <a href="${basePreview}${sep}target=honk${filterQuery}">Honk / dae (config.dae)</a>
+    </div>
+  </div>
+</body></html>`;
+    return new Response(htmlInfo, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  }
+
+  let result = '';
+  let contentType = 'text/plain';
+  let fileExt = '.txt';
+
+  try {
+    if (target === 'clash') {
+      result = await toClashWithTemplate(uniqueNodes, env, forceRefresh);
+      contentType = 'text/yaml';
+      fileExt = '.yaml';
+    } else if (target === 'surge') {
+      result = toSurge(uniqueNodes);
+      contentType = 'text/plain';
+      fileExt = '.conf';
+    } else if (target === 'quanx' || target === 'qx') {
+      result = toQuantumultX(uniqueNodes);
+      contentType = 'text/plain';
+      fileExt = '.txt';
+    } else if (target === 'loon') {
+      result = toLoon(uniqueNodes);
+      contentType = 'text/plain';
+      fileExt = '.conf';
+    } else if (target === 'honk' || target === 'dae') {
+      const host = `https://${url.host}`;
+      let base64SubUrl = `${host}/?url=${encodeURIComponent(urlParam)}&target=base64`;
+      if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
+        base64SubUrl = `${host}/${encodeURIComponent(path)}?target=base64`;
+        if (storedToken) {
+          base64SubUrl += `&token=${encodeURIComponent(storedToken)}`;
+        }
+      }
+      if (includeParam) base64SubUrl += `&include=${encodeURIComponent(includeParam)}`;
+      if (excludeParam) base64SubUrl += `&exclude=${encodeURIComponent(excludeParam)}`;
+      if (renameParam) base64SubUrl += `&rename=${encodeURIComponent(renameParam)}`;
+
+      result = await toHonk(uniqueNodes, base64SubUrl, finalProfileName);
+      contentType = 'text/plain';
+      fileExt = '.dae';
+    } else if (target === 'base64') {
+      result = toBase64(uniqueNodes);
+      contentType = 'text/plain';
+      fileExt = '.txt';
+    } else {
+      result = await toSingBoxWithTemplate(uniqueNodes, env, forceRefresh);
+      contentType = 'application/json';
+      fileExt = '.json';
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return new Response(`轉換配置失敗: ${msg}`, {
+      status: 500,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
+    });
+  }
+
+  scheduleLog(request, env, ctx, '獲取訂閱');
+
+  const filenameAscii = `${finalProfileName.replace(/[^a-zA-Z0-9_-]/g, '_')}${fileExt}`;
+  const filenameUtf8 = encodeURIComponent(`${finalProfileName}${fileExt}`);
+
+  const responseHeaders: Record<string, string> = {
+    'Content-Type': `${contentType}; charset=utf-8`,
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Expose-Headers':
+      'Content-Disposition, Profile-Title, Subscription-Title, Profile-Update-Interval, subscription-userinfo',
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+    'Content-Disposition': `inline; filename="${filenameAscii}"; filename*=UTF-8''${filenameUtf8}`,
+    'Profile-Title': finalProfileName,
+    'Subscription-Title': finalProfileName,
+    'profile-update-interval': '3600'
+  };
+
+  if (traffic.hasTrafficInfo) {
+    let userInfoHeader = `upload=${traffic.totalUpload}; download=${traffic.totalDownload}; total=${traffic.totalTotal}`;
+    if (traffic.minExpire > 0) userInfoHeader += `; expire=${traffic.minExpire}`;
+    responseHeaders['subscription-userinfo'] = userInfoHeader;
+  }
+
+  return new Response(result, { headers: responseHeaders });
+}
+
+````
+
+## File: src/utils.ts
+````ts
+// src/utils.ts
+import { ProxyNode } from './types';
+
+// --- 安全 Base64 解碼 ---
+export function safeBase64Decode(str: string): string {
+  try {
+    let b64 = str.replace(/-/g, '+').replace(/_/g, '/').replace(/[^A-Za-z0-9+/=]/g, '');
+    while (b64.length % 4) b64 += '=';
+    
+    const binaryStr = atob(b64);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    return new TextDecoder('utf-8').decode(bytes);
+  } catch {
+    return '';
+  }
+}
+
+export function utf8ToBase64(str: string): string {
+  try {
+    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => {
+      return String.fromCharCode(parseInt(p1, 16));
+    }));
+  } catch {
+    return btoa(str);
+  }
+}
+
+export function tryDecodeURIComponent(str: string): string {
+  try {
+    return decodeURIComponent(str);
+  } catch {
+    return str;
+  }
+}
+
+// --- 自動加入國旗 Emoji 的智慧辨識系統 ---
+export function addFlag(name: string): string {
+  if (/[\uD83C][\uDDE6-\uDDFF][\uD83C][\uDDE6-\uDDFF]/.test(name)) {
+    return name;
+  }
+
+  const upper = name.toUpperCase();
+
+  const isMatch = (codes: string, keywords: string): boolean => {
+    const codeRegex = new RegExp(`(?:^|[^A-Z])(${codes})(?![A-Z])`);
+    const keywordRegex = new RegExp(`(${keywords})`);
+    return codeRegex.test(upper) || keywordRegex.test(upper);
+  };
+
+  if (isMatch('HK|HKG', '香港|深港|HONGKONG|HONG KONG')) return '🇭🇰 ' + name;
+  if (isMatch('TW|TWN|TPE', '台灣|台湾|台北|新北|彰化')) return '🇹🇼 ' + name;
+  if (isMatch('JP|JPN|TYO|OSA|NRT|HND|KIX', '日本|东京|大阪|埼玉|慢日|川日|JAPAN')) return '🇯🇵 ' + name;
+  if (isMatch('SG|SGP|SIN', '新加坡|狮城|SINGAPORE')) return '🇸🇬 ' + name;
+  if (isMatch('US|USA|LAX|SFO|SJC|SEA|NYC|JFK|EWR', '美国|美利堅|洛杉矶|圣何塞|硅谷|波特兰|西雅图|AMERICA|UNITED STATES')) return '🇺🇸 ' + name;
+  if (isMatch('KR|KOR|ICN|SEL', '韩国|首尔|KOREA')) return '🇰🇷 ' + name;
+  if (isMatch('UK|GB|GBR|LHR|LON', '英国|英國|伦敦|BRITAIN|ENGLAND')) return '🇬🇧 ' + name;
+  if (isMatch('NL|NLD|AMS', '荷兰|荷蘭|阿姆斯特丹|NETHERLANDS')) return '🇳🇱 ' + name;
+  if (isMatch('BR|BRA|SAO', '巴西|圣保罗|聖保羅|BRAZIL')) return '🇧🇷 ' + name;
+  if (isMatch('EG|EGY|CAI', '埃及|开罗|開羅|EGYPT')) return '🇪🇬 ' + name;
+  if (isMatch('VN|VNM|HAN|SGN', '越南|河内|河內|西贡|VIETNAM')) return '🇻🇳 ' + name;
+  if (isMatch('MO|MAC|MFM', '澳門|澳门')) return '🇲🇴 ' + name;
+  if (isMatch('KH|KHM|PNH', '柬埔寨|金边|金邊|CAMBODIA')) return '🇰🇭 ' + name;
+  if (isMatch('GR|GRC|ATH', '希腊|希臘|雅典|GREECE')) return '🇬🇷 ' + name;
+  if (isMatch('PL|POL|WAW', '波兰|波蘭|华沙|華沙|POLAND')) return '🇵🇱 ' + name;
+  if (isMatch('IT|ITA|MIL', '意大利|義大和|米兰|羅馬|ITALY')) return '🇮🇹 ' + name;
+  if (isMatch('ES|ESP|MAD', '西班牙|马德里|巴塞隆納|SPAIN')) return '🇪🇸 ' + name;
+  if (isMatch('DE|DEU|FRA', '德国|德國|法兰克福|GERMANY')) return '🇩🇪 ' + name;
+  if (isMatch('FR|FRA|CDG', '法国|法國|巴黎|FRANCE')) return '🇫🇷 ' + name;
+  if (isMatch('RU|RUS', '俄罗斯|俄羅斯|莫斯科|RUSSIA')) return '🇷🇺 ' + name;
+  if (isMatch('CH|CHE|ZRH', '瑞士|苏黎世|日内瓦|SWITZERLAND')) return '🇨🇭 ' + name;
+  if (isMatch('SE|SWE|ARN', '瑞典|斯德哥尔摩|SWEDEN')) return '🇸🇪 ' + name;
+  if (isMatch('NO|NOR|OSL', '挪威|奥斯陆|NORWAY')) return '🇳🇴 ' + name;
+  if (isMatch('FI|FIN|HEL', '芬兰|芬蘭|赫尔辛基|FINLAND')) return '🇫🇮 ' + name;
+  if (isMatch('DK|DNK|CPH', '丹麦|丹麥|哥本哈根|DENMARK')) return '🇩🇰 ' + name;
+  if (isMatch('IE|IRL|DUB', '爱尔兰|愛爾蘭|都柏林|IRELAND')) return '🇮🇪 ' + name;
+  if (isMatch('PT|PRT|LIS', '葡萄牙|里斯本|PORTUGAL')) return '🇵🇹 ' + name;
+  if (isMatch('TH|THA|BKK', '泰国|泰國|曼谷|THAILAND')) return '🇹🇭 ' + name;
+  if (isMatch('MY|MYS|KUL', '马来西亚|馬來西亞|吉隆坡|MALAYSIA')) return '🇲🇾 ' + name;
+  if (isMatch('PH|PHL|MNL', '菲律宾|菲律賓|马尼拉|PHILIPPINES')) return '🇵🇭 ' + name;
+  if (isMatch('ID|IDN|CGK', '印度尼西亚|印尼|雅加达|INDONESIA')) return '🇮🇩 ' + name;
+  if (isMatch('TR|TUR|IST', '土耳其|伊斯坦堡|TURKEY')) return '🇹🇷 ' + name;
+  if (isMatch('IN|IND|BOM', '印度|孟买|INDIA')) return '🇮🇳 ' + name;
+  if (isMatch('CA|CAN|YVR|YYZ', '加拿大|多伦多|温哥华|CANADA')) return '🇨🇦 ' + name;
+  if (isMatch('AU|AUS|SYD|MEL', '澳大利亚|澳洲|悉尼|墨本|AUSTRALIA')) return '🇦🇺 ' + name;
+  if (isMatch('CN|CHN', '中国|回国|国内|北京|上海|廣州|深圳|CHINA')) return '🇨🇳 ' + name;
+  if (isMatch('NZ|NZL|AKL', '新西兰|紐西蘭|奥克兰|NEW ZEALAND')) return '🇳🇿 ' + name;
+  if (isMatch('AE|ARE|DXB', '阿联酋|迪拜|杜拜|UAE')) return '🇦🇪 ' + name;
+  if (isMatch('SA|SAU|RUH', '沙特|沙烏地阿拉伯|利雅德|SAUDI')) return '🇸🇦 ' + name;
+  if (isMatch('IL|ISR|TLV', '以色列|特拉维夫|ISRAEL')) return '🇮🇱 ' + name;
+  if (isMatch('KZ|KAZ', '哈萨克斯坦|哈薩克|KAZAKHSTAN')) return '🇰🇿 ' + name;
+  if (isMatch('PK|PAK', '巴基斯坦|PAKISTAN')) return '🇵🇰 ' + name;
+  if (isMatch('ZA|ZAF|CPT', '南非|开普敦|SOUTH AFRICA')) return '🇿🇦 ' + name;
+
+  return '🇺🇳 ' + name;
+}
+
+// 按國旗進行歸類排序（🇺🇳 置於頂部）
+export function groupNodesByFlag(nodes: ProxyNode[]): ProxyNode[] {
+  const groups = new Map<string, ProxyNode[]>();
+  const flagOrder: string[] = [];
+  
+  for (const node of nodes) {
+    const flaggedName = addFlag(node.name || 'node');
+    
+    let flag = '🇺🇳';
+    const match = flaggedName.match(/^([\uD83C][\uDDE6-\uDDFF][\uD83C][\uDDE6-\uDDFF])/);
+    if (match) {
+      flag = match[1];
+    }
+    
+    if (!groups.has(flag)) {
+      groups.set(flag, []);
+      flagOrder.push(flag);
+    }
+    groups.get(flag)!.push(node);
+  }
+  
+  const standardOrder = [
+    '🇭🇰', '🇹🇼', '🇯🇵', '🇸🇬', '🇰🇷',
+    '🇺🇸', '🇬🇧', '🇨🇦', '🇦🇺',
+    '🇲🇴', '🇨🇳', '🇹🇭', '🇻🇳', '🇲🇾', '🇵🇭', '🇮🇩',
+    '🇩🇪', '🇫🇷', '🇳🇱', '🇷🇺', '🇮🇳', '🇹🇷'
+  ];
+  
+  flagOrder.sort((a, b) => {
+    if (a === '🇺🇳' && b !== '🇺🇳') return -1;
+    if (b === '🇺🇳' && a !== '🇺🇳') return 1;
+    
+    const idxA = standardOrder.indexOf(a);
+    const idxB = standardOrder.indexOf(b);
+    
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    
+    return a.localeCompare(b);
+  });
+  
+  const result: ProxyNode[] = [];
+  for (const flag of flagOrder) {
+    result.push(...groups.get(flag)!);
+  }
+  return result;
+}
+
+// 去重複命名與標籤對齊
+export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
+  const seenKey = new Set<string>();
+  const nameCount = new Map<string, number>();
+
+  return nodes.filter(node => {
+    const key = `${node.server}:${node.port}:${node.uuid || node.password || ''}:${node.type}`;
+
+    if (seenKey.has(key)) return false;
+    seenKey.add(key);
+
+    let baseName = node.name || 'node';
+    baseName = addFlag(baseName);
+
+    if (!nameCount.has(baseName)) {
+      nameCount.set(baseName, 1);
+      node.name = baseName;
+    } else {
+      const count = nameCount.get(baseName)! + 1;
+      nameCount.set(baseName, count);
+      node.name = `${baseName}_${count}`;
+    }
+
+    if (node.singboxObj) {
+      node.singboxObj.tag = node.name;
+    }
+    if (node.clashObj) {
+      node.clashObj.name = node.name;
+    }
+
+    return true;
+  });
+}
+
+````
+
+## File: src/ui/index.ts
+````ts
+// src/ui/index.ts
+import { UI_STYLES } from './styles';
+import { UI_MARKUP } from './markup';
+import { UI_SCRIPT } from './script';
+
+export const HTML_PAGE = `<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SubConverter Pro | 全能訂閱轉換器</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  
+  <style>
+${UI_STYLES}
+  </style>
+</head>
+<body>
+${UI_MARKUP}
+  <script>
+${UI_SCRIPT}
+  </script>
+</body>
+</html>
+`;
 
 ````
 
@@ -967,36 +3546,510 @@ export const UI_STYLES = `
 
 ````
 
-## File: src/ui/index.ts
+## File: src/ui/markup.ts
 ````ts
-// src/ui/index.ts
-import { UI_STYLES } from './styles';
-import { UI_MARKUP } from './markup';
-import { UI_SCRIPT } from './script';
+// src/ui/markup.ts
+export const UI_MARKUP = `
+  <header class="header">
+    <div class="brand">
+      <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
+      SubConverter Pro
+    </div>
+    <span class="badge" id="appVersionBadge">PRO</span>
+  </header>
 
-export const HTML_PAGE = `<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SubConverter Pro | 全能訂閱轉換器</title>
-  
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-  
-  <style>
-${UI_STYLES}
-  </style>
-</head>
-<body>
-${UI_MARKUP}
-  <script>
-${UI_SCRIPT}
-  </script>
-</body>
-</html>
+  <div class="container">
+    <main class="panel">
+      <div class="panel-header">
+        <h2 class="panel-title">
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+          資料來源與規則設定
+        </h2>
+      </div>
+      
+      <div class="form-group">
+        <label for="urlInput">節點連結或訂閱地址 (支援多筆換行，含 WireGuard/MASQUE/WARP/AnyTLS)</label>
+        <textarea id="urlInput" placeholder="vmess://...&#10;vless://...&#10;wireguard://...&#10;masque://...&#10;hysteria2://...&#10;https://example.com/sub"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="includeKeywords">僅保留關鍵字節點 (選填，多個用 | 分隔)</label>
+        <input type="text" id="includeKeywords" placeholder="例如: 🇭🇰|台灣|TW|IPLC">
+      </div>
+
+      <div class="form-group">
+        <label for="excludeKeywords">排除關鍵字節點 (選填，多個用 | 分隔)</label>
+        <input type="text" id="excludeKeywords" placeholder="例如: 流量|官網|重置|5x">
+      </div>
+
+      <div class="form-group">
+        <label for="renameKeywords">節點名稱替換 (選填，多個用 | 分隔)</label>
+        <input type="text" id="renameKeywords" placeholder="例如: DEL-[69云]|移动优化-專線|ALL-JP">
+      </div>
+      
+      <div class="form-group">
+        <label for="shortCode">自訂路徑短連結 (選填)</label>
+        <input type="text" id="shortCode" placeholder="例如: proton_vpn">
+      </div>
+
+      <div class="form-group">
+        <label for="shortToken">自訂短連結存取 Token (選填，留空則直接使用短連結；設定後原裸短連結失效)</label>
+        <div class="cmd-group" style="margin-top: 0;">
+          <input type="text" id="shortToken" placeholder="例如: 點擊右側「隨機生成」或自訂高強度字串">
+          <button type="button" class="btn btn-ghost" onclick="generateRandomToken('shortToken')">
+            <svg viewBox="0 0 24 24" style="width:16px;height:16px"><polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line><polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line><line x1="4" y1="4" x2="9" y2="9"></line></svg>
+            隨機生成
+          </button>
+        </div>
+      </div>
+      
+      <button class="btn btn-primary" id="generateBtn" onclick="generate()" style="margin-top: 1.5rem;">
+        <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+        <span>執行全客戶端轉換</span>
+      </button>
+    </main>
+
+    <section class="results-wrapper" id="results">
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">
+            <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+            多平台訂閱連結
+          </h2>
+        </div>
+        
+        <!-- 自適應 -->
+        <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+          </div>
+          <div class="result-info"><div class="result-name">自適應 (Auto)</div><div class="result-desc">自動識別客戶端協議</div></div>
+          <div class="result-input-wrapper"><input type="text" id="adaptiveUrl" readonly></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('adaptiveUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('adaptiveUrl', 'auto')" title="顯示 QR Code"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
+        </div>
+
+        <!-- Sing-Box -->
+        <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+          </div>
+          <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · 雙 DoH 高可用</div></div>
+          <div class="result-input-wrapper"><input type="text" id="singboxUrl" readonly></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('singboxUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('singboxUrl', 'singbox')" title="顯示 Sing-Box 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
+        </div>
+
+        <!-- Clash Meta -->
+        <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"></path><line x1="16" y1="8" x2="2" y2="22"></line><line x1="17.5" y1="15" x2="9" y2="6.5"></line></svg>
+          </div>
+          <div class="result-info"><div class="result-name">Clash Meta (Mihomo)</div><div class="result-desc">YAML 配置 · 並發 DoH 競速</div></div>
+          <div class="result-input-wrapper"><input type="text" id="clashUrl" readonly></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('clashUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('clashUrl', 'clash')" title="顯示 Clash 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
+        </div>
+
+        <!-- Surge 5 -->
+        <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+          </div>
+          <div class="result-info"><div class="result-name">Surge 5</div><div class="result-desc">標準 Surge .conf 格式 · 小火箭首選</div></div>
+          <div class="result-input-wrapper"><input type="text" id="surgeUrl" readonly></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('surgeUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('surgeUrl', 'surge')" title="顯示 Surge 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
+        </div>
+
+        <!-- Quantumult X -->
+        <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+          </div>
+          <div class="result-info"><div class="result-name">Quantumult X</div><div class="result-desc">server_remote 遠端節點列表</div></div>
+          <div class="result-input-wrapper"><input type="text" id="quanxUrl" readonly></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('quanxUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('quanxUrl', 'quanx')" title="顯示 Quantumult X 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
+        </div>
+
+        <!-- Loon -->
+        <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
+          </div>
+          <div class="result-info"><div class="result-name">Loon</div><div class="result-desc">Loon 代理配置清單</div></div>
+          <div class="result-input-wrapper"><input type="text" id="loonUrl" readonly></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('loonUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('loonUrl', 'loon')" title="顯示 Loon 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
+        </div>
+
+        <!-- Base64 -->
+        <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+          </div>
+          <div class="result-info"><div class="result-name">Base64 / 通用</div><div class="result-desc">通用明文 / v2rayNG / Shadowrocket</div></div>
+          <div class="result-input-wrapper"><input type="text" id="base64Url" readonly></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('base64Url')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+            <button class="btn-icon" onclick="showQr('base64Url', 'shadowrocket')" title="顯示通用掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
+          </div>
+        </div>
+
+        <!-- Honk / DAE (放在最下面) -->
+        <div class="result-item">
+          <div class="result-icon-box">
+            <svg viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+          </div>
+          <div class="result-info"><div class="result-name">Honk / DAE</div><div class="result-desc">OpenWrt eBPF 內核級配置 · Doona UI</div></div>
+          <div class="result-input-wrapper"><input type="text" id="honkUrl" readonly></div>
+          <div class="result-actions">
+            <button class="btn-icon" onclick="copyResult('honkUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Argo 隧道 2.0 生成器 -->
+    <main class="panel">
+      <div class="panel-header">
+        <h2 class="panel-title" style="color: var(--primary);">
+          <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
+          Argo 隧道 2.0 (支援優選 IP / 多端口部署)
+        </h2>
+        <button class="btn btn-ghost" onclick="openArgoHelpModal()" title="查看 Argo 隧道 2.0 使用說明" style="padding: 0.45rem 0.7rem; font-weight: 700;">?</button>
+      </div>
+      
+      <div class="form-group">
+        <button class="btn btn-ghost" id="parseVlessBtn" onclick="parseVlessNodes()" style="width: 100%; justify-content: center; font-weight: 600;">
+          第一步：解析並載入目前輸入的 VLESS / VMess 節點
+        </button>
+      </div>
+
+      <div id="vlessSelectorWrapper" style="display: none; margin-top: 1.25rem; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.25rem; background: var(--bg-input);">
+        <label style="margin-bottom: 0.75rem; display: block; font-weight: 600;">選擇要轉換的原始節點 (可多選)：</label>
+        <div id="vlessCheckboxList" style="display: flex; flex-direction: column; gap: 8px; max-height: 200px; overflow-y: auto; margin-bottom: 1.25rem;"></div>
+        
+        <div class="form-group">
+          <label>1. VPS 本地監聽連接埠 (預設匹配選中節點)</label>
+          <input type="text" id="argoLocalPort" value="8080">
+        </div>
+
+        <div class="form-group">
+          <label>2. Cloudflare 優選 IP / 優選官方域名 (選填，例如 104.16.80.1)</label>
+          <input type="text" id="argoCleanIp" placeholder="若留空則預設直接使用 Argo 分配域名">
+        </div>
+
+        <div class="form-group">
+          <label>3. Cloudflare Tunnel Token (選填，留空啟用臨時隨機隧道)</label>
+          <input type="text" id="argoTunnelToken" placeholder="若使用固定隧道請貼上 Token">
+        </div>
+
+        <div class="form-group">
+          <label>4. 自訂綁定域名 (固定隧道必填)</label>
+          <input type="text" id="argoCustomDomain" placeholder="例如: argo.yourdomain.com">
+        </div>
+
+        <button class="btn btn-primary" id="generateArgoBtn" onclick="generateArgo()" style="margin-top: 1rem; background: var(--success);">
+          第二步：生成 Argo 一鍵部署指令與節點
+        </button>
+      </div>
+    </main>
+
+    <!-- Argo 結果區 -->
+    <section class="results-wrapper" id="argoResults">
+      <div class="panel">
+        <div class="panel-header"><h2 class="panel-title" style="color: var(--success);">Argo 部署指令與節點列表</h2></div>
+        <div class="form-group">
+          <label>📋 VPS 一鍵部署命令 (root 權限執行)：</label>
+          <div class="cmd-group">
+            <input type="text" id="argoCurlCmd" readonly>
+            <button class="btn btn-ghost" onclick="copyText('argoCurlCmd')">複製指令</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>🔗 新生成的 Argo 節點列表：</label>
+          <textarea id="argoBase64Sub" readonly style="min-height: 120px; font-size: 0.8rem;"></textarea>
+          <button class="btn btn-ghost" onclick="copyText('argoBase64Sub')" style="margin-top: 0.5rem; width: 100%;">複製全部節點</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 已儲存的配置 -->
+    <section class="panel">
+      <div class="panel-header">
+        <h2 class="panel-title">
+          <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+          已儲存的配置
+        </h2>
+        <div id="favHeaderActions" style="display: flex; gap: 8px;"></div>
+      </div>
+      
+      <div id="favGrid"></div>
+    </section>
+
+    <!-- 查看操作日誌 -->
+    <section class="panel" id="logsPanel" style="display: none;">
+      <div class="panel-header" id="logsPanelHeader">
+        <h2 class="panel-title">
+          <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          查看操作日誌
+        </h2>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-ghost" id="refreshLogsBtn" onclick="refreshLogsNow()" title="立即刷新日誌">
+            <svg viewBox="0 0 24 24" style="width:16px;height:16px"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            刷新
+          </button>
+          <button class="btn btn-ghost" id="toggleLogsBtn" onclick="toggleLogsCollapse()" title="收合 / 展開">
+            <svg id="toggleLogsIcon" viewBox="0 0 24 24" style="width:16px;height:16px;transition:transform 0.2s"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            <span id="toggleLogsText">收合</span>
+          </button>
+        </div>
+      </div>
+      <div id="logsBody">
+        <div id="logsTableContainer"></div>
+        <div class="logs-footer" id="logsFooter">
+          <span class="logs-note">因為 KV 空間與 Workers CPU 限制，只保留最新 200 筆操作日誌，超過該數量會自動清理最舊的日誌記錄。</span>
+          <button class="btn btn-primary" style="width: auto; padding: 0.65rem 1.25rem; font-size: 0.9rem;" onclick="openLogsModal()">全部日誌</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 消息通知設定 -->
+    <section class="panel" id="tgPanel" style="display: none;">
+      <div class="panel-header" id="tgPanelHeader">
+        <h2 class="panel-title">
+          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+          消息通知設定
+        </h2>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-ghost" id="toggleTgBtn" onclick="toggleTgCollapse()" title="收合 / 展開">
+            <svg id="toggleTgIcon" viewBox="0 0 24 24" style="width:16px;height:16px;transition:transform 0.2s"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            <span id="toggleTgText">收合</span>
+          </button>
+        </div>
+      </div>
+      <div id="tgBody">
+        <div class="tg-control-row">
+          <div class="tg-left-group">
+            <span class="tg-label-text">Telegram Bot 通知設定</span>
+            <label class="tg-checkbox-label" for="tgEnabledCheckbox">
+              <input type="checkbox" id="tgEnabledCheckbox" onchange="toggleTgEnabled(this)">
+              <span>啟用</span>
+            </label>
+            <span class="badge" id="tgStatusBadge" style="display: none;"></span>
+          </div>
+          <div class="tg-actions-group">
+            <button class="btn btn-ghost" onclick="openTgHelpModal()" title="查看申請教學與設定說明" style="padding: 0.5rem 0.7rem; font-weight: 700;">?</button>
+            <button class="btn btn-primary" style="width: auto; padding: 0.55rem 1rem; font-size: 0.85rem;" onclick="openTgModal()">
+              <svg viewBox="0 0 24 24" style="width:16px;height:16px"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+              參數配置
+            </button>
+            <button class="btn btn-ghost btn-danger" onclick="clearTgConfig()">
+              <svg viewBox="0 0 24 24" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              清除配置
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Argo 隧道 2.0 ? 詳細說明彈窗 -->
+  <div class="modal-overlay" id="argoHelpModal">
+    <div class="modal-content" style="max-width: 640px;">
+      <div class="panel-header" style="margin-bottom: 1.25rem;">
+        <h3 class="panel-title">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          Argo 隧道 2.0 使用說明與部署教學
+        </h3>
+      </div>
+      <div class="tg-help-box">
+        <div class="tg-help-step">
+          <div class="tg-help-step-title">一、什麼是 Argo 隧道 2.0？（適用協議與前提）</div>
+          <div>
+            將 VPS 上原本容易被阻斷或延遲較高的節點，透過 <code>cloudflared</code> 加密隧道接入 Cloudflare 邊緣節點（Anycast），實現隱藏真實 VPS IP 與優選 IP 加速。<br>
+            • <strong>支援協議</strong>：僅支援 <code>VLESS</code> 與 <code>VMess</code>（建議使用 <code>ws</code> WebSocket 傳輸；Reality / gRPC 無法經過 Cloudflare 代理）。<br>
+            • <strong>第一步操作</strong>：先在頁面最上方輸入框貼入原始節點或訂閱網址，再點擊「第一步」按鈕載入並勾選欲轉換的節點。
+          </div>
+        </div>
+        <div class="tg-help-step">
+          <div class="tg-help-step-title">二、兩種隧道模式比較（臨時 vs 固定）</div>
+          <div>
+            • <strong>臨時隧道模式 (Quick Tunnel)</strong>：將「Token」與「自訂域名」<strong>皆留空</strong>。不需自己買網域，VPS 執行腳本後會自動申請隨機 <code>*.trycloudflare.com</code> 域名。<br>
+              <em>⚠️ 注意：VPS 重啟或隧道服務重啟後臨時域名會刷新，執行完腳本請從 VPS 終端機複製新域名，手動替換輸出節點中的提示域名。</em><br>
+            • <strong>固定隧道模式 (Named Tunnel)</strong>：需先於 Cloudflare Zero Trust 後台建立 Tunnel 取得 <strong>Token</strong>，並綁定您自己的域名（例如 <code>argo.yourdomain.com</code> 指向本地 <code>http://127.0.0.1:連接埠</code>）。生成後可直接取得永久可用的節點連結。
+          </div>
+        </div>
+        <div class="tg-help-step">
+          <div class="tg-help-step-title">三、本地連接埠與優選 IP 填寫指南</div>
+          <div>
+            • <strong>VPS 本地監聽連接埠</strong>：填寫 VPS 上 Xray / Sing-Box 實際監聽的連接埠（預設自動帶入所選節點 Port，如 <code>8080</code>）。部署腳本會自動探測本機監聽狀態、智慧偵測 TLS 與自動重寫 Origin Host。<br>
+            • <strong>Cloudflare 優選 IP / 優選域名（選填）</strong>：填入 Cloudflare Clean IP（如 <code>104.16.80.1</code>）或優選官方網域（如 <code>www.visa.com</code>、<code>icook.hk</code>），系統會將連接目標替換為優選 IP 並保留 Argo 網域作為 <code>SNI/Host</code>，顯著降低延遲。
+          </div>
+        </div>
+        <div class="tg-help-step">
+          <div class="tg-help-step-title">四、VPS 一鍵部署注意事項</div>
+          <div>
+            1. 產生的一鍵指令 <code>curl -sSL ... | bash</code> 快取有效期為 <strong>1 小時 (3600 秒)</strong>。<br>
+            2. 請務必使用 <strong><code>root</code> 權限</strong>於目標節點的 Linux (<code>amd64</code>) VPS 上執行，腳本會自動安裝 <code>cloudflared</code> 並註冊為開機自啟的 systemd 服務。
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="margin-top: 1.5rem;">
+        <button class="btn btn-primary" onclick="closeArgoHelpModal()" style="width: auto; padding: 0.65rem 1.5rem; font-size: 0.95rem;">我知道了</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 全部日誌彈窗 -->
+  <div class="modal-overlay" id="logsModal">
+    <div class="modal-content logs-modal-content">
+      <div class="panel-header" style="margin-bottom: 1.25rem;">
+        <h3 class="panel-title">
+          <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          所有操作日誌
+        </h3>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-ghost" onclick="refreshLogsNow()" title="立即刷新">
+            <svg viewBox="0 0 24 24" style="width:16px;height:16px"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            刷新
+          </button>
+        </div>
+      </div>
+      <div class="logs-modal-scroll" id="allLogsTableContainer"></div>
+      <div class="modal-footer" style="margin-top: 1.5rem; justify-content: space-between; flex-wrap: wrap;">
+        <button class="btn btn-ghost btn-danger" onclick="clearLogs()">
+          <svg viewBox="0 0 24 24" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          清空日誌
+        </button>
+        <button class="btn btn-primary" onclick="closeLogsModal()" style="width: auto; padding: 0.65rem 1.5rem; font-size: 0.95rem;">關閉</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Telegram Bot 參數配置彈窗 -->
+  <div class="modal-overlay" id="tgModal">
+    <div class="modal-content" style="max-width: 540px;">
+      <div class="panel-header" style="margin-bottom: 1.25rem;">
+        <h3 class="panel-title">
+          <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+          Telegram Bot 參數配置
+        </h3>
+        <button class="btn btn-ghost" onclick="openTgHelpModal()" title="查看設定教學" style="padding: 0.4rem 0.65rem; font-weight: 700;">?</button>
+      </div>
+      <div class="form-group">
+        <label for="tgBotTokenInput">Bot Token</label>
+        <input type="password" id="tgBotTokenInput" placeholder="例如: 123456789:AAHxxxxxxxxxxxxxxxxxxxx">
+        <div class="hint" id="tgTokenHint">若已配置過 Token，留空不填代表維持原本設定的密鑰。</div>
+      </div>
+      <div class="form-group">
+        <label for="tgChatIdInput">Chat ID</label>
+        <input type="text" id="tgChatIdInput" placeholder="例如: 987654321 或 -1001234567890">
+        <div class="hint">啟用後將自動推送所有事件通知（含操作類型、時間 UTC+8、IP、地區、ASN、URL 與 UA）。</div>
+      </div>
+      <div class="modal-footer" style="margin-top: 1.75rem; justify-content: space-between; flex-wrap: wrap;">
+        <button class="btn btn-ghost" id="tgTestBtn" onclick="testTgConfig()">
+          <svg viewBox="0 0 24 24" style="width:16px;height:16px"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+          發送測試訊息
+        </button>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn btn-ghost" onclick="closeTgModal()">取消</button>
+          <button class="btn btn-primary" onclick="saveTgConfig()" style="width: auto; padding: 0.65rem 1.5rem; font-size: 0.95rem;">儲存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Telegram Bot ? 說明教學彈窗 -->
+  <div class="modal-overlay" id="tgHelpModal">
+    <div class="modal-content" style="max-width: 600px;">
+      <div class="panel-header" style="margin-bottom: 1.25rem;">
+        <h3 class="panel-title">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          Telegram Bot 申請與設定說明
+        </h3>
+      </div>
+      <div class="tg-help-box">
+        <div class="tg-help-step">
+          <div class="tg-help-step-title">第一步：申請機器人並取得 Bot Token</div>
+          <div>
+            1. 在 Telegram 搜尋並開啟官方帳號 <code>@BotFather</code>。<br>
+            2. 發送指令 <code>/newbot</code>，依提示輸入機器人的顯示名稱與用戶名（用戶名必須以 <code>bot</code> 結尾，例如 <code>my_sub_alert_bot</code>）。<br>
+            3. 建立成功後，複製訊息中類似 <code>123456789:AAHxxx...</code> 的字串，填入 <strong>Bot Token</strong>。
+          </div>
+        </div>
+        <div class="tg-help-step">
+          <div class="tg-help-step-title">第二步：查詢個人或群組 Chat ID</div>
+          <div>
+            1. 在 Telegram 搜尋並開啟 <code>@userinfobot</code>（或 <code>@getidsbot</code>），點擊 <code>Start</code>。<br>
+            2. 機器人會回覆一串純數字 <code>Id</code>（例如 <code>987654321</code>），填入 <strong>Chat ID</strong>。<br>
+            3. 若要通知至群組，請先將機器人加入群組並查出以 <code>-100</code> 開頭的群組 ID。
+          </div>
+        </div>
+        <div class="tg-help-step">
+          <div class="tg-help-step-title">第三步：必做！先啟動機器人對話</div>
+          <div>
+            設定完成前，請務必親自搜尋並開啟您剛建立的機器人視窗，點擊底部的 <strong><code>Start</code></strong>（發送 <code>/start</code>）。<br>
+            若未先主動發起對話，Telegram 安全機制會阻擋機器人主動傳訊（測試時將顯示 Forbidden 錯誤）。
+          </div>
+        </div>
+        <div class="tg-help-step">
+          <div class="tg-help-step-title">第四步：測試與安全機制</div>
+          <div>
+            填妥後點擊 <strong>「發送測試訊息」</strong> 驗證連線正常即可儲存。所有憑證皆受 <code>PAGE_PASSWORD</code> 保護並儲存於 Cloudflare KV，讀取時會自動遮罩敏感字元。
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="margin-top: 1.5rem;">
+        <button class="btn btn-primary" onclick="closeTgHelpModal()" style="width: auto; padding: 0.65rem 1.5rem; font-size: 0.95rem;">我知道了</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 新增 / 編輯配置彈窗 -->
+  <div class="modal-overlay" id="modal">
+    <div class="modal-content">
+      <h3 id="modalTitle" style="margin-bottom: 1rem;">新增配置</h3>
+      <div class="form-group"><label>配置名稱</label><input type="text" id="favName"></div>
+      <div class="form-group"><label>節點內容 / 訂閱連結</label><textarea id="favUrl"></textarea></div>
+      <div class="form-group"><label>保留關鍵字</label><input type="text" id="favInclude"></div>
+      <div class="form-group"><label>排除關鍵字</label><input type="text" id="favExclude"></div>
+      <div class="form-group"><label>名稱替換規則</label><input type="text" id="favRename"></div>
+      <div class="form-group">
+        <label for="favToken">自訂存取 Token (選填，設定後原裸短連結將失效，必須帶 ?token= 才可存取)</label>
+        <div class="cmd-group" style="margin-top: 0;">
+          <input type="text" id="favToken" placeholder="留空表示維持一般短連結；點擊右側隨機生成高強度 Token">
+          <button type="button" class="btn btn-ghost" onclick="generateRandomToken('favToken')">
+            <svg viewBox="0 0 24 24" style="width:16px;height:16px"><polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line><polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line><line x1="4" y1="4" x2="9" y2="9"></line></svg>
+            隨機生成
+          </button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+        <button class="btn btn-primary" onclick="saveFav()" style="width: auto;">儲存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">
+    <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+    <span id="toastMsg">提示訊息</span>
+  </div>
 `;
 
 ````
@@ -2076,1087 +5129,6 @@ export const UI_SCRIPT = `
 
 ````
 
-## File: src/ui/markup.ts
-````ts
-// src/ui/markup.ts
-export const UI_MARKUP = `
-  <header class="header">
-    <div class="brand">
-      <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
-      SubConverter Pro
-    </div>
-    <span class="badge" id="appVersionBadge">PRO</span>
-  </header>
-
-  <div class="container">
-    <main class="panel">
-      <div class="panel-header">
-        <h2 class="panel-title">
-          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-          資料來源與規則設定
-        </h2>
-      </div>
-      
-      <div class="form-group">
-        <label for="urlInput">節點連結或訂閱地址 (支援多筆換行，含 WireGuard/MASQUE/WARP/AnyTLS)</label>
-        <textarea id="urlInput" placeholder="vmess://...&#10;vless://...&#10;wireguard://...&#10;masque://...&#10;hysteria2://...&#10;https://example.com/sub"></textarea>
-      </div>
-
-      <div class="form-group">
-        <label for="includeKeywords">僅保留關鍵字節點 (選填，多個用 | 分隔)</label>
-        <input type="text" id="includeKeywords" placeholder="例如: 🇭🇰|台灣|TW|IPLC">
-      </div>
-
-      <div class="form-group">
-        <label for="excludeKeywords">排除關鍵字節點 (選填，多個用 | 分隔)</label>
-        <input type="text" id="excludeKeywords" placeholder="例如: 流量|官網|重置|5x">
-      </div>
-
-      <div class="form-group">
-        <label for="renameKeywords">節點名稱替換 (選填，多個用 | 分隔)</label>
-        <input type="text" id="renameKeywords" placeholder="例如: DEL-[69云]|移动优化-專線|ALL-JP">
-      </div>
-      
-      <div class="form-group">
-        <label for="shortCode">自訂路徑短連結 (選填)</label>
-        <input type="text" id="shortCode" placeholder="例如: proton_vpn">
-      </div>
-
-      <div class="form-group">
-        <label for="shortToken">自訂短連結存取 Token (選填，留空則直接使用短連結；設定後原裸短連結失效)</label>
-        <div class="cmd-group" style="margin-top: 0;">
-          <input type="text" id="shortToken" placeholder="例如: 點擊右側「隨機生成」或自訂高強度字串">
-          <button type="button" class="btn btn-ghost" onclick="generateRandomToken('shortToken')">
-            <svg viewBox="0 0 24 24" style="width:16px;height:16px"><polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line><polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line><line x1="4" y1="4" x2="9" y2="9"></line></svg>
-            隨機生成
-          </button>
-        </div>
-      </div>
-      
-      <button class="btn btn-primary" id="generateBtn" onclick="generate()" style="margin-top: 1.5rem;">
-        <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-        <span>執行全客戶端轉換</span>
-      </button>
-    </main>
-
-    <section class="results-wrapper" id="results">
-      <div class="panel">
-        <div class="panel-header">
-          <h2 class="panel-title">
-            <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-            多平台訂閱連結
-          </h2>
-        </div>
-        
-        <!-- 自適應 -->
-        <div class="result-item">
-          <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
-          </div>
-          <div class="result-info"><div class="result-name">自適應 (Auto)</div><div class="result-desc">自動識別客戶端協議</div></div>
-          <div class="result-input-wrapper"><input type="text" id="adaptiveUrl" readonly></div>
-          <div class="result-actions">
-            <button class="btn-icon" onclick="copyResult('adaptiveUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('adaptiveUrl', 'auto')" title="顯示 QR Code"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
-          </div>
-        </div>
-
-        <!-- Sing-Box -->
-        <div class="result-item">
-          <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
-          </div>
-          <div class="result-info"><div class="result-name">Sing-Box</div><div class="result-desc">JSON 配置 · 雙 DoH 高可用</div></div>
-          <div class="result-input-wrapper"><input type="text" id="singboxUrl" readonly></div>
-          <div class="result-actions">
-            <button class="btn-icon" onclick="copyResult('singboxUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('singboxUrl', 'singbox')" title="顯示 Sing-Box 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
-          </div>
-        </div>
-
-        <!-- Clash Meta -->
-        <div class="result-item">
-          <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"></path><line x1="16" y1="8" x2="2" y2="22"></line><line x1="17.5" y1="15" x2="9" y2="6.5"></line></svg>
-          </div>
-          <div class="result-info"><div class="result-name">Clash Meta (Mihomo)</div><div class="result-desc">YAML 配置 · 並發 DoH 競速</div></div>
-          <div class="result-input-wrapper"><input type="text" id="clashUrl" readonly></div>
-          <div class="result-actions">
-            <button class="btn-icon" onclick="copyResult('clashUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('clashUrl', 'clash')" title="顯示 Clash 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
-          </div>
-        </div>
-
-        <!-- Surge 5 -->
-        <div class="result-item">
-          <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-          </div>
-          <div class="result-info"><div class="result-name">Surge 5</div><div class="result-desc">標準 Surge .conf 格式 · 小火箭首選</div></div>
-          <div class="result-input-wrapper"><input type="text" id="surgeUrl" readonly></div>
-          <div class="result-actions">
-            <button class="btn-icon" onclick="copyResult('surgeUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('surgeUrl', 'surge')" title="顯示 Surge 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
-          </div>
-        </div>
-
-        <!-- Quantumult X -->
-        <div class="result-item">
-          <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-          </div>
-          <div class="result-info"><div class="result-name">Quantumult X</div><div class="result-desc">server_remote 遠端節點列表</div></div>
-          <div class="result-input-wrapper"><input type="text" id="quanxUrl" readonly></div>
-          <div class="result-actions">
-            <button class="btn-icon" onclick="copyResult('quanxUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('quanxUrl', 'quanx')" title="顯示 Quantumult X 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
-          </div>
-        </div>
-
-        <!-- Loon -->
-        <div class="result-item">
-          <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
-          </div>
-          <div class="result-info"><div class="result-name">Loon</div><div class="result-desc">Loon 代理配置清單</div></div>
-          <div class="result-input-wrapper"><input type="text" id="loonUrl" readonly></div>
-          <div class="result-actions">
-            <button class="btn-icon" onclick="copyResult('loonUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('loonUrl', 'loon')" title="顯示 Loon 專屬掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
-          </div>
-        </div>
-
-        <!-- Base64 -->
-        <div class="result-item">
-          <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
-          </div>
-          <div class="result-info"><div class="result-name">Base64 / 通用</div><div class="result-desc">通用明文 / v2rayNG / Shadowrocket</div></div>
-          <div class="result-input-wrapper"><input type="text" id="base64Url" readonly></div>
-          <div class="result-actions">
-            <button class="btn-icon" onclick="copyResult('base64Url')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-            <button class="btn-icon" onclick="showQr('base64Url', 'shadowrocket')" title="顯示通用掃碼條碼"><svg viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"></rect><rect width="5" height="5" x="16" y="3" rx="1"></rect><rect width="5" height="5" x="3" y="16" rx="1"></rect><path d="M21 16h-3a2 2 0 0 0-2 2v3"></path><path d="M21 21v.01"></path><path d="M12 7v3a2 2 0 0 1-2 2H7"></path><path d="M3 12h.01"></path><path d="M12 3h.01"></path><path d="M12 16v.01"></path><path d="M16 12h1"></path><path d="M21 12v.01"></path><path d="M12 21v-1"></path></svg></button>
-          </div>
-        </div>
-
-        <!-- Honk / DAE (放在最下面) -->
-        <div class="result-item">
-          <div class="result-icon-box">
-            <svg viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
-          </div>
-          <div class="result-info"><div class="result-name">Honk / DAE</div><div class="result-desc">OpenWrt eBPF 內核級配置 · Doona UI</div></div>
-          <div class="result-input-wrapper"><input type="text" id="honkUrl" readonly></div>
-          <div class="result-actions">
-            <button class="btn-icon" onclick="copyResult('honkUrl')" title="複製連結"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Argo 隧道 2.0 生成器 -->
-    <main class="panel">
-      <div class="panel-header">
-        <h2 class="panel-title" style="color: var(--primary);">
-          <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
-          Argo 隧道 2.0 (支援優選 IP / 多端口部署)
-        </h2>
-        <button class="btn btn-ghost" onclick="openArgoHelpModal()" title="查看 Argo 隧道 2.0 使用說明" style="padding: 0.45rem 0.7rem; font-weight: 700;">?</button>
-      </div>
-      
-      <div class="form-group">
-        <button class="btn btn-ghost" id="parseVlessBtn" onclick="parseVlessNodes()" style="width: 100%; justify-content: center; font-weight: 600;">
-          第一步：解析並載入目前輸入的 VLESS / VMess 節點
-        </button>
-      </div>
-
-      <div id="vlessSelectorWrapper" style="display: none; margin-top: 1.25rem; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.25rem; background: var(--bg-input);">
-        <label style="margin-bottom: 0.75rem; display: block; font-weight: 600;">選擇要轉換的原始節點 (可多選)：</label>
-        <div id="vlessCheckboxList" style="display: flex; flex-direction: column; gap: 8px; max-height: 200px; overflow-y: auto; margin-bottom: 1.25rem;"></div>
-        
-        <div class="form-group">
-          <label>1. VPS 本地監聽連接埠 (預設匹配選中節點)</label>
-          <input type="text" id="argoLocalPort" value="8080">
-        </div>
-
-        <div class="form-group">
-          <label>2. Cloudflare 優選 IP / 優選官方域名 (選填，例如 104.16.80.1)</label>
-          <input type="text" id="argoCleanIp" placeholder="若留空則預設直接使用 Argo 分配域名">
-        </div>
-
-        <div class="form-group">
-          <label>3. Cloudflare Tunnel Token (選填，留空啟用臨時隨機隧道)</label>
-          <input type="text" id="argoTunnelToken" placeholder="若使用固定隧道請貼上 Token">
-        </div>
-
-        <div class="form-group">
-          <label>4. 自訂綁定域名 (固定隧道必填)</label>
-          <input type="text" id="argoCustomDomain" placeholder="例如: argo.yourdomain.com">
-        </div>
-
-        <button class="btn btn-primary" id="generateArgoBtn" onclick="generateArgo()" style="margin-top: 1rem; background: var(--success);">
-          第二步：生成 Argo 一鍵部署指令與節點
-        </button>
-      </div>
-    </main>
-
-    <!-- Argo 結果區 -->
-    <section class="results-wrapper" id="argoResults">
-      <div class="panel">
-        <div class="panel-header"><h2 class="panel-title" style="color: var(--success);">Argo 部署指令與節點列表</h2></div>
-        <div class="form-group">
-          <label>📋 VPS 一鍵部署命令 (root 權限執行)：</label>
-          <div class="cmd-group">
-            <input type="text" id="argoCurlCmd" readonly>
-            <button class="btn btn-ghost" onclick="copyText('argoCurlCmd')">複製指令</button>
-          </div>
-        </div>
-        <div class="form-group">
-          <label>🔗 新生成的 Argo 節點列表：</label>
-          <textarea id="argoBase64Sub" readonly style="min-height: 120px; font-size: 0.8rem;"></textarea>
-          <button class="btn btn-ghost" onclick="copyText('argoBase64Sub')" style="margin-top: 0.5rem; width: 100%;">複製全部節點</button>
-        </div>
-      </div>
-    </section>
-
-    <!-- 已儲存的配置 -->
-    <section class="panel">
-      <div class="panel-header">
-        <h2 class="panel-title">
-          <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
-          已儲存的配置
-        </h2>
-        <div id="favHeaderActions" style="display: flex; gap: 8px;"></div>
-      </div>
-      
-      <div id="favGrid"></div>
-    </section>
-
-    <!-- 查看操作日誌 -->
-    <section class="panel" id="logsPanel" style="display: none;">
-      <div class="panel-header" id="logsPanelHeader">
-        <h2 class="panel-title">
-          <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-          查看操作日誌
-        </h2>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn btn-ghost" id="refreshLogsBtn" onclick="refreshLogsNow()" title="立即刷新日誌">
-            <svg viewBox="0 0 24 24" style="width:16px;height:16px"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-            刷新
-          </button>
-          <button class="btn btn-ghost" id="toggleLogsBtn" onclick="toggleLogsCollapse()" title="收合 / 展開">
-            <svg id="toggleLogsIcon" viewBox="0 0 24 24" style="width:16px;height:16px;transition:transform 0.2s"><polyline points="6 9 12 15 18 9"></polyline></svg>
-            <span id="toggleLogsText">收合</span>
-          </button>
-        </div>
-      </div>
-      <div id="logsBody">
-        <div id="logsTableContainer"></div>
-        <div class="logs-footer" id="logsFooter">
-          <span class="logs-note">因為 KV 空間與 Workers CPU 限制，只保留最新 200 筆操作日誌，超過該數量會自動清理最舊的日誌記錄。</span>
-          <button class="btn btn-primary" style="width: auto; padding: 0.65rem 1.25rem; font-size: 0.9rem;" onclick="openLogsModal()">全部日誌</button>
-        </div>
-      </div>
-    </section>
-
-    <!-- 消息通知設定 -->
-    <section class="panel" id="tgPanel" style="display: none;">
-      <div class="panel-header" id="tgPanelHeader">
-        <h2 class="panel-title">
-          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-          消息通知設定
-        </h2>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn btn-ghost" id="toggleTgBtn" onclick="toggleTgCollapse()" title="收合 / 展開">
-            <svg id="toggleTgIcon" viewBox="0 0 24 24" style="width:16px;height:16px;transition:transform 0.2s"><polyline points="6 9 12 15 18 9"></polyline></svg>
-            <span id="toggleTgText">收合</span>
-          </button>
-        </div>
-      </div>
-      <div id="tgBody">
-        <div class="tg-control-row">
-          <div class="tg-left-group">
-            <span class="tg-label-text">Telegram Bot 通知設定</span>
-            <label class="tg-checkbox-label" for="tgEnabledCheckbox">
-              <input type="checkbox" id="tgEnabledCheckbox" onchange="toggleTgEnabled(this)">
-              <span>啟用</span>
-            </label>
-            <span class="badge" id="tgStatusBadge" style="display: none;"></span>
-          </div>
-          <div class="tg-actions-group">
-            <button class="btn btn-ghost" onclick="openTgHelpModal()" title="查看申請教學與設定說明" style="padding: 0.5rem 0.7rem; font-weight: 700;">?</button>
-            <button class="btn btn-primary" style="width: auto; padding: 0.55rem 1rem; font-size: 0.85rem;" onclick="openTgModal()">
-              <svg viewBox="0 0 24 24" style="width:16px;height:16px"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-              參數配置
-            </button>
-            <button class="btn btn-ghost btn-danger" onclick="clearTgConfig()">
-              <svg viewBox="0 0 24 24" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-              清除配置
-            </button>
-          </div>
-        </div>
-      </div>
-    </section>
-  </div>
-
-  <!-- Argo 隧道 2.0 ? 詳細說明彈窗 -->
-  <div class="modal-overlay" id="argoHelpModal">
-    <div class="modal-content" style="max-width: 640px;">
-      <div class="panel-header" style="margin-bottom: 1.25rem;">
-        <h3 class="panel-title">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-          Argo 隧道 2.0 使用說明與部署教學
-        </h3>
-      </div>
-      <div class="tg-help-box">
-        <div class="tg-help-step">
-          <div class="tg-help-step-title">一、什麼是 Argo 隧道 2.0？（適用協議與前提）</div>
-          <div>
-            將 VPS 上原本容易被阻斷或延遲較高的節點，透過 <code>cloudflared</code> 加密隧道接入 Cloudflare 邊緣節點（Anycast），實現隱藏真實 VPS IP 與優選 IP 加速。<br>
-            • <strong>支援協議</strong>：僅支援 <code>VLESS</code> 與 <code>VMess</code>（建議使用 <code>ws</code> WebSocket 傳輸；Reality / gRPC 無法經過 Cloudflare 代理）。<br>
-            • <strong>第一步操作</strong>：先在頁面最上方輸入框貼入原始節點或訂閱網址，再點擊「第一步」按鈕載入並勾選欲轉換的節點。
-          </div>
-        </div>
-        <div class="tg-help-step">
-          <div class="tg-help-step-title">二、兩種隧道模式比較（臨時 vs 固定）</div>
-          <div>
-            • <strong>臨時隧道模式 (Quick Tunnel)</strong>：將「Token」與「自訂域名」<strong>皆留空</strong>。不需自己買網域，VPS 執行腳本後會自動申請隨機 <code>*.trycloudflare.com</code> 域名。<br>
-              <em>⚠️ 注意：VPS 重啟或隧道服務重啟後臨時域名會刷新，執行完腳本請從 VPS 終端機複製新域名，手動替換輸出節點中的提示域名。</em><br>
-            • <strong>固定隧道模式 (Named Tunnel)</strong>：需先於 Cloudflare Zero Trust 後台建立 Tunnel 取得 <strong>Token</strong>，並綁定您自己的域名（例如 <code>argo.yourdomain.com</code> 指向本地 <code>http://127.0.0.1:連接埠</code>）。生成後可直接取得永久可用的節點連結。
-          </div>
-        </div>
-        <div class="tg-help-step">
-          <div class="tg-help-step-title">三、本地連接埠與優選 IP 填寫指南</div>
-          <div>
-            • <strong>VPS 本地監聽連接埠</strong>：填寫 VPS 上 Xray / Sing-Box 實際監聽的連接埠（預設自動帶入所選節點 Port，如 <code>8080</code>）。部署腳本會自動探測本機監聽狀態、智慧偵測 TLS 與自動重寫 Origin Host。<br>
-            • <strong>Cloudflare 優選 IP / 優選域名（選填）</strong>：填入 Cloudflare Clean IP（如 <code>104.16.80.1</code>）或優選官方網域（如 <code>www.visa.com</code>、<code>icook.hk</code>），系統會將連接目標替換為優選 IP 並保留 Argo 網域作為 <code>SNI/Host</code>，顯著降低延遲。
-          </div>
-        </div>
-        <div class="tg-help-step">
-          <div class="tg-help-step-title">四、VPS 一鍵部署注意事項</div>
-          <div>
-            1. 產生的一鍵指令 <code>curl -sSL ... | bash</code> 快取有效期為 <strong>1 小時 (3600 秒)</strong>。<br>
-            2. 請務必使用 <strong><code>root</code> 權限</strong>於目標節點的 Linux (<code>amd64</code>) VPS 上執行，腳本會自動安裝 <code>cloudflared</code> 並註冊為開機自啟的 systemd 服務。
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer" style="margin-top: 1.5rem;">
-        <button class="btn btn-primary" onclick="closeArgoHelpModal()" style="width: auto; padding: 0.65rem 1.5rem; font-size: 0.95rem;">我知道了</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- 全部日誌彈窗 -->
-  <div class="modal-overlay" id="logsModal">
-    <div class="modal-content logs-modal-content">
-      <div class="panel-header" style="margin-bottom: 1.25rem;">
-        <h3 class="panel-title">
-          <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-          所有操作日誌
-        </h3>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn btn-ghost" onclick="refreshLogsNow()" title="立即刷新">
-            <svg viewBox="0 0 24 24" style="width:16px;height:16px"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-            刷新
-          </button>
-        </div>
-      </div>
-      <div class="logs-modal-scroll" id="allLogsTableContainer"></div>
-      <div class="modal-footer" style="margin-top: 1.5rem; justify-content: space-between; flex-wrap: wrap;">
-        <button class="btn btn-ghost btn-danger" onclick="clearLogs()">
-          <svg viewBox="0 0 24 24" style="width:16px;height:16px"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-          清空日誌
-        </button>
-        <button class="btn btn-primary" onclick="closeLogsModal()" style="width: auto; padding: 0.65rem 1.5rem; font-size: 0.95rem;">關閉</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Telegram Bot 參數配置彈窗 -->
-  <div class="modal-overlay" id="tgModal">
-    <div class="modal-content" style="max-width: 540px;">
-      <div class="panel-header" style="margin-bottom: 1.25rem;">
-        <h3 class="panel-title">
-          <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-          Telegram Bot 參數配置
-        </h3>
-        <button class="btn btn-ghost" onclick="openTgHelpModal()" title="查看設定教學" style="padding: 0.4rem 0.65rem; font-weight: 700;">?</button>
-      </div>
-      <div class="form-group">
-        <label for="tgBotTokenInput">Bot Token</label>
-        <input type="password" id="tgBotTokenInput" placeholder="例如: 123456789:AAHxxxxxxxxxxxxxxxxxxxx">
-        <div class="hint" id="tgTokenHint">若已配置過 Token，留空不填代表維持原本設定的密鑰。</div>
-      </div>
-      <div class="form-group">
-        <label for="tgChatIdInput">Chat ID</label>
-        <input type="text" id="tgChatIdInput" placeholder="例如: 987654321 或 -1001234567890">
-        <div class="hint">啟用後將自動推送所有事件通知（含操作類型、時間 UTC+8、IP、地區、ASN、URL 與 UA）。</div>
-      </div>
-      <div class="modal-footer" style="margin-top: 1.75rem; justify-content: space-between; flex-wrap: wrap;">
-        <button class="btn btn-ghost" id="tgTestBtn" onclick="testTgConfig()">
-          <svg viewBox="0 0 24 24" style="width:16px;height:16px"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-          發送測試訊息
-        </button>
-        <div style="display: flex; gap: 10px;">
-          <button class="btn btn-ghost" onclick="closeTgModal()">取消</button>
-          <button class="btn btn-primary" onclick="saveTgConfig()" style="width: auto; padding: 0.65rem 1.5rem; font-size: 0.95rem;">儲存</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Telegram Bot ? 說明教學彈窗 -->
-  <div class="modal-overlay" id="tgHelpModal">
-    <div class="modal-content" style="max-width: 600px;">
-      <div class="panel-header" style="margin-bottom: 1.25rem;">
-        <h3 class="panel-title">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-          Telegram Bot 申請與設定說明
-        </h3>
-      </div>
-      <div class="tg-help-box">
-        <div class="tg-help-step">
-          <div class="tg-help-step-title">第一步：申請機器人並取得 Bot Token</div>
-          <div>
-            1. 在 Telegram 搜尋並開啟官方帳號 <code>@BotFather</code>。<br>
-            2. 發送指令 <code>/newbot</code>，依提示輸入機器人的顯示名稱與用戶名（用戶名必須以 <code>bot</code> 結尾，例如 <code>my_sub_alert_bot</code>）。<br>
-            3. 建立成功後，複製訊息中類似 <code>123456789:AAHxxx...</code> 的字串，填入 <strong>Bot Token</strong>。
-          </div>
-        </div>
-        <div class="tg-help-step">
-          <div class="tg-help-step-title">第二步：查詢個人或群組 Chat ID</div>
-          <div>
-            1. 在 Telegram 搜尋並開啟 <code>@userinfobot</code>（或 <code>@getidsbot</code>），點擊 <code>Start</code>。<br>
-            2. 機器人會回覆一串純數字 <code>Id</code>（例如 <code>987654321</code>），填入 <strong>Chat ID</strong>。<br>
-            3. 若要通知至群組，請先將機器人加入群組並查出以 <code>-100</code> 開頭的群組 ID。
-          </div>
-        </div>
-        <div class="tg-help-step">
-          <div class="tg-help-step-title">第三步：必做！先啟動機器人對話</div>
-          <div>
-            設定完成前，請務必親自搜尋並開啟您剛建立的機器人視窗，點擊底部的 <strong><code>Start</code></strong>（發送 <code>/start</code>）。<br>
-            若未先主動發起對話，Telegram 安全機制會阻擋機器人主動傳訊（測試時將顯示 Forbidden 錯誤）。
-          </div>
-        </div>
-        <div class="tg-help-step">
-          <div class="tg-help-step-title">第四步：測試與安全機制</div>
-          <div>
-            填妥後點擊 <strong>「發送測試訊息」</strong> 驗證連線正常即可儲存。所有憑證皆受 <code>PAGE_PASSWORD</code> 保護並儲存於 Cloudflare KV，讀取時會自動遮罩敏感字元。
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer" style="margin-top: 1.5rem;">
-        <button class="btn btn-primary" onclick="closeTgHelpModal()" style="width: auto; padding: 0.65rem 1.5rem; font-size: 0.95rem;">我知道了</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- 新增 / 編輯配置彈窗 -->
-  <div class="modal-overlay" id="modal">
-    <div class="modal-content">
-      <h3 id="modalTitle" style="margin-bottom: 1rem;">新增配置</h3>
-      <div class="form-group"><label>配置名稱</label><input type="text" id="favName"></div>
-      <div class="form-group"><label>節點內容 / 訂閱連結</label><textarea id="favUrl"></textarea></div>
-      <div class="form-group"><label>保留關鍵字</label><input type="text" id="favInclude"></div>
-      <div class="form-group"><label>排除關鍵字</label><input type="text" id="favExclude"></div>
-      <div class="form-group"><label>名稱替換規則</label><input type="text" id="favRename"></div>
-      <div class="form-group">
-        <label for="favToken">自訂存取 Token (選填，設定後原裸短連結將失效，必須帶 ?token= 才可存取)</label>
-        <div class="cmd-group" style="margin-top: 0;">
-          <input type="text" id="favToken" placeholder="留空表示維持一般短連結；點擊右側隨機生成高強度 Token">
-          <button type="button" class="btn btn-ghost" onclick="generateRandomToken('favToken')">
-            <svg viewBox="0 0 24 24" style="width:16px;height:16px"><polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line><polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line><line x1="4" y1="4" x2="9" y2="9"></line></svg>
-            隨機生成
-          </button>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-        <button class="btn btn-primary" onclick="saveFav()" style="width: auto;">儲存</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="toast" id="toast">
-    <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-    <span id="toastMsg">提示訊息</span>
-  </div>
-`;
-
-````
-
-## File: src/parsers/common.ts
-````ts
-// src/parsers/common.ts
-import { tryDecodeURIComponent } from '../utils';
-
-export interface ParsedUri {
-  protocol: string;
-  username: string;
-  password?: string;
-  hostname: string;
-  port: number;
-  params: URLSearchParams;
-  hash: string;
-}
-
-export interface EchInfo {
-  enabled: boolean;
-  domain?: string;
-  doh?: string;
-}
-
-export function parseProxyUri(urlStr: string, defaultPort = 443): ParsedUri | null {
-  try {
-    const trimmed = urlStr.trim();
-    const match = trimmed.match(
-      /^([a-zA-Z0-9_-]+):\/\/(?:([^:@/?#]+)(?::([^@/?#]*))?@)?(\[[a-fA-F0-9:]+\]|[^:/?#]+)(?::([0-9]+))?(?:\?([^#]*))?(?:#(.*))?$/
-    );
-    if (!match) return null;
-
-    const protocol = match[1].toLowerCase();
-    const username = match[2] ? decodeURIComponent(match[2]) : '';
-    const password = match[3] ? decodeURIComponent(match[3]) : undefined;
-    let hostname = match[4];
-    if (hostname.startsWith('[') && hostname.endsWith(']')) {
-      hostname = hostname.slice(1, -1);
-    }
-    const port = match[5] ? parseInt(match[5], 10) : defaultPort;
-    const query = match[6] || '';
-    const hash = match[7] ? tryDecodeURIComponent(match[7]) : '';
-
-    const params = new URLSearchParams(query);
-    return { protocol, username, password, hostname, port, params, hash };
-  } catch {
-    return null;
-  }
-}
-
-export function parsePluginParams(str: string): Record<string, string> {
-  const params: Record<string, string> = {};
-  str.split(';').forEach(p => {
-    const [k, v] = p.split('=');
-    if (k && v) params[k] = v;
-  });
-  return params;
-}
-
-export function isIpAddress(str: string): boolean {
-  return /^(\d{1,3}\.){3}\d{1,3}$/.test(str) || str.includes(':');
-}
-
-// 嚴格依據輸入解析 ECH，不腦補任何預設網域
-export function parseEchInfo(val: string | null | undefined): EchInfo {
-  if (!val) return { enabled: false };
-  const raw = val.trim();
-  const clean = raw.toLowerCase();
-  if (['0', 'false', 'off', 'none', 'no', ''].includes(clean)) {
-    return { enabled: false };
-  }
-
-  // 1. 純開關 (例如: ech=1 或 ech=true)，網域與 DoH 均為 undefined
-  if (clean === '1' || clean === 'true') {
-    return { enabled: true };
-  }
-
-  // 2. 格式: domain+doh (例如: custom-domain.com+https://1.1.1.1/dns-query)
-  if (raw.includes('+')) {
-    const parts = raw.split('+');
-    const domainPart = parts[0]?.trim();
-    const dohPart = parts.slice(1).join('+').trim();
-    const validDoh = /^https?:\/\//i.test(dohPart) ? dohPart : undefined;
-    const validDomain = domainPart && !isIpAddress(domainPart) ? domainPart : undefined;
-    return {
-      enabled: true,
-      domain: validDomain,
-      doh: validDoh
-    };
-  }
-
-  // 3. 只有以 https:// 或 http:// 開頭，才認定為 DoH
-  if (/^https?:\/\//i.test(raw)) {
-    return {
-      enabled: true,
-      doh: raw
-    };
-  }
-
-  // 4. 其餘普通字串且非 IP，視為使用者明確輸入的自訂 ECH 查詢網域名稱
-  if (!isIpAddress(raw)) {
-    return {
-      enabled: true,
-      domain: raw
-    };
-  }
-
-  return { enabled: true };
-}
-
-````
-
-## File: src/parsers/clash-yaml.ts
-````ts
-// src/parsers/clash-yaml.ts
-import yaml from 'js-yaml';
-import { ProxyNode, WireGuardConfig } from '../types';
-import { parseEchInfo } from './common';
-import { RawMasqueConfig, buildMasqueNode } from './masque';
-
-export function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNode {
-  const type = String(p.type || '').toLowerCase();
-  const name = String(p.name || `Node-${index + 1}`).trim();
-  const server = String(p.server || '').trim();
-  const port = parseInt(String(p.port || 443), 10) || 443;
-
-  if (type === 'masque') {
-    return buildMasqueNode(p as RawMasqueConfig, index);
-  }
-
-  if (!server) throw new Error(`[Clash YAML] 第 ${index + 1} 個節點缺少 server (伺服器地址)`);
-
-  // 1. VLESS
-  if (type === 'vless') {
-    const uuid = String(p.uuid || '').trim();
-    if (!uuid) throw new Error(`[Clash YAML] VLESS 節點 [${name}] 缺少 uuid`);
-
-    const tls = Boolean(p.tls);
-    const sni = p.servername ? String(p.servername).trim() : p.sni ? String(p.sni) : server;
-    const flow = p.flow ? String(p.flow).trim() : undefined;
-    const network = p.network
-      ? String(p.network).toLowerCase()
-      : p['ws-opts']
-        ? 'ws'
-        : p['xhttp-opts']
-          ? 'xhttp'
-          : p['grpc-opts']
-            ? 'grpc'
-            : 'tcp';
-
-    const wsOpts = p['ws-opts'] as Record<string, unknown> | undefined;
-    const wsPath = wsOpts?.path ? String(wsOpts.path) : undefined;
-    const wsHeaders = wsOpts?.headers as Record<string, string> | undefined;
-
-    const xhttpOpts = (p['xhttp-opts'] || p['splithttp-opts']) as Record<string, unknown> | undefined;
-    const xhttpPath = xhttpOpts?.path ? String(xhttpOpts.path) : undefined;
-    const xhttpHost = xhttpOpts?.host ? String(xhttpOpts.host) : undefined;
-    const xhttpMode = xhttpOpts?.mode ? String(xhttpOpts.mode) : undefined;
-
-    const grpcOpts = p['grpc-opts'] as Record<string, unknown> | undefined;
-    const grpcServiceName = grpcOpts?.['grpc-service-name'] ? String(grpcOpts['grpc-service-name']) : undefined;
-
-    const isXhttp = network === 'xhttp' || network === 'splithttp';
-    const isGrpc = network === 'grpc';
-
-    const realityOpts = p['reality-opts'] as Record<string, unknown> | undefined;
-    const reality =
-      p.reality || realityOpts
-        ? {
-            publicKey: String(realityOpts?.['public-key'] || ''),
-            shortId: String(realityOpts?.['short-id'] || ''),
-            spiderX: realityOpts?.['spider-x'] ? String(realityOpts['spider-x']) : undefined,
-            supportX25519Mlkem768:
-              realityOpts?.['support-x25519mlkem768'] !== undefined
-                ? Boolean(realityOpts['support-x25519mlkem768'])
-                : true
-          }
-        : undefined;
-
-    const echOpts = p['ech-opts'] as Record<string, unknown> | undefined;
-    let echEnabled = false;
-    let echDomain: string | undefined = undefined;
-    let echDoh: string | undefined = undefined;
-
-    if (p.ech) {
-      const info = parseEchInfo(String(p.ech));
-      echEnabled = info.enabled;
-      echDomain = info.domain;
-      echDoh = info.doh;
-    } else if (echOpts && echOpts.enable === true) {
-      echEnabled = true;
-      if (echOpts['query-server-name']) echDomain = String(echOpts['query-server-name']);
-      const rawDoh = echOpts['doh-server'] || echOpts.doh;
-      if (rawDoh && /^https?:\/\//i.test(String(rawDoh))) {
-        echDoh = String(rawDoh);
-      }
-    }
-
-    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
-    const fingerprint = p['client-fingerprint'] ? String(p['client-fingerprint']).trim() : 'chrome';
-    const alpn = Array.isArray(p.alpn) ? p.alpn.map(String) : undefined;
-
-    let earlyDataLength: number | undefined = undefined;
-    if (wsOpts?.['max-early-data']) {
-      earlyDataLength = parseInt(String(wsOpts['max-early-data']), 10);
-    } else if (wsPath) {
-      const edMatch = wsPath.match(/[?&]ed=([0-9]+)/);
-      if (edMatch && edMatch[1]) {
-        earlyDataLength = parseInt(edMatch[1], 10);
-      }
-    }
-
-    const clashObjCopy: Record<string, unknown> = { ...p };
-    clashObjCopy.network = network;
-    if (!alpn) {
-      delete clashObjCopy.alpn;
-    }
-
-    if (reality) {
-      const ro = { ...((clashObjCopy['reality-opts'] as Record<string, unknown>) || {}) };
-      ro['public-key'] = reality.publicKey;
-      ro['short-id'] = reality.shortId;
-      if (reality.spiderX) ro['spider-x'] = reality.spiderX;
-      if (ro['support-x25519mlkem768'] === undefined) {
-        ro['support-x25519mlkem768'] = true;
-      }
-      clashObjCopy['reality-opts'] = ro;
-      clashObjCopy.reality = true;
-    }
-
-    const node: ProxyNode = {
-      type: 'vless',
-      name,
-      server,
-      port,
-      uuid,
-      tls,
-      sni,
-      network,
-      flow,
-      wsPath,
-      wsHeaders,
-      reality,
-      xhttpPath,
-      xhttpHost,
-      xhttpMode,
-      udp: p.udp !== undefined ? Boolean(p.udp) : true,
-      skipCertVerify,
-      fingerprint,
-      alpn,
-      ech: echEnabled,
-      echQueryServerName: echDomain,
-      echDoh,
-      clashObj: clashObjCopy
-    };
-
-    const sb: Record<string, unknown> = {
-      tag: name,
-      type: 'vless',
-      server,
-      server_port: port,
-      uuid,
-      packet_encoding: 'xudp'
-    };
-    if (tls) {
-      const tlsObj: Record<string, unknown> = {
-        enabled: true,
-        server_name: sni,
-        insecure: skipCertVerify,
-        utls: { enabled: true, fingerprint }
-      };
-      if (alpn) tlsObj.alpn = alpn;
-      if (echEnabled) {
-        const echObj: Record<string, unknown> = { enabled: true };
-        if (echDomain) echObj.query_server_name = echDomain;
-        tlsObj.ech = echObj;
-      }
-      if (reality) {
-        tlsObj.reality = { enabled: true, public_key: reality.publicKey, short_id: reality.shortId };
-      }
-      sb.tls = tlsObj;
-    }
-    if (flow) sb.flow = flow;
-    if (network === 'ws') {
-      const wsTransport: Record<string, unknown> = {
-        type: 'ws',
-        path: wsPath || '/',
-        headers: wsHeaders
-      };
-      if (earlyDataLength) {
-        wsTransport.max_early_data = earlyDataLength;
-        wsTransport.early_data_header_name = 'Sec-WebSocket-Protocol';
-      }
-      sb.transport = wsTransport;
-    } else if (isXhttp) {
-      sb.transport = {
-        type: 'splithttp',
-        path: xhttpPath || '/',
-        headers: xhttpHost ? { Host: xhttpHost } : undefined,
-        mode: xhttpMode || 'auto'
-      };
-    } else if (isGrpc) {
-      sb.transport = {
-        type: 'grpc',
-        service_name: grpcServiceName || ''
-      };
-    }
-    node.singboxObj = sb;
-    return node;
-  }
-
-  // 2. Shadowsocks
-  if (type === 'ss' || type === 'shadowsocks') {
-    const cipher = String(p.cipher || '');
-    const password = String(p.password || '');
-    if (!cipher) throw new Error(`[Clash YAML] Shadowsocks 節點 [${name}] 缺少 cipher (加密方法)`);
-    if (!password) throw new Error(`[Clash YAML] Shadowsocks 節點 [${name}] 缺少 password (密碼)`);
-    const udp = p.udp !== false;
-
-    const node: ProxyNode = {
-      type: 'shadowsocks',
-      name,
-      server,
-      port,
-      cipher,
-      password,
-      udp,
-      clashObj: { ...p }
-    };
-    node.singboxObj = {
-      tag: name,
-      type: 'shadowsocks',
-      server,
-      server_port: port,
-      method: cipher,
-      password
-    };
-    return node;
-  }
-
-  // 3. VMess
-  if (type === 'vmess') {
-    const uuid = String(p.uuid || '');
-    if (!uuid) throw new Error(`[Clash YAML] VMess 節點 [${name}] 缺少 uuid`);
-    const tls = Boolean(p.tls);
-    const sni = p.servername ? String(p.servername) : p.sni ? String(p.sni) : server;
-    const network = p.network ? String(p.network).toLowerCase() : p['ws-opts'] ? 'ws' : 'tcp';
-    const wsOpts = p['ws-opts'] as Record<string, unknown> | undefined;
-    const wsPath = wsOpts?.path ? String(wsOpts.path) : undefined;
-    const wsHeaders = wsOpts?.headers as Record<string, string> | undefined;
-
-    const node: ProxyNode = {
-      type: 'vmess',
-      name,
-      server,
-      port,
-      uuid,
-      tls,
-      sni,
-      network,
-      wsPath,
-      wsHeaders,
-      udp: p.udp !== undefined ? Boolean(p.udp) : true,
-      clashObj: { ...p, network }
-    };
-    const sb: Record<string, unknown> = {
-      tag: name,
-      type: 'vmess',
-      server,
-      server_port: port,
-      uuid,
-      security: 'auto',
-      packet_encoding: 'xudp'
-    };
-    if (tls) {
-      sb.tls = { enabled: true, server_name: sni, insecure: p['skip-cert-verify'] ? Boolean(p['skip-cert-verify']) : false };
-    }
-    if (network === 'ws') {
-      sb.transport = { type: 'ws', path: wsPath || '/', headers: wsHeaders };
-    }
-    node.singboxObj = sb;
-    return node;
-  }
-
-  // 4. Trojan
-  if (type === 'trojan') {
-    const password = String(p.password || '');
-    if (!password) throw new Error(`[Clash YAML] Trojan 節點 [${name}] 缺少 password (密碼)`);
-    const sni = p.sni ? String(p.sni) : p.servername ? String(p.servername) : server;
-    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
-
-    const node: ProxyNode = {
-      type: 'trojan',
-      name,
-      server,
-      port,
-      password,
-      tls: true,
-      sni,
-      skipCertVerify,
-      udp: p.udp !== undefined ? Boolean(p.udp) : true,
-      clashObj: { ...p }
-    };
-    node.singboxObj = {
-      tag: name,
-      type: 'trojan',
-      server,
-      server_port: port,
-      password,
-      tls: { enabled: true, server_name: sni, insecure: skipCertVerify }
-    };
-    return node;
-  }
-
-  // 5. Hysteria 2
-  if (type === 'hysteria2' || type === 'hy2') {
-    const password = String(p.password || p.auth || '');
-    if (!password) throw new Error(`[Clash YAML] Hysteria2 節點 [${name}] 缺少 password / auth`);
-    const sni = p.sni ? String(p.sni) : p.servername ? String(p.servername) : server;
-    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
-
-    const node: ProxyNode = {
-      type: 'hysteria2',
-      name,
-      server,
-      port,
-      password,
-      tls: true,
-      sni,
-      skipCertVerify,
-      udp: p.udp !== undefined ? Boolean(p.udp) : true,
-      obfs: p.obfs ? String(p.obfs) : undefined,
-      obfsPassword: p['obfs-password'] ? String(p['obfs-password']) : undefined,
-      clashObj: { ...p }
-    };
-    const sb: Record<string, unknown> = {
-      tag: name,
-      type: 'hysteria2',
-      server,
-      server_port: port,
-      password,
-      tls: { enabled: true, server_name: sni, insecure: skipCertVerify }
-    };
-    if (node.obfs) {
-      sb.obfs = { type: node.obfs, password: node.obfsPassword };
-    }
-    node.singboxObj = sb;
-    return node;
-  }
-
-  // 6. TUIC
-  if (type === 'tuic') {
-    const uuid = String(p.uuid || '');
-    const password = String(p.password || '');
-    if (!uuid) throw new Error(`[Clash YAML] TUIC 節點 [${name}] 缺少 uuid`);
-    const sni = p.sni ? String(p.sni) : p.servername ? String(p.servername) : server;
-    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
-    const congestion_control = p['congestion-controller'] ? String(p['congestion-controller']) : 'bbr';
-    const udp_relay_mode = p['udp-relay-mode'] ? String(p['udp-relay-mode']) : 'native';
-    const alpn = Array.isArray(p.alpn) ? p.alpn.map(String) : ['h3'];
-
-    const node: ProxyNode = {
-      type: 'tuic',
-      name,
-      server,
-      port,
-      uuid,
-      password,
-      tls: true,
-      sni,
-      skipCertVerify,
-      congestion_control,
-      udp_relay_mode,
-      alpn,
-      udp: p.udp !== undefined ? Boolean(p.udp) : true,
-      clashObj: { ...p }
-    };
-    node.singboxObj = {
-      tag: name,
-      type: 'tuic',
-      server,
-      server_port: port,
-      uuid,
-      password,
-      congestion_control,
-      udp_relay_mode,
-      tls: { enabled: true, server_name: sni, alpn, insecure: skipCertVerify }
-    };
-    return node;
-  }
-
-  // 7. WireGuard
-  if (type === 'wireguard') {
-    const privateKey = String(p['private-key'] || '');
-    const publicKey = String(p['public-key'] || '');
-    if (!privateKey) throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 private-key (私鑰)`);
-    if (!publicKey) throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 public-key (公鑰)`);
-    if (!p.ip) throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 ip (內網 IP)`);
-
-    const ip = String(p.ip);
-    const ipv6 = p.ipv6 ? String(p.ipv6) : undefined;
-    const localAddress = [ip.includes('/') ? ip : `${ip}/32`];
-    if (ipv6) localAddress.push(ipv6.includes('/') ? ipv6 : `${ipv6}/128`);
-    const presharedKey = p['preshared-key'] ? String(p['preshared-key']) : undefined;
-    const mtu = parseInt(String(p.mtu || 1420), 10) || 1420;
-    const reserved = Array.isArray(p.reserved) ? p.reserved.map(Number) : undefined;
-
-    let dnsList: string[] = [];
-    if (p.dns) {
-      dnsList = Array.isArray(p.dns) ? p.dns.map(String) : [String(p.dns)];
-    } else {
-      throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 dns 設定（例如 dns: [10.2.0.1]）`);
-    }
-
-    const wgConfig: WireGuardConfig = {
-      privateKey,
-      localAddress,
-      publicKey,
-      presharedKey,
-      mtu,
-      reserved,
-      dns: dnsList[0]
-    };
-    const node: ProxyNode = {
-      type: 'wireguard',
-      name,
-      server,
-      port,
-      udp: true,
-      wireguard: wgConfig,
-      clashObj: { ...p, dns: dnsList }
-    };
-    node.singboxObj = {
-      type: 'wireguard',
-      tag: name,
-      address: localAddress,
-      private_key: privateKey,
-      peers: [{ address: server, port, public_key: publicKey, allowed_ips: ['0.0.0.0/0', '::/0'] }],
-      mtu
-    };
-    return node;
-  }
-
-  // 8. 兜底通用節點
-  return {
-    type,
-    name,
-    server,
-    port,
-    udp: true,
-    clashObj: { ...p }
-  };
-}
-
-export function parseClashYaml(content: string): ProxyNode[] {
-  const nodes: ProxyNode[] = [];
-  if (!/(^|\n)\s*proxies\s*:/i.test(content)) {
-    return [];
-  }
-  const parsed = yaml.load(content);
-  if (!parsed || typeof parsed !== 'object') return [];
-
-  const rawProxies = (parsed as Record<string, unknown>).proxies;
-  if (!Array.isArray(rawProxies)) return [];
-
-  for (let i = 0; i < rawProxies.length; i++) {
-    const p = rawProxies[i];
-    if (!p || typeof p !== 'object') continue;
-    const node = parseClashProxyItem(p as Record<string, unknown>, i);
-    if (node) nodes.push(node);
-  }
-  return nodes;
-}
-
-````
-
 ## File: src/parsers/index.ts
 ````ts
 // src/parsers/index.ts
@@ -3279,289 +5251,6 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
   }
 
   return nodes;
-}
-
-````
-
-## File: src/parsers/masque.ts
-````ts
-// src/parsers/masque.ts
-import { ProxyNode, MasqueConfig } from '../types';
-import { parseProxyUri } from './common';
-
-export interface RawMasqueConfig {
-  private_key?: string;
-  'private-key'?: string;
-  endpoint_v4?: string;
-  endpoint_v6?: string;
-  endpoint_pub_key?: string;
-  'public-key'?: string;
-  public_key?: string;
-  server?: string;
-  port?: number | string;
-  ipv4?: string;
-  ipv6?: string;
-  ip?: string;
-  name?: string;
-  uri?: string;
-  sni?: string;
-  servername?: string;
-  server_name?: string;
-  congestion_controller?: string;
-  'congestion-controller'?: string;
-  congestion_control?: string;
-  cca?: string;
-  cc?: string;
-  dns?: string[] | string;
-  mtu?: number | string;
-  udp?: boolean;
-  'remote-dns-resolve'?: boolean;
-  [key: string]: unknown;
-}
-
-export function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode {
-  const privateKey = (config.private_key || config['private-key'] || '').trim();
-  const rawPubKey = (config.endpoint_pub_key || config.public_key || config['public-key'] || '').trim();
-  const publicKey = rawPubKey.replace(/-----BEGIN[^-]+-----|-----END[^-]+-----|[\r\n\s]/g, '');
-  const server = (config.server || config.endpoint_v4 || '').trim();
-  const port = parseInt(String(config.port || 443), 10) || 443;
-  const rawIpv4 = (config.ip || config.ipv4 || '').trim();
-
-  if (!privateKey) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: private_key (私鑰)`);
-  if (!publicKey) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: public_key / endpoint_pub_key (公鑰)`);
-  if (!server) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: server / endpoint_v4 (伺服器端點)`);
-  if (!rawIpv4) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: ip / ipv4 (客戶端內網 IP)`);
-
-  const localIpv4 = rawIpv4.includes('/') ? rawIpv4 : `${rawIpv4}/32`;
-
-  let localIpv6: string | undefined = undefined;
-  if (config.ipv6) {
-    const rawIpv6 = String(config.ipv6).trim();
-    localIpv6 = rawIpv6.includes('/') ? rawIpv6 : `${rawIpv6}/128`;
-  }
-
-  const name = config.name || (index > 0 ? `WARP-MASQUE-${index + 1}` : 'WARP-MASQUE');
-  const uri = config.uri && String(config.uri).trim() ? String(config.uri).trim() : 'https://cloudflareaccess.com';
-  const customSni = config.sni || config.servername || config.server_name;
-  const sni = customSni && String(customSni).trim() ? String(customSni).trim() : 'www.microsoft.com';
-
-  const rawCc =
-    config.cca ||
-    config.cc ||
-    config.congestion_control ||
-    config.congestion_controller ||
-    config['congestion-controller'];
-  const congestionController = rawCc && String(rawCc).trim() ? String(rawCc).trim() : 'bbr';
-  const mtu = config.mtu ? parseInt(String(config.mtu), 10) || 1280 : 1280;
-
-  let dnsList: string[] = [];
-  if (Array.isArray(config.dns) && config.dns.length > 0) {
-    dnsList = config.dns.map(d => String(d).trim()).filter(Boolean);
-  } else if (typeof config.dns === 'string' && config.dns.trim()) {
-    dnsList = config.dns.split(',').map(d => d.trim()).filter(Boolean);
-  } else {
-    dnsList = ['1.1.1.1', '8.8.8.8'];
-  }
-
-  const remoteDnsResolve =
-    config['remote-dns-resolve'] !== undefined ? Boolean(config['remote-dns-resolve']) : true;
-
-  const masqueConfig: MasqueConfig = {
-    privateKey,
-    publicKey,
-    localIpv4,
-    localIpv6,
-    mtu,
-    uri,
-    sni,
-    congestion_controller: congestionController,
-    dns: dnsList
-  };
-
-  const node: ProxyNode = {
-    type: 'masque',
-    name,
-    server,
-    port,
-    udp: true,
-    sni,
-    masque: masqueConfig
-  };
-
-  node.singboxObj = {
-    type: 'masque',
-    tag: name,
-    server,
-    server_port: port,
-    private_key: privateKey,
-    public_key: publicKey,
-    ip: localIpv4,
-    ...(localIpv6 ? { ipv6: localIpv6 } : {}),
-    uri,
-    congestion_control: congestionController,
-    mtu,
-    tls: {
-      enabled: true,
-      server_name: sni
-    }
-  };
-
-  const originalClashProps = { ...config };
-  const cleanKeys = [
-    'private_key', 'private-key', 'public_key', 'public-key', 'endpoint_pub_key',
-    'endpoint_v4', 'endpoint_v6', 'endpoint_h2_v4', 'endpoint_h2_v6',
-    'ipv4', 'license', 'id', 'access_token', 'MASQUE导航'
-  ];
-  for (const k of cleanKeys) {
-    delete originalClashProps[k];
-  }
-
-  node.clashObj = {
-    ...originalClashProps,
-    name,
-    type: 'masque',
-    server,
-    port,
-    'private-key': privateKey,
-    'public-key': publicKey,
-    ip: localIpv4.split('/')[0],
-    ...(localIpv6 ? { ipv6: localIpv6.split('/')[0] } : {}),
-    uri,
-    mtu,
-    udp: config.udp !== undefined ? Boolean(config.udp) : true,
-    'remote-dns-resolve': remoteDnsResolve,
-    'congestion-controller': congestionController,
-    dns: dnsList,
-    sni
-  };
-
-  return node;
-}
-
-export function parseMasqueConfigs(text: string): ProxyNode[] {
-  const nodes: ProxyNode[] = [];
-  const trimmed = text.trim();
-
-  try {
-    const parsed: unknown = JSON.parse(trimmed);
-    if (Array.isArray(parsed)) {
-      parsed.forEach((item, idx) => {
-        const n = buildMasqueNode(item as RawMasqueConfig, idx);
-        if (n) nodes.push(n);
-      });
-      if (nodes.length > 0) return nodes;
-    } else if (typeof parsed === 'object' && parsed !== null) {
-      const n = buildMasqueNode(parsed as RawMasqueConfig, 0);
-      if (n) return [n];
-    }
-  } catch (err: unknown) {
-    if (err instanceof Error && err.message.startsWith('[MASQUE]')) {
-      throw err;
-    }
-  }
-
-  const objectMatches = trimmed.match(/\{[^{}]*["']private_key["'][^{}]*\}/g);
-  if (objectMatches) {
-    objectMatches.forEach((rawObj, idx) => {
-      const obj = JSON.parse(rawObj) as RawMasqueConfig;
-      const n = buildMasqueNode(obj, idx);
-      if (n) nodes.push(n);
-    });
-  }
-
-  return nodes;
-}
-
-export function parseMasqueUri(urlStr: string): ProxyNode {
-  const parsed = parseProxyUri(urlStr, 443);
-  if (!parsed) throw new Error('[MASQUE] URI 格式無效，無法解析');
-
-  const privateKey = parsed.username;
-  const params = parsed.params;
-  const publicKey = params.get('public_key') || params.get('pk') || '';
-  const ipv4 = params.get('ip') || '';
-  const ipv6 = params.get('ipv6') || undefined;
-  const mtu = parseInt(params.get('mtu') || '1280', 10);
-  const name = parsed.hash || 'WARP-MASQUE';
-
-  if (!privateKey) throw new Error('[MASQUE] 缺少必要欄位: private_key (私鑰)');
-  if (!publicKey) throw new Error('[MASQUE] 缺少必要欄位: public_key (公鑰)');
-  if (!parsed.hostname) throw new Error('[MASQUE] 缺少必要欄位: server (伺服器地址)');
-  if (!ipv4) throw new Error('[MASQUE] 缺少必要欄位: ip (客戶端內網 IP)');
-
-  const uri = params.get('uri') && params.get('uri')!.trim() ? params.get('uri')!.trim() : 'https://cloudflareaccess.com';
-  const sni = params.get('sni') && params.get('sni')!.trim() ? params.get('sni')!.trim() : 'www.microsoft.com';
-
-  const rawCc =
-    params.get('cca') ||
-    params.get('cc') ||
-    params.get('congestion_control') ||
-    params.get('congestion_controller') ||
-    params.get('congestion-controller');
-  const congestionController = rawCc && rawCc.trim() ? rawCc.trim() : 'bbr';
-
-  const dnsParam = params.get('dns');
-  const dnsList = dnsParam ? dnsParam.split(',').map(d => d.trim()).filter(Boolean) : ['1.1.1.1', '8.8.8.8'];
-
-  const masqueConfig: MasqueConfig = {
-    privateKey,
-    publicKey,
-    localIpv4: ipv4.includes('/') ? ipv4 : `${ipv4}/32`,
-    localIpv6: ipv6 ? (ipv6.includes('/') ? ipv6 : `${ipv6}/128`) : undefined,
-    mtu,
-    uri,
-    sni,
-    congestion_controller: congestionController,
-    dns: dnsList
-  };
-
-  const node: ProxyNode = {
-    type: 'masque',
-    name,
-    server: parsed.hostname,
-    port: parsed.port,
-    udp: true,
-    sni,
-    masque: masqueConfig
-  };
-
-  node.singboxObj = {
-    type: 'masque',
-    tag: name,
-    server: parsed.hostname,
-    server_port: parsed.port,
-    private_key: privateKey,
-    public_key: publicKey,
-    ip: masqueConfig.localIpv4,
-    ...(masqueConfig.localIpv6 ? { ipv6: masqueConfig.localIpv6 } : {}),
-    uri,
-    congestion_control: congestionController,
-    mtu,
-    tls: {
-      enabled: true,
-      server_name: sni
-    }
-  };
-
-  node.clashObj = {
-    name,
-    type: 'masque',
-    server: parsed.hostname,
-    port: parsed.port,
-    'private-key': privateKey,
-    'public-key': publicKey,
-    ip: ipv4.split('/')[0],
-    ...(ipv6 ? { ipv6: ipv6.split('/')[0] } : {}),
-    uri,
-    mtu,
-    udp: true,
-    'remote-dns-resolve': true,
-    'congestion-controller': congestionController,
-    dns: dnsList,
-    sni
-  };
-
-  return node;
 }
 
 ````
@@ -4274,6 +5963,579 @@ export function parseTrojan(urlStr: string): ProxyNode {
 
 ````
 
+## File: src/parsers/common.ts
+````ts
+// src/parsers/common.ts
+import { tryDecodeURIComponent } from '../utils';
+
+export interface ParsedUri {
+  protocol: string;
+  username: string;
+  password?: string;
+  hostname: string;
+  port: number;
+  params: URLSearchParams;
+  hash: string;
+}
+
+export interface EchInfo {
+  enabled: boolean;
+  domain?: string;
+  doh?: string;
+}
+
+export function parseProxyUri(urlStr: string, defaultPort = 443): ParsedUri | null {
+  try {
+    const trimmed = urlStr.trim();
+    const match = trimmed.match(
+      /^([a-zA-Z0-9_-]+):\/\/(?:([^:@/?#]+)(?::([^@/?#]*))?@)?(\[[a-fA-F0-9:]+\]|[^:/?#]+)(?::([0-9]+))?(?:\?([^#]*))?(?:#(.*))?$/
+    );
+    if (!match) return null;
+
+    const protocol = match[1].toLowerCase();
+    const username = match[2] ? decodeURIComponent(match[2]) : '';
+    const password = match[3] ? decodeURIComponent(match[3]) : undefined;
+    let hostname = match[4];
+    if (hostname.startsWith('[') && hostname.endsWith(']')) {
+      hostname = hostname.slice(1, -1);
+    }
+    const port = match[5] ? parseInt(match[5], 10) : defaultPort;
+    const query = match[6] || '';
+    const hash = match[7] ? tryDecodeURIComponent(match[7]) : '';
+
+    const params = new URLSearchParams(query);
+    return { protocol, username, password, hostname, port, params, hash };
+  } catch {
+    return null;
+  }
+}
+
+export function parsePluginParams(str: string): Record<string, string> {
+  const params: Record<string, string> = {};
+  str.split(';').forEach(p => {
+    const [k, v] = p.split('=');
+    if (k && v) params[k] = v;
+  });
+  return params;
+}
+
+export function isIpAddress(str: string): boolean {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(str) || str.includes(':');
+}
+
+// 嚴格依據輸入解析 ECH，不腦補任何預設網域
+export function parseEchInfo(val: string | null | undefined): EchInfo {
+  if (!val) return { enabled: false };
+  const raw = val.trim();
+  const clean = raw.toLowerCase();
+  if (['0', 'false', 'off', 'none', 'no', ''].includes(clean)) {
+    return { enabled: false };
+  }
+
+  // 1. 純開關 (例如: ech=1 或 ech=true)，網域與 DoH 均為 undefined
+  if (clean === '1' || clean === 'true') {
+    return { enabled: true };
+  }
+
+  // 2. 格式: domain+doh (例如: custom-domain.com+https://1.1.1.1/dns-query)
+  if (raw.includes('+')) {
+    const parts = raw.split('+');
+    const domainPart = parts[0]?.trim();
+    const dohPart = parts.slice(1).join('+').trim();
+    const validDoh = /^https?:\/\//i.test(dohPart) ? dohPart : undefined;
+    const validDomain = domainPart && !isIpAddress(domainPart) ? domainPart : undefined;
+    return {
+      enabled: true,
+      domain: validDomain,
+      doh: validDoh
+    };
+  }
+
+  // 3. 只有以 https:// 或 http:// 開頭，才認定為 DoH
+  if (/^https?:\/\//i.test(raw)) {
+    return {
+      enabled: true,
+      doh: raw
+    };
+  }
+
+  // 4. 其餘普通字串且非 IP，視為使用者明確輸入的自訂 ECH 查詢網域名稱
+  if (!isIpAddress(raw)) {
+    return {
+      enabled: true,
+      domain: raw
+    };
+  }
+
+  return { enabled: true };
+}
+
+````
+
+## File: src/parsers/clash-yaml.ts
+````ts
+// src/parsers/clash-yaml.ts
+import yaml from 'js-yaml';
+import { ProxyNode, WireGuardConfig } from '../types';
+import { parseEchInfo } from './common';
+import { RawMasqueConfig, buildMasqueNode } from './masque';
+
+export function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNode {
+  const type = String(p.type || '').toLowerCase();
+  const name = String(p.name || `Node-${index + 1}`).trim();
+  const server = String(p.server || '').trim();
+  const port = parseInt(String(p.port || 443), 10) || 443;
+
+  if (type === 'masque') {
+    return buildMasqueNode(p as RawMasqueConfig, index);
+  }
+
+  if (!server) throw new Error(`[Clash YAML] 第 ${index + 1} 個節點缺少 server (伺服器地址)`);
+
+  // 1. VLESS
+  if (type === 'vless') {
+    const uuid = String(p.uuid || '').trim();
+    if (!uuid) throw new Error(`[Clash YAML] VLESS 節點 [${name}] 缺少 uuid`);
+
+    const tls = Boolean(p.tls);
+    const sni = p.servername ? String(p.servername).trim() : p.sni ? String(p.sni) : server;
+    const flow = p.flow ? String(p.flow).trim() : undefined;
+    const network = p.network
+      ? String(p.network).toLowerCase()
+      : p['ws-opts']
+        ? 'ws'
+        : p['xhttp-opts']
+          ? 'xhttp'
+          : p['grpc-opts']
+            ? 'grpc'
+            : 'tcp';
+
+    const wsOpts = p['ws-opts'] as Record<string, unknown> | undefined;
+    const wsPath = wsOpts?.path ? String(wsOpts.path) : undefined;
+    const wsHeaders = wsOpts?.headers as Record<string, string> | undefined;
+
+    const xhttpOpts = (p['xhttp-opts'] || p['splithttp-opts']) as Record<string, unknown> | undefined;
+    const xhttpPath = xhttpOpts?.path ? String(xhttpOpts.path) : undefined;
+    const xhttpHost = xhttpOpts?.host ? String(xhttpOpts.host) : undefined;
+    const xhttpMode = xhttpOpts?.mode ? String(xhttpOpts.mode) : undefined;
+
+    const grpcOpts = p['grpc-opts'] as Record<string, unknown> | undefined;
+    const grpcServiceName = grpcOpts?.['grpc-service-name'] ? String(grpcOpts['grpc-service-name']) : undefined;
+
+    const isXhttp = network === 'xhttp' || network === 'splithttp';
+    const isGrpc = network === 'grpc';
+
+    const realityOpts = p['reality-opts'] as Record<string, unknown> | undefined;
+    const reality =
+      p.reality || realityOpts
+        ? {
+            publicKey: String(realityOpts?.['public-key'] || ''),
+            shortId: String(realityOpts?.['short-id'] || ''),
+            spiderX: realityOpts?.['spider-x'] ? String(realityOpts['spider-x']) : undefined,
+            supportX25519Mlkem768:
+              realityOpts?.['support-x25519mlkem768'] !== undefined
+                ? Boolean(realityOpts['support-x25519mlkem768'])
+                : true
+          }
+        : undefined;
+
+    const echOpts = p['ech-opts'] as Record<string, unknown> | undefined;
+    let echEnabled = false;
+    let echDomain: string | undefined = undefined;
+    let echDoh: string | undefined = undefined;
+
+    if (p.ech) {
+      const info = parseEchInfo(String(p.ech));
+      echEnabled = info.enabled;
+      echDomain = info.domain;
+      echDoh = info.doh;
+    } else if (echOpts && echOpts.enable === true) {
+      echEnabled = true;
+      if (echOpts['query-server-name']) echDomain = String(echOpts['query-server-name']);
+      const rawDoh = echOpts['doh-server'] || echOpts.doh;
+      if (rawDoh && /^https?:\/\//i.test(String(rawDoh))) {
+        echDoh = String(rawDoh);
+      }
+    }
+
+    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
+    const fingerprint = p['client-fingerprint'] ? String(p['client-fingerprint']).trim() : 'chrome';
+    const alpn = Array.isArray(p.alpn) ? p.alpn.map(String) : undefined;
+
+    let earlyDataLength: number | undefined = undefined;
+    if (wsOpts?.['max-early-data']) {
+      earlyDataLength = parseInt(String(wsOpts['max-early-data']), 10);
+    } else if (wsPath) {
+      const edMatch = wsPath.match(/[?&]ed=([0-9]+)/);
+      if (edMatch && edMatch[1]) {
+        earlyDataLength = parseInt(edMatch[1], 10);
+      }
+    }
+
+    const clashObjCopy: Record<string, unknown> = { ...p };
+    clashObjCopy.network = network;
+    if (!alpn) {
+      delete clashObjCopy.alpn;
+    }
+
+    if (reality) {
+      const ro = { ...((clashObjCopy['reality-opts'] as Record<string, unknown>) || {}) };
+      ro['public-key'] = reality.publicKey;
+      ro['short-id'] = reality.shortId;
+      if (reality.spiderX) ro['spider-x'] = reality.spiderX;
+      if (ro['support-x25519mlkem768'] === undefined) {
+        ro['support-x25519mlkem768'] = true;
+      }
+      clashObjCopy['reality-opts'] = ro;
+      clashObjCopy.reality = true;
+    }
+
+    const node: ProxyNode = {
+      type: 'vless',
+      name,
+      server,
+      port,
+      uuid,
+      tls,
+      sni,
+      network,
+      flow,
+      wsPath,
+      wsHeaders,
+      reality,
+      xhttpPath,
+      xhttpHost,
+      xhttpMode,
+      udp: p.udp !== undefined ? Boolean(p.udp) : true,
+      skipCertVerify,
+      fingerprint,
+      alpn,
+      ech: echEnabled,
+      echQueryServerName: echDomain,
+      echDoh,
+      clashObj: clashObjCopy
+    };
+
+    const sb: Record<string, unknown> = {
+      tag: name,
+      type: 'vless',
+      server,
+      server_port: port,
+      uuid,
+      packet_encoding: 'xudp'
+    };
+    if (tls) {
+      const tlsObj: Record<string, unknown> = {
+        enabled: true,
+        server_name: sni,
+        insecure: skipCertVerify,
+        utls: { enabled: true, fingerprint }
+      };
+      if (alpn) tlsObj.alpn = alpn;
+      if (echEnabled) {
+        const echObj: Record<string, unknown> = { enabled: true };
+        if (echDomain) echObj.query_server_name = echDomain;
+        tlsObj.ech = echObj;
+      }
+      if (reality) {
+        tlsObj.reality = { enabled: true, public_key: reality.publicKey, short_id: reality.shortId };
+      }
+      sb.tls = tlsObj;
+    }
+    if (flow) sb.flow = flow;
+    if (network === 'ws') {
+      const wsTransport: Record<string, unknown> = {
+        type: 'ws',
+        path: wsPath || '/',
+        headers: wsHeaders
+      };
+      if (earlyDataLength) {
+        wsTransport.max_early_data = earlyDataLength;
+        wsTransport.early_data_header_name = 'Sec-WebSocket-Protocol';
+      }
+      sb.transport = wsTransport;
+    } else if (isXhttp) {
+      sb.transport = {
+        type: 'splithttp',
+        path: xhttpPath || '/',
+        headers: xhttpHost ? { Host: xhttpHost } : undefined,
+        mode: xhttpMode || 'auto'
+      };
+    } else if (isGrpc) {
+      sb.transport = {
+        type: 'grpc',
+        service_name: grpcServiceName || ''
+      };
+    }
+    node.singboxObj = sb;
+    return node;
+  }
+
+  // 2. Shadowsocks
+  if (type === 'ss' || type === 'shadowsocks') {
+    const cipher = String(p.cipher || '');
+    const password = String(p.password || '');
+    if (!cipher) throw new Error(`[Clash YAML] Shadowsocks 節點 [${name}] 缺少 cipher (加密方法)`);
+    if (!password) throw new Error(`[Clash YAML] Shadowsocks 節點 [${name}] 缺少 password (密碼)`);
+    const udp = p.udp !== false;
+
+    const node: ProxyNode = {
+      type: 'shadowsocks',
+      name,
+      server,
+      port,
+      cipher,
+      password,
+      udp,
+      clashObj: { ...p }
+    };
+    node.singboxObj = {
+      tag: name,
+      type: 'shadowsocks',
+      server,
+      server_port: port,
+      method: cipher,
+      password
+    };
+    return node;
+  }
+
+  // 3. VMess
+  if (type === 'vmess') {
+    const uuid = String(p.uuid || '');
+    if (!uuid) throw new Error(`[Clash YAML] VMess 節點 [${name}] 缺少 uuid`);
+    const tls = Boolean(p.tls);
+    const sni = p.servername ? String(p.servername) : p.sni ? String(p.sni) : server;
+    const network = p.network ? String(p.network).toLowerCase() : p['ws-opts'] ? 'ws' : 'tcp';
+    const wsOpts = p['ws-opts'] as Record<string, unknown> | undefined;
+    const wsPath = wsOpts?.path ? String(wsOpts.path) : undefined;
+    const wsHeaders = wsOpts?.headers as Record<string, string> | undefined;
+
+    const node: ProxyNode = {
+      type: 'vmess',
+      name,
+      server,
+      port,
+      uuid,
+      tls,
+      sni,
+      network,
+      wsPath,
+      wsHeaders,
+      udp: p.udp !== undefined ? Boolean(p.udp) : true,
+      clashObj: { ...p, network }
+    };
+    const sb: Record<string, unknown> = {
+      tag: name,
+      type: 'vmess',
+      server,
+      server_port: port,
+      uuid,
+      security: 'auto',
+      packet_encoding: 'xudp'
+    };
+    if (tls) {
+      sb.tls = { enabled: true, server_name: sni, insecure: p['skip-cert-verify'] ? Boolean(p['skip-cert-verify']) : false };
+    }
+    if (network === 'ws') {
+      sb.transport = { type: 'ws', path: wsPath || '/', headers: wsHeaders };
+    }
+    node.singboxObj = sb;
+    return node;
+  }
+
+  // 4. Trojan
+  if (type === 'trojan') {
+    const password = String(p.password || '');
+    if (!password) throw new Error(`[Clash YAML] Trojan 節點 [${name}] 缺少 password (密碼)`);
+    const sni = p.sni ? String(p.sni) : p.servername ? String(p.servername) : server;
+    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
+
+    const node: ProxyNode = {
+      type: 'trojan',
+      name,
+      server,
+      port,
+      password,
+      tls: true,
+      sni,
+      skipCertVerify,
+      udp: p.udp !== undefined ? Boolean(p.udp) : true,
+      clashObj: { ...p }
+    };
+    node.singboxObj = {
+      tag: name,
+      type: 'trojan',
+      server,
+      server_port: port,
+      password,
+      tls: { enabled: true, server_name: sni, insecure: skipCertVerify }
+    };
+    return node;
+  }
+
+  // 5. Hysteria 2
+  if (type === 'hysteria2' || type === 'hy2') {
+    const password = String(p.password || p.auth || '');
+    if (!password) throw new Error(`[Clash YAML] Hysteria2 節點 [${name}] 缺少 password / auth`);
+    const sni = p.sni ? String(p.sni) : p.servername ? String(p.servername) : server;
+    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
+
+    const node: ProxyNode = {
+      type: 'hysteria2',
+      name,
+      server,
+      port,
+      password,
+      tls: true,
+      sni,
+      skipCertVerify,
+      udp: p.udp !== undefined ? Boolean(p.udp) : true,
+      obfs: p.obfs ? String(p.obfs) : undefined,
+      obfsPassword: p['obfs-password'] ? String(p['obfs-password']) : undefined,
+      clashObj: { ...p }
+    };
+    const sb: Record<string, unknown> = {
+      tag: name,
+      type: 'hysteria2',
+      server,
+      server_port: port,
+      password,
+      tls: { enabled: true, server_name: sni, insecure: skipCertVerify }
+    };
+    if (node.obfs) {
+      sb.obfs = { type: node.obfs, password: node.obfsPassword };
+    }
+    node.singboxObj = sb;
+    return node;
+  }
+
+  // 6. TUIC
+  if (type === 'tuic') {
+    const uuid = String(p.uuid || '');
+    const password = String(p.password || '');
+    if (!uuid) throw new Error(`[Clash YAML] TUIC 節點 [${name}] 缺少 uuid`);
+    const sni = p.sni ? String(p.sni) : p.servername ? String(p.servername) : server;
+    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
+    const congestion_control = p['congestion-controller'] ? String(p['congestion-controller']) : 'bbr';
+    const udp_relay_mode = p['udp-relay-mode'] ? String(p['udp-relay-mode']) : 'native';
+    const alpn = Array.isArray(p.alpn) ? p.alpn.map(String) : ['h3'];
+
+    const node: ProxyNode = {
+      type: 'tuic',
+      name,
+      server,
+      port,
+      uuid,
+      password,
+      tls: true,
+      sni,
+      skipCertVerify,
+      congestion_control,
+      udp_relay_mode,
+      alpn,
+      udp: p.udp !== undefined ? Boolean(p.udp) : true,
+      clashObj: { ...p }
+    };
+    node.singboxObj = {
+      tag: name,
+      type: 'tuic',
+      server,
+      server_port: port,
+      uuid,
+      password,
+      congestion_control,
+      udp_relay_mode,
+      tls: { enabled: true, server_name: sni, alpn, insecure: skipCertVerify }
+    };
+    return node;
+  }
+
+  // 7. WireGuard
+  if (type === 'wireguard') {
+    const privateKey = String(p['private-key'] || '');
+    const publicKey = String(p['public-key'] || '');
+    if (!privateKey) throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 private-key (私鑰)`);
+    if (!publicKey) throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 public-key (公鑰)`);
+    if (!p.ip) throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 ip (內網 IP)`);
+
+    const ip = String(p.ip);
+    const ipv6 = p.ipv6 ? String(p.ipv6) : undefined;
+    const localAddress = [ip.includes('/') ? ip : `${ip}/32`];
+    if (ipv6) localAddress.push(ipv6.includes('/') ? ipv6 : `${ipv6}/128`);
+    const presharedKey = p['preshared-key'] ? String(p['preshared-key']) : undefined;
+    const mtu = parseInt(String(p.mtu || 1420), 10) || 1420;
+    const reserved = Array.isArray(p.reserved) ? p.reserved.map(Number) : undefined;
+
+    let dnsList: string[] = [];
+    if (p.dns) {
+      dnsList = Array.isArray(p.dns) ? p.dns.map(String) : [String(p.dns)];
+    } else {
+      throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 dns 設定（例如 dns: [10.2.0.1]）`);
+    }
+
+    const wgConfig: WireGuardConfig = {
+      privateKey,
+      localAddress,
+      publicKey,
+      presharedKey,
+      mtu,
+      reserved,
+      dns: dnsList[0]
+    };
+    const node: ProxyNode = {
+      type: 'wireguard',
+      name,
+      server,
+      port,
+      udp: true,
+      wireguard: wgConfig,
+      clashObj: { ...p, dns: dnsList }
+    };
+    node.singboxObj = {
+      type: 'wireguard',
+      tag: name,
+      address: localAddress,
+      private_key: privateKey,
+      peers: [{ address: server, port, public_key: publicKey, allowed_ips: ['0.0.0.0/0', '::/0'] }],
+      mtu
+    };
+    return node;
+  }
+
+  // 8. 兜底通用節點
+  return {
+    type,
+    name,
+    server,
+    port,
+    udp: true,
+    clashObj: { ...p }
+  };
+}
+
+export function parseClashYaml(content: string): ProxyNode[] {
+  const nodes: ProxyNode[] = [];
+  if (!/(^|\n)\s*proxies\s*:/i.test(content)) {
+    return [];
+  }
+  const parsed = yaml.load(content);
+  if (!parsed || typeof parsed !== 'object') return [];
+
+  const rawProxies = (parsed as Record<string, unknown>).proxies;
+  if (!Array.isArray(rawProxies)) return [];
+
+  for (let i = 0; i < rawProxies.length; i++) {
+    const p = rawProxies[i];
+    if (!p || typeof p !== 'object') continue;
+    const node = parseClashProxyItem(p as Record<string, unknown>, i);
+    if (node) nodes.push(node);
+  }
+  return nodes;
+}
+
+````
+
 ## File: src/parsers/wireguard.ts
 ````ts
 // src/parsers/wireguard.ts
@@ -4586,6 +6848,289 @@ export function parseWireGuard(urlStr: string): ProxyNode {
 
 ````
 
+## File: src/parsers/masque.ts
+````ts
+// src/parsers/masque.ts
+import { ProxyNode, MasqueConfig } from '../types';
+import { parseProxyUri } from './common';
+
+export interface RawMasqueConfig {
+  private_key?: string;
+  'private-key'?: string;
+  endpoint_v4?: string;
+  endpoint_v6?: string;
+  endpoint_pub_key?: string;
+  'public-key'?: string;
+  public_key?: string;
+  server?: string;
+  port?: number | string;
+  ipv4?: string;
+  ipv6?: string;
+  ip?: string;
+  name?: string;
+  uri?: string;
+  sni?: string;
+  servername?: string;
+  server_name?: string;
+  congestion_controller?: string;
+  'congestion-controller'?: string;
+  congestion_control?: string;
+  cca?: string;
+  cc?: string;
+  dns?: string[] | string;
+  mtu?: number | string;
+  udp?: boolean;
+  'remote-dns-resolve'?: boolean;
+  [key: string]: unknown;
+}
+
+export function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode {
+  const privateKey = (config.private_key || config['private-key'] || '').trim();
+  const rawPubKey = (config.endpoint_pub_key || config.public_key || config['public-key'] || '').trim();
+  const publicKey = rawPubKey.replace(/-----BEGIN[^-]+-----|-----END[^-]+-----|[\r\n\s]/g, '');
+  const server = (config.server || config.endpoint_v4 || '').trim();
+  const port = parseInt(String(config.port || 443), 10) || 443;
+  const rawIpv4 = (config.ip || config.ipv4 || '').trim();
+
+  if (!privateKey) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: private_key (私鑰)`);
+  if (!publicKey) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: public_key / endpoint_pub_key (公鑰)`);
+  if (!server) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: server / endpoint_v4 (伺服器端點)`);
+  if (!rawIpv4) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: ip / ipv4 (客戶端內網 IP)`);
+
+  const localIpv4 = rawIpv4.includes('/') ? rawIpv4 : `${rawIpv4}/32`;
+
+  let localIpv6: string | undefined = undefined;
+  if (config.ipv6) {
+    const rawIpv6 = String(config.ipv6).trim();
+    localIpv6 = rawIpv6.includes('/') ? rawIpv6 : `${rawIpv6}/128`;
+  }
+
+  const name = config.name || (index > 0 ? `WARP-MASQUE-${index + 1}` : 'WARP-MASQUE');
+  const uri = config.uri && String(config.uri).trim() ? String(config.uri).trim() : 'https://cloudflareaccess.com';
+  const customSni = config.sni || config.servername || config.server_name;
+  const sni = customSni && String(customSni).trim() ? String(customSni).trim() : 'www.microsoft.com';
+
+  const rawCc =
+    config.cca ||
+    config.cc ||
+    config.congestion_control ||
+    config.congestion_controller ||
+    config['congestion-controller'];
+  const congestionController = rawCc && String(rawCc).trim() ? String(rawCc).trim() : 'bbr';
+  const mtu = config.mtu ? parseInt(String(config.mtu), 10) || 1280 : 1280;
+
+  let dnsList: string[] = [];
+  if (Array.isArray(config.dns) && config.dns.length > 0) {
+    dnsList = config.dns.map(d => String(d).trim()).filter(Boolean);
+  } else if (typeof config.dns === 'string' && config.dns.trim()) {
+    dnsList = config.dns.split(',').map(d => d.trim()).filter(Boolean);
+  } else {
+    dnsList = ['1.1.1.1', '8.8.8.8'];
+  }
+
+  const remoteDnsResolve =
+    config['remote-dns-resolve'] !== undefined ? Boolean(config['remote-dns-resolve']) : true;
+
+  const masqueConfig: MasqueConfig = {
+    privateKey,
+    publicKey,
+    localIpv4,
+    localIpv6,
+    mtu,
+    uri,
+    sni,
+    congestion_controller: congestionController,
+    dns: dnsList
+  };
+
+  const node: ProxyNode = {
+    type: 'masque',
+    name,
+    server,
+    port,
+    udp: true,
+    sni,
+    masque: masqueConfig
+  };
+
+  node.singboxObj = {
+    type: 'masque',
+    tag: name,
+    server,
+    server_port: port,
+    private_key: privateKey,
+    public_key: publicKey,
+    ip: localIpv4,
+    ...(localIpv6 ? { ipv6: localIpv6 } : {}),
+    uri,
+    congestion_control: congestionController,
+    mtu,
+    tls: {
+      enabled: true,
+      server_name: sni
+    }
+  };
+
+  const originalClashProps = { ...config };
+  const cleanKeys = [
+    'private_key', 'private-key', 'public_key', 'public-key', 'endpoint_pub_key',
+    'endpoint_v4', 'endpoint_v6', 'endpoint_h2_v4', 'endpoint_h2_v6',
+    'ipv4', 'license', 'id', 'access_token', 'MASQUE导航'
+  ];
+  for (const k of cleanKeys) {
+    delete originalClashProps[k];
+  }
+
+  node.clashObj = {
+    ...originalClashProps,
+    name,
+    type: 'masque',
+    server,
+    port,
+    'private-key': privateKey,
+    'public-key': publicKey,
+    ip: localIpv4.split('/')[0],
+    ...(localIpv6 ? { ipv6: localIpv6.split('/')[0] } : {}),
+    uri,
+    mtu,
+    udp: config.udp !== undefined ? Boolean(config.udp) : true,
+    'remote-dns-resolve': remoteDnsResolve,
+    'congestion-controller': congestionController,
+    dns: dnsList,
+    sni
+  };
+
+  return node;
+}
+
+export function parseMasqueConfigs(text: string): ProxyNode[] {
+  const nodes: ProxyNode[] = [];
+  const trimmed = text.trim();
+
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      parsed.forEach((item, idx) => {
+        const n = buildMasqueNode(item as RawMasqueConfig, idx);
+        if (n) nodes.push(n);
+      });
+      if (nodes.length > 0) return nodes;
+    } else if (typeof parsed === 'object' && parsed !== null) {
+      const n = buildMasqueNode(parsed as RawMasqueConfig, 0);
+      if (n) return [n];
+    }
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message.startsWith('[MASQUE]')) {
+      throw err;
+    }
+  }
+
+  const objectMatches = trimmed.match(/\{[^{}]*["']private_key["'][^{}]*\}/g);
+  if (objectMatches) {
+    objectMatches.forEach((rawObj, idx) => {
+      const obj = JSON.parse(rawObj) as RawMasqueConfig;
+      const n = buildMasqueNode(obj, idx);
+      if (n) nodes.push(n);
+    });
+  }
+
+  return nodes;
+}
+
+export function parseMasqueUri(urlStr: string): ProxyNode {
+  const parsed = parseProxyUri(urlStr, 443);
+  if (!parsed) throw new Error('[MASQUE] URI 格式無效，無法解析');
+
+  const privateKey = parsed.username;
+  const params = parsed.params;
+  const publicKey = params.get('public_key') || params.get('pk') || '';
+  const ipv4 = params.get('ip') || '';
+  const ipv6 = params.get('ipv6') || undefined;
+  const mtu = parseInt(params.get('mtu') || '1280', 10);
+  const name = parsed.hash || 'WARP-MASQUE';
+
+  if (!privateKey) throw new Error('[MASQUE] 缺少必要欄位: private_key (私鑰)');
+  if (!publicKey) throw new Error('[MASQUE] 缺少必要欄位: public_key (公鑰)');
+  if (!parsed.hostname) throw new Error('[MASQUE] 缺少必要欄位: server (伺服器地址)');
+  if (!ipv4) throw new Error('[MASQUE] 缺少必要欄位: ip (客戶端內網 IP)');
+
+  const uri = params.get('uri') && params.get('uri')!.trim() ? params.get('uri')!.trim() : 'https://cloudflareaccess.com';
+  const sni = params.get('sni') && params.get('sni')!.trim() ? params.get('sni')!.trim() : 'www.microsoft.com';
+
+  const rawCc =
+    params.get('cca') ||
+    params.get('cc') ||
+    params.get('congestion_control') ||
+    params.get('congestion_controller') ||
+    params.get('congestion-controller');
+  const congestionController = rawCc && rawCc.trim() ? rawCc.trim() : 'bbr';
+
+  const dnsParam = params.get('dns');
+  const dnsList = dnsParam ? dnsParam.split(',').map(d => d.trim()).filter(Boolean) : ['1.1.1.1', '8.8.8.8'];
+
+  const masqueConfig: MasqueConfig = {
+    privateKey,
+    publicKey,
+    localIpv4: ipv4.includes('/') ? ipv4 : `${ipv4}/32`,
+    localIpv6: ipv6 ? (ipv6.includes('/') ? ipv6 : `${ipv6}/128`) : undefined,
+    mtu,
+    uri,
+    sni,
+    congestion_controller: congestionController,
+    dns: dnsList
+  };
+
+  const node: ProxyNode = {
+    type: 'masque',
+    name,
+    server: parsed.hostname,
+    port: parsed.port,
+    udp: true,
+    sni,
+    masque: masqueConfig
+  };
+
+  node.singboxObj = {
+    type: 'masque',
+    tag: name,
+    server: parsed.hostname,
+    server_port: parsed.port,
+    private_key: privateKey,
+    public_key: publicKey,
+    ip: masqueConfig.localIpv4,
+    ...(masqueConfig.localIpv6 ? { ipv6: masqueConfig.localIpv6 } : {}),
+    uri,
+    congestion_control: congestionController,
+    mtu,
+    tls: {
+      enabled: true,
+      server_name: sni
+    }
+  };
+
+  node.clashObj = {
+    name,
+    type: 'masque',
+    server: parsed.hostname,
+    port: parsed.port,
+    'private-key': privateKey,
+    'public-key': publicKey,
+    ip: ipv4.split('/')[0],
+    ...(ipv6 ? { ipv6: ipv6.split('/')[0] } : {}),
+    uri,
+    mtu,
+    udp: true,
+    'remote-dns-resolve': true,
+    'congestion-controller': congestionController,
+    dns: dnsList,
+    sni
+  };
+
+  return node;
+}
+
+````
+
 ## File: src/types.ts
 ````ts
 export interface Env {
@@ -4697,120 +7242,6 @@ export interface TgConfigPublicView {
   hasToken: boolean;
   maskedToken: string;
   chatId: string;
-}
-
-````
-
-## File: src/services/telegram.ts
-````ts
-// src/services/telegram.ts
-import {
-  Env,
-  OperationLogAction,
-  OperationLogEntry,
-  TgConfig,
-  TgConfigPublicView
-} from '../types';
-
-export const TG_CONFIG_KEY = 'tg_config';
-
-export function maskBotToken(token: string): string {
-  const t = token.trim();
-  if (!t) return '';
-  if (t.length <= 12) return '***';
-  return `${t.slice(0, 6)}***${t.slice(-4)}`;
-}
-
-export function escapeHtmlForTg(str: string): string {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
-function getActionEmoji(action: OperationLogAction): string {
-  if (action === '獲取訂閱') return '🟢';
-  if (action === '登入後台') return '🟠';
-  if (action === '登入失敗' || action === '異常存取') return '🔴';
-  return '🔵';
-}
-
-export async function getStoredTgConfig(env: Env): Promise<TgConfig> {
-  if (!env.SUB_CACHE) {
-    return { enabled: false, botToken: '', chatId: '' };
-  }
-  try {
-    const raw = await env.SUB_CACHE.get(TG_CONFIG_KEY);
-    if (!raw) return { enabled: false, botToken: '', chatId: '' };
-    const parsed = JSON.parse(raw) as Partial<TgConfig>;
-    return {
-      enabled: Boolean(parsed.enabled),
-      botToken: typeof parsed.botToken === 'string' ? parsed.botToken : '',
-      chatId: typeof parsed.chatId === 'string' ? parsed.chatId : ''
-    };
-  } catch {
-    return { enabled: false, botToken: '', chatId: '' };
-  }
-}
-
-export function toPublicTgView(cfg: TgConfig): TgConfigPublicView {
-  return {
-    enabled: cfg.enabled,
-    hasToken: Boolean(cfg.botToken),
-    maskedToken: maskBotToken(cfg.botToken),
-    chatId: cfg.chatId
-  };
-}
-
-export async function postTelegramMessage(
-  botToken: string,
-  chatId: string,
-  text: string
-): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const cleanToken = botToken.trim().replace(/[^a-zA-Z0-9:_-]/g, '');
-    if (!cleanToken) return { ok: false, error: 'Bot Token 格式無效' };
-    const resp = await fetch(`https://api.telegram.org/bot${cleanToken}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId.trim(),
-        text,
-        parse_mode: 'HTML',
-        disable_web_page_preview: true
-      })
-    });
-    const data = (await resp.json().catch(() => null)) as { ok?: boolean; description?: string } | null;
-    if (!resp.ok || !data?.ok) {
-      return { ok: false, error: data?.description || `HTTP ${resp.status}` };
-    }
-    return { ok: true };
-  } catch (err: unknown) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-export async function sendTgNotification(env: Env, entry: OperationLogEntry): Promise<void> {
-  if (!env.SUB_CACHE) return;
-  try {
-    const cfg = await getStoredTgConfig(env);
-    if (!cfg.enabled || !cfg.botToken || !cfg.chatId) return;
-
-    const emoji = getActionEmoji(entry.action);
-    const msg = [
-      `🔔 <b>SubConverter Pro 操作通知</b>`,
-      ``,
-      `📌 <b>操作類型：</b>${emoji} ${escapeHtmlForTg(entry.action)}`,
-      `🕒 <b>時間 (UTC+8)：</b><code>${escapeHtmlForTg(entry.time)}</code>`,
-      `🌐 <b>IP：</b><code>${escapeHtmlForTg(entry.ip)}</code>`,
-      `📍 <b>地區：</b>${escapeHtmlForTg(entry.region)}`,
-      `🏢 <b>ASN：</b>${escapeHtmlForTg(entry.asn)}`,
-      `🔗 <b>URL：</b><code>${escapeHtmlForTg(entry.url)}</code>`,
-      `📱 <b>UA：</b><code>${escapeHtmlForTg(entry.ua)}</code>`
-    ].join('\n');
-
-    await postTelegramMessage(cfg.botToken, cfg.chatId, msg);
-  } catch {}
 }
 
 ````
@@ -4930,6 +7361,139 @@ export function scheduleLog(
   } else {
     void task;
   }
+}
+
+````
+
+## File: src/services/auth.ts
+````ts
+// src/services/auth.ts
+import { Env } from '../types';
+
+export function hasPasswordConfigured(env: Env): boolean {
+  return Boolean(env.PAGE_PASSWORD && env.PAGE_PASSWORD.trim() !== '');
+}
+
+export function checkAuth(request: Request, env: Env): boolean {
+  if (!hasPasswordConfigured(env)) {
+    return true;
+  }
+  const clientPwd = request.headers.get('X-Password') || '';
+  return clientPwd === env.PAGE_PASSWORD!.trim();
+}
+
+````
+
+## File: src/services/telegram.ts
+````ts
+// src/services/telegram.ts
+import {
+  Env,
+  OperationLogAction,
+  OperationLogEntry,
+  TgConfig,
+  TgConfigPublicView
+} from '../types';
+
+export const TG_CONFIG_KEY = 'tg_config';
+
+export function maskBotToken(token: string): string {
+  const t = token.trim();
+  if (!t) return '';
+  if (t.length <= 12) return '***';
+  return `${t.slice(0, 6)}***${t.slice(-4)}`;
+}
+
+export function escapeHtmlForTg(str: string): string {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function getActionEmoji(action: OperationLogAction): string {
+  if (action === '獲取訂閱') return '🟢';
+  if (action === '登入後台') return '🟠';
+  if (action === '登入失敗' || action === '異常存取') return '🔴';
+  return '🔵';
+}
+
+export async function getStoredTgConfig(env: Env): Promise<TgConfig> {
+  if (!env.SUB_CACHE) {
+    return { enabled: false, botToken: '', chatId: '' };
+  }
+  try {
+    const raw = await env.SUB_CACHE.get(TG_CONFIG_KEY);
+    if (!raw) return { enabled: false, botToken: '', chatId: '' };
+    const parsed = JSON.parse(raw) as Partial<TgConfig>;
+    return {
+      enabled: Boolean(parsed.enabled),
+      botToken: typeof parsed.botToken === 'string' ? parsed.botToken : '',
+      chatId: typeof parsed.chatId === 'string' ? parsed.chatId : ''
+    };
+  } catch {
+    return { enabled: false, botToken: '', chatId: '' };
+  }
+}
+
+export function toPublicTgView(cfg: TgConfig): TgConfigPublicView {
+  return {
+    enabled: cfg.enabled,
+    hasToken: Boolean(cfg.botToken),
+    maskedToken: maskBotToken(cfg.botToken),
+    chatId: cfg.chatId
+  };
+}
+
+export async function postTelegramMessage(
+  botToken: string,
+  chatId: string,
+  text: string
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const cleanToken = botToken.trim().replace(/[^a-zA-Z0-9:_-]/g, '');
+    if (!cleanToken) return { ok: false, error: 'Bot Token 格式無效' };
+    const resp = await fetch(`https://api.telegram.org/bot${cleanToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId.trim(),
+        text,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true
+      })
+    });
+    const data = (await resp.json().catch(() => null)) as { ok?: boolean; description?: string } | null;
+    if (!resp.ok || !data?.ok) {
+      return { ok: false, error: data?.description || `HTTP ${resp.status}` };
+    }
+    return { ok: true };
+  } catch (err: unknown) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function sendTgNotification(env: Env, entry: OperationLogEntry): Promise<void> {
+  if (!env.SUB_CACHE) return;
+  try {
+    const cfg = await getStoredTgConfig(env);
+    if (!cfg.enabled || !cfg.botToken || !cfg.chatId) return;
+
+    const emoji = getActionEmoji(entry.action);
+    const msg = [
+      `🔔 <b>SubConverter Pro 操作通知</b>`,
+      ``,
+      `📌 <b>操作類型：</b>${emoji} ${escapeHtmlForTg(entry.action)}`,
+      `🕒 <b>時間 (UTC+8)：</b><code>${escapeHtmlForTg(entry.time)}</code>`,
+      `🌐 <b>IP：</b><code>${escapeHtmlForTg(entry.ip)}</code>`,
+      `📍 <b>地區：</b>${escapeHtmlForTg(entry.region)}`,
+      `🏢 <b>ASN：</b>${escapeHtmlForTg(entry.asn)}`,
+      `🔗 <b>URL：</b><code>${escapeHtmlForTg(entry.url)}</code>`,
+      `📱 <b>UA：</b><code>${escapeHtmlForTg(entry.ua)}</code>`
+    ].join('\n');
+
+    await postTelegramMessage(cfg.botToken, cfg.chatId, msg);
+  } catch {}
 }
 
 ````
@@ -5179,2564 +7743,6 @@ export function filterAndRenameNodes(
   const sortedNodes = groupNodesByFlag(filteredNodes);
   return deduplicateNodeNames(sortedNodes);
 }
-
-````
-
-## File: src/services/auth.ts
-````ts
-// src/services/auth.ts
-import { Env } from '../types';
-
-export function hasPasswordConfigured(env: Env): boolean {
-  return Boolean(env.PAGE_PASSWORD && env.PAGE_PASSWORD.trim() !== '');
-}
-
-export function checkAuth(request: Request, env: Env): boolean {
-  if (!hasPasswordConfigured(env)) {
-    return true;
-  }
-  const clientPwd = request.headers.get('X-Password') || '';
-  return clientPwd === env.PAGE_PASSWORD!.trim();
-}
-
-````
-
-## File: src/utils.ts
-````ts
-// src/utils.ts
-import { ProxyNode } from './types';
-
-// --- 安全 Base64 解碼 ---
-export function safeBase64Decode(str: string): string {
-  try {
-    let b64 = str.replace(/-/g, '+').replace(/_/g, '/').replace(/[^A-Za-z0-9+/=]/g, '');
-    while (b64.length % 4) b64 += '=';
-    
-    const binaryStr = atob(b64);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      bytes[i] = binaryStr.charCodeAt(i);
-    }
-    return new TextDecoder('utf-8').decode(bytes);
-  } catch {
-    return '';
-  }
-}
-
-export function utf8ToBase64(str: string): string {
-  try {
-    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => {
-      return String.fromCharCode(parseInt(p1, 16));
-    }));
-  } catch {
-    return btoa(str);
-  }
-}
-
-export function tryDecodeURIComponent(str: string): string {
-  try {
-    return decodeURIComponent(str);
-  } catch {
-    return str;
-  }
-}
-
-// --- 自動加入國旗 Emoji 的智慧辨識系統 ---
-export function addFlag(name: string): string {
-  if (/[\uD83C][\uDDE6-\uDDFF][\uD83C][\uDDE6-\uDDFF]/.test(name)) {
-    return name;
-  }
-
-  const upper = name.toUpperCase();
-
-  const isMatch = (codes: string, keywords: string): boolean => {
-    const codeRegex = new RegExp(`(?:^|[^A-Z])(${codes})(?![A-Z])`);
-    const keywordRegex = new RegExp(`(${keywords})`);
-    return codeRegex.test(upper) || keywordRegex.test(upper);
-  };
-
-  if (isMatch('HK|HKG', '香港|深港|HONGKONG|HONG KONG')) return '🇭🇰 ' + name;
-  if (isMatch('TW|TWN|TPE', '台灣|台湾|台北|新北|彰化')) return '🇹🇼 ' + name;
-  if (isMatch('JP|JPN|TYO|OSA|NRT|HND|KIX', '日本|东京|大阪|埼玉|慢日|川日|JAPAN')) return '🇯🇵 ' + name;
-  if (isMatch('SG|SGP|SIN', '新加坡|狮城|SINGAPORE')) return '🇸🇬 ' + name;
-  if (isMatch('US|USA|LAX|SFO|SJC|SEA|NYC|JFK|EWR', '美国|美利堅|洛杉矶|圣何塞|硅谷|波特兰|西雅图|AMERICA|UNITED STATES')) return '🇺🇸 ' + name;
-  if (isMatch('KR|KOR|ICN|SEL', '韩国|首尔|KOREA')) return '🇰🇷 ' + name;
-  if (isMatch('UK|GB|GBR|LHR|LON', '英国|英國|伦敦|BRITAIN|ENGLAND')) return '🇬🇧 ' + name;
-  if (isMatch('NL|NLD|AMS', '荷兰|荷蘭|阿姆斯特丹|NETHERLANDS')) return '🇳🇱 ' + name;
-  if (isMatch('BR|BRA|SAO', '巴西|圣保罗|聖保羅|BRAZIL')) return '🇧🇷 ' + name;
-  if (isMatch('EG|EGY|CAI', '埃及|开罗|開羅|EGYPT')) return '🇪🇬 ' + name;
-  if (isMatch('VN|VNM|HAN|SGN', '越南|河内|河內|西贡|VIETNAM')) return '🇻🇳 ' + name;
-  if (isMatch('MO|MAC|MFM', '澳門|澳门')) return '🇲🇴 ' + name;
-  if (isMatch('KH|KHM|PNH', '柬埔寨|金边|金邊|CAMBODIA')) return '🇰🇭 ' + name;
-  if (isMatch('GR|GRC|ATH', '希腊|希臘|雅典|GREECE')) return '🇬🇷 ' + name;
-  if (isMatch('PL|POL|WAW', '波兰|波蘭|华沙|華沙|POLAND')) return '🇵🇱 ' + name;
-  if (isMatch('IT|ITA|MIL', '意大利|義大和|米兰|羅馬|ITALY')) return '🇮🇹 ' + name;
-  if (isMatch('ES|ESP|MAD', '西班牙|马德里|巴塞隆納|SPAIN')) return '🇪🇸 ' + name;
-  if (isMatch('DE|DEU|FRA', '德国|德國|法兰克福|GERMANY')) return '🇩🇪 ' + name;
-  if (isMatch('FR|FRA|CDG', '法国|法國|巴黎|FRANCE')) return '🇫🇷 ' + name;
-  if (isMatch('RU|RUS', '俄罗斯|俄羅斯|莫斯科|RUSSIA')) return '🇷🇺 ' + name;
-  if (isMatch('CH|CHE|ZRH', '瑞士|苏黎世|日内瓦|SWITZERLAND')) return '🇨🇭 ' + name;
-  if (isMatch('SE|SWE|ARN', '瑞典|斯德哥尔摩|SWEDEN')) return '🇸🇪 ' + name;
-  if (isMatch('NO|NOR|OSL', '挪威|奥斯陆|NORWAY')) return '🇳🇴 ' + name;
-  if (isMatch('FI|FIN|HEL', '芬兰|芬蘭|赫尔辛基|FINLAND')) return '🇫🇮 ' + name;
-  if (isMatch('DK|DNK|CPH', '丹麦|丹麥|哥本哈根|DENMARK')) return '🇩🇰 ' + name;
-  if (isMatch('IE|IRL|DUB', '爱尔兰|愛爾蘭|都柏林|IRELAND')) return '🇮🇪 ' + name;
-  if (isMatch('PT|PRT|LIS', '葡萄牙|里斯本|PORTUGAL')) return '🇵🇹 ' + name;
-  if (isMatch('TH|THA|BKK', '泰国|泰國|曼谷|THAILAND')) return '🇹🇭 ' + name;
-  if (isMatch('MY|MYS|KUL', '马来西亚|馬來西亞|吉隆坡|MALAYSIA')) return '🇲🇾 ' + name;
-  if (isMatch('PH|PHL|MNL', '菲律宾|菲律賓|马尼拉|PHILIPPINES')) return '🇵🇭 ' + name;
-  if (isMatch('ID|IDN|CGK', '印度尼西亚|印尼|雅加达|INDONESIA')) return '🇮🇩 ' + name;
-  if (isMatch('TR|TUR|IST', '土耳其|伊斯坦堡|TURKEY')) return '🇹🇷 ' + name;
-  if (isMatch('IN|IND|BOM', '印度|孟买|INDIA')) return '🇮🇳 ' + name;
-  if (isMatch('CA|CAN|YVR|YYZ', '加拿大|多伦多|温哥华|CANADA')) return '🇨🇦 ' + name;
-  if (isMatch('AU|AUS|SYD|MEL', '澳大利亚|澳洲|悉尼|墨本|AUSTRALIA')) return '🇦🇺 ' + name;
-  if (isMatch('CN|CHN', '中国|回国|国内|北京|上海|廣州|深圳|CHINA')) return '🇨🇳 ' + name;
-  if (isMatch('NZ|NZL|AKL', '新西兰|紐西蘭|奥克兰|NEW ZEALAND')) return '🇳🇿 ' + name;
-  if (isMatch('AE|ARE|DXB', '阿联酋|迪拜|杜拜|UAE')) return '🇦🇪 ' + name;
-  if (isMatch('SA|SAU|RUH', '沙特|沙烏地阿拉伯|利雅德|SAUDI')) return '🇸🇦 ' + name;
-  if (isMatch('IL|ISR|TLV', '以色列|特拉维夫|ISRAEL')) return '🇮🇱 ' + name;
-  if (isMatch('KZ|KAZ', '哈萨克斯坦|哈薩克|KAZAKHSTAN')) return '🇰🇿 ' + name;
-  if (isMatch('PK|PAK', '巴基斯坦|PAKISTAN')) return '🇵🇰 ' + name;
-  if (isMatch('ZA|ZAF|CPT', '南非|开普敦|SOUTH AFRICA')) return '🇿🇦 ' + name;
-
-  return '🇺🇳 ' + name;
-}
-
-// 按國旗進行歸類排序（🇺🇳 置於頂部）
-export function groupNodesByFlag(nodes: ProxyNode[]): ProxyNode[] {
-  const groups = new Map<string, ProxyNode[]>();
-  const flagOrder: string[] = [];
-  
-  for (const node of nodes) {
-    const flaggedName = addFlag(node.name || 'node');
-    
-    let flag = '🇺🇳';
-    const match = flaggedName.match(/^([\uD83C][\uDDE6-\uDDFF][\uD83C][\uDDE6-\uDDFF])/);
-    if (match) {
-      flag = match[1];
-    }
-    
-    if (!groups.has(flag)) {
-      groups.set(flag, []);
-      flagOrder.push(flag);
-    }
-    groups.get(flag)!.push(node);
-  }
-  
-  const standardOrder = [
-    '🇭🇰', '🇹🇼', '🇯🇵', '🇸🇬', '🇰🇷',
-    '🇺🇸', '🇬🇧', '🇨🇦', '🇦🇺',
-    '🇲🇴', '🇨🇳', '🇹🇭', '🇻🇳', '🇲🇾', '🇵🇭', '🇮🇩',
-    '🇩🇪', '🇫🇷', '🇳🇱', '🇷🇺', '🇮🇳', '🇹🇷'
-  ];
-  
-  flagOrder.sort((a, b) => {
-    if (a === '🇺🇳' && b !== '🇺🇳') return -1;
-    if (b === '🇺🇳' && a !== '🇺🇳') return 1;
-    
-    const idxA = standardOrder.indexOf(a);
-    const idxB = standardOrder.indexOf(b);
-    
-    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-    if (idxA !== -1) return -1;
-    if (idxB !== -1) return 1;
-    
-    return a.localeCompare(b);
-  });
-  
-  const result: ProxyNode[] = [];
-  for (const flag of flagOrder) {
-    result.push(...groups.get(flag)!);
-  }
-  return result;
-}
-
-// 去重複命名與標籤對齊
-export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
-  const seenKey = new Set<string>();
-  const nameCount = new Map<string, number>();
-
-  return nodes.filter(node => {
-    const key = `${node.server}:${node.port}:${node.uuid || node.password || ''}:${node.type}`;
-
-    if (seenKey.has(key)) return false;
-    seenKey.add(key);
-
-    let baseName = node.name || 'node';
-    baseName = addFlag(baseName);
-
-    if (!nameCount.has(baseName)) {
-      nameCount.set(baseName, 1);
-      node.name = baseName;
-    } else {
-      const count = nameCount.get(baseName)! + 1;
-      nameCount.set(baseName, count);
-      node.name = `${baseName}_${count}`;
-    }
-
-    if (node.singboxObj) {
-      node.singboxObj.tag = node.name;
-    }
-    if (node.clashObj) {
-      node.clashObj.name = node.name;
-    }
-
-    return true;
-  });
-}
-
-````
-
-## File: src/index.ts
-````ts
-// src/index.ts
-// @ts-ignore
-import packageJson from '../package.json';
-import { Env } from './types';
-import { handleArgoRoutes } from './routes/argo';
-import { handleAdminRoutes } from './routes/admin';
-import { handleFavsRoutes } from './routes/favs';
-import { handleSubRoute } from './routes/sub';
-
-const version = packageJson.version;
-
-export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const url = new URL(request.url);
-
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, X-Password, X-Login-Attempt'
-        }
-      });
-    }
-
-    if (request.method === 'GET' && url.pathname === '/version') {
-      return new Response(`subconverter v${version} ${url.host} backend\n`, {
-        headers: {
-          'Content-Type': 'text/plain; charset=utf-8',
-          'Access-Control-Allow-Origin': '*'
-        }
-      });
-    }
-
-    const argoResp = await handleArgoRoutes(request, env, url);
-    if (argoResp) return argoResp;
-
-    const adminResp = await handleAdminRoutes(request, env, ctx, url);
-    if (adminResp) return adminResp;
-
-    const favsResp = await handleFavsRoutes(request, env, ctx, url);
-    if (favsResp) return favsResp;
-
-    return handleSubRoute(request, env, ctx, url, version);
-  }
-};
-
-````
-
-## File: src/generators/common.ts
-````ts
-// src/generators/common.ts
-export function isIpAddress(str: string): boolean {
-  return /^(\d{1,3}\.){3}\d{1,3}$/.test(str) || str.includes(':');
-}
-
-// 防禦性濾網：安全過濾 JSON 字串中意外存在的單行與多行註解，防止 JSON.parse 報錯
-export function stripJsonComments(jsonStr: string): string {
-  return jsonStr.replace(/\\"|"(?:\\"|[^"])*"|(\/\/.*|\/\*[\s\S]*?\*\/)/g, (match, group) => {
-    return group ? '' : match;
-  });
-}
-
-// 直接自 GitHub 讀取遠端模板，失敗時無縫回退至內嵌應急模板
-export async function fetchTemplateDirect(url: string, fallbackStr: string): Promise<string> {
-  try {
-    const resp = await fetch(`${url}?t=${Date.now()}`, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
-    });
-    if (resp.ok) {
-      return await resp.text();
-    }
-  } catch {}
-
-  return fallbackStr;
-}
-
-````
-
-## File: src/generators/clash.ts
-````ts
-// src/generators/clash.ts
-import yaml from 'js-yaml';
-import { Env, ProxyNode } from '../types';
-import { REMOTE_CONFIG, FALLBACK_CLASH_RULES } from '../config/rules';
-import { isIpAddress, fetchTemplateDirect } from './common';
-
-export async function toClashWithTemplate(
-  nodes: ProxyNode[],
-  _env?: Env,
-  _forceRefresh = false
-): Promise<string> {
-  const text = await fetchTemplateDirect(REMOTE_CONFIG.clash, FALLBACK_CLASH_RULES);
-  const config = yaml.load(text) as Record<string, unknown>;
-
-  const proxies = nodes.map(n => {
-    const obj = JSON.parse(JSON.stringify(n.clashObj));
-    Object.keys(obj).forEach(key => obj[key] === undefined && delete obj[key]);
-
-    if (n.ech) {
-      const echOpts: Record<string, unknown> = { enable: true };
-      if (n.echQueryServerName && !isIpAddress(n.echQueryServerName)) {
-        echOpts['query-server-name'] = n.echQueryServerName;
-      }
-      obj['ech-opts'] = echOpts;
-    }
-
-    return obj;
-  });
-  const proxyNames = proxies.map((p: Record<string, unknown>) => p.name as string);
-
-  if (!Array.isArray(config.proxies)) config.proxies = [];
-  config.proxies.push(...proxies);
-
-  if (Array.isArray(config['proxy-groups'])) {
-    const groups = config['proxy-groups'] as Array<Record<string, unknown>>;
-
-    groups.forEach(group => {
-      if (!Array.isArray(group.proxies)) group.proxies = [];
-      const arr = group.proxies as string[];
-      proxyNames.forEach(name => {
-        if (!arr.includes(name)) arr.push(name);
-      });
-    });
-  }
-
-  const nodesWithCustomDoh = nodes.filter(n => n.ech && n.echDoh && /^https?:\/\//i.test(n.echDoh));
-  if (nodesWithCustomDoh.length > 0 && config.dns && typeof config.dns === 'object') {
-    const dnsObj = config.dns as Record<string, unknown>;
-    if (!dnsObj['nameserver-policy'] || typeof dnsObj['nameserver-policy'] !== 'object') {
-      dnsObj['nameserver-policy'] = {};
-    }
-    const policy = dnsObj['nameserver-policy'] as Record<string, string[]>;
-    for (const n of nodesWithCustomDoh) {
-      const domain = n.echQueryServerName || n.sni || n.server;
-      if (domain && !isIpAddress(domain)) {
-        policy[domain] = [n.echDoh!];
-      }
-    }
-  }
-
-  return yaml.dump(config, { indent: 2, noRefs: true });
-}
-
-````
-
-## File: src/generators/singbox.ts
-````ts
-// src/generators/singbox.ts
-import { Env, ProxyNode } from '../types';
-import { REMOTE_CONFIG, FALLBACK_SINGBOX_RULES } from '../config/rules';
-import { isIpAddress, stripJsonComments, fetchTemplateDirect } from './common';
-
-export async function toSingBoxWithTemplate(
-  nodes: ProxyNode[],
-  _env?: Env,
-  _forceRefresh = false
-): Promise<string> {
-  const text = await fetchTemplateDirect(REMOTE_CONFIG.singbox, FALLBACK_SINGBOX_RULES);
-  const config = JSON.parse(stripJsonComments(text));
-
-  if (!config.http_clients || !Array.isArray(config.http_clients) || config.http_clients.length === 0) {
-    config.http_clients = [{ tag: 'default' }];
-  } else {
-    config.http_clients.forEach((hc: Record<string, unknown>) => {
-      if (hc.detour === 'direct' || hc.detour === 'DIRECT') {
-        delete hc.detour;
-      }
-    });
-  }
-
-  if (config.dns) {
-    config.dns.final = 'remote-dns';
-    if (Array.isArray(config.dns.servers)) {
-      config.dns.servers = config.dns.servers.filter((s: Record<string, unknown>) => s.type !== 'rcode');
-      config.dns.servers.forEach((s: Record<string, unknown>) => {
-        if (s.detour === 'direct' || s.detour === 'DIRECT') delete s.detour;
-      });
-    }
-    if (Array.isArray(config.dns.rules)) {
-      config.dns.rules = config.dns.rules.filter((r: Record<string, unknown>) => !('outbound' in r));
-    }
-
-    const nodesWithCustomDoh = nodes.filter(n => n.ech && n.echDoh && /^https?:\/\//i.test(n.echDoh));
-    if (nodesWithCustomDoh.length > 0) {
-      const dohMap = new Map<string, string>();
-      for (const n of nodesWithCustomDoh) {
-        const domain = n.echQueryServerName || n.sni || n.server;
-        const dohUrl = n.echDoh!;
-        if (domain && !isIpAddress(domain) && !dohMap.has(domain)) {
-          dohMap.set(domain, dohUrl);
-        }
-      }
-
-      for (const [domain, dohUrl] of dohMap.entries()) {
-        let serverHost = dohUrl;
-        let serverPath = '/dns-query';
-        try {
-          const u = new URL(dohUrl);
-          serverHost = u.hostname;
-          serverPath = u.pathname || '/dns-query';
-        } catch {}
-
-        const tag = `ech-doh-${domain.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
-        if (!config.dns.servers.some((s: Record<string, unknown>) => s.tag === tag)) {
-          const dnsServerObj: Record<string, unknown> = {
-            tag,
-            type: 'https',
-            server: serverHost,
-            domain_resolver: 'system-dns'
-          };
-          if (serverPath && serverPath !== '/') {
-            dnsServerObj.path = serverPath;
-          }
-          config.dns.servers.push(dnsServerObj);
-        }
-
-        const alreadyExists = config.dns.rules.some((r: Record<string, unknown>) => {
-          const doms = r.domain as string[] | undefined;
-          return Array.isArray(doms) && doms.includes(domain);
-        });
-
-        if (!alreadyExists) {
-          config.dns.rules.unshift({
-            domain: [domain],
-            domain_suffix: [domain],
-            server: tag
-          });
-        }
-      }
-    }
-
-    // 遍歷所有 DNS 伺服器，確保域名地址均帶有 domain_resolver (Sing-Box 1.14+ 強制規範)
-    if (Array.isArray(config.dns.servers)) {
-      config.dns.servers.forEach((s: Record<string, unknown>) => {
-        if (s.server && typeof s.server === 'string' && !isIpAddress(s.server)) {
-          if (!s.domain_resolver) {
-            s.domain_resolver = 'system-dns';
-          }
-        }
-      });
-    }
-  }
-
-  if (!config.route) config.route = {};
-  config.route.default_domain_resolver = 'system-dns';
-  config.route.default_http_client = 'default';
-
-  if (Array.isArray(config.route.rule_set)) {
-    config.route.rule_set.forEach((rs: Record<string, unknown>) => {
-      delete rs.download_detour;
-    });
-  }
-
-  if (Array.isArray(config.inbounds)) {
-    config.inbounds.forEach((ib: Record<string, unknown>) => {
-      delete ib.sniff;
-      delete ib.sniff_override_destination;
-      delete ib.domain_strategy;
-    });
-  }
-
-  const outbounds: Record<string, unknown>[] = [];
-  const endpoints: Record<string, unknown>[] = [];
-  const allNodeTags: string[] = [];
-
-  nodes.forEach(n => {
-    allNodeTags.push(n.name);
-
-    if (n.type === 'wireguard' && n.wireguard) {
-      const wg = n.wireguard;
-      const peerObj: Record<string, unknown> = {
-        address: n.server,
-        port: n.port,
-        public_key: wg.publicKey,
-        allowed_ips: ['0.0.0.0/0', '::/0']
-      };
-      if (wg.presharedKey) peerObj.pre_shared_key = wg.presharedKey;
-      if (wg.reserved && wg.reserved.length > 0) peerObj.reserved = wg.reserved;
-
-      endpoints.push({
-        type: 'wireguard',
-        tag: n.name,
-        address: wg.localAddress,
-        private_key: wg.privateKey,
-        peers: [peerObj],
-        mtu: wg.mtu || 1420
-      });
-    } else {
-      const obj = JSON.parse(JSON.stringify(n.singboxObj));
-      if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {
-        obj.tls.alpn = ['http/1.1'];
-      }
-
-      if (n.ech && obj.tls) {
-        const echObj: Record<string, unknown> = { enabled: true };
-        if (n.echQueryServerName && !isIpAddress(n.echQueryServerName)) {
-          echObj.query_server_name = n.echQueryServerName;
-        }
-        obj.tls.ech = echObj;
-      }
-
-      outbounds.push(obj);
-    }
-  });
-
-  if (endpoints.length > 0) {
-    if (!config.endpoints || !Array.isArray(config.endpoints)) {
-      config.endpoints = [];
-    }
-    config.endpoints.push(...endpoints);
-  }
-
-  if (!Array.isArray(config.outbounds)) config.outbounds = [];
-  config.outbounds.push(...outbounds);
-
-  config.outbounds.forEach((out: Record<string, unknown>) => {
-    if (out.type === 'selector' || out.type === 'urltest') {
-      if (!Array.isArray(out.outbounds)) out.outbounds = [];
-      const arr = out.outbounds as string[];
-      allNodeTags.forEach(tag => {
-        if (!arr.includes(tag)) arr.push(tag);
-      });
-    }
-  });
-
-  return JSON.stringify(config, null, 2);
-}
-
-````
-
-## File: src/generators/index.ts
-````ts
-// src/generators/index.ts
-export { toRawLinks, toBase64 } from './uri';
-export { toSingBoxWithTemplate } from './singbox';
-export { toClashWithTemplate } from './clash';
-export { toHonk } from './honk';
-export { toSurge, toQuantumultX, toLoon } from './legacy';
-
-````
-
-## File: src/generators/uri.ts
-````ts
-// src/generators/uri.ts
-import { ProxyNode } from '../types';
-import { utf8ToBase64 } from '../utils';
-
-export function toRawLinks(nodes: ProxyNode[]): string {
-  const links = nodes
-    .map(node => {
-      try {
-        if (node.type === 'vless') {
-          const params = new URLSearchParams();
-          params.set('security', node.reality ? 'reality' : node.tls ? 'tls' : 'none');
-          params.set('type', node.network || 'tcp');
-          if (node.flow) params.set('flow', node.flow);
-          if (node.sni) params.set('sni', node.sni);
-          if (node.fingerprint) params.set('fp', node.fingerprint);
-          if (node.ech) {
-            if (node.echDoh && node.echQueryServerName) {
-              params.set('ech', `${node.echQueryServerName}+${node.echDoh}`);
-            } else if (node.echDoh) {
-              params.set('ech', node.echDoh);
-            } else if (node.echQueryServerName) {
-              params.set('ech', node.echQueryServerName);
-            } else {
-              params.set('ech', '1');
-            }
-          }
-          if (node.reality) {
-            params.set('pbk', node.reality.publicKey);
-            params.set('sid', node.reality.shortId);
-            if (node.reality.spiderX) params.set('spx', node.reality.spiderX);
-          }
-          if (node.network === 'ws') {
-            if (node.wsPath) params.set('path', node.wsPath);
-            if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host);
-          }
-          if (node.network === 'xhttp' || node.network === 'splithttp') {
-            if (node.xhttpPath) params.set('path', node.xhttpPath);
-            if (node.xhttpHost) params.set('host', node.xhttpHost);
-            if (node.xhttpMode) params.set('mode', node.xhttpMode);
-          }
-          return `vless://${node.uuid}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-        }
-        if (node.type === 'hysteria2') {
-          const params = new URLSearchParams();
-          if (node.sni) params.set('sni', node.sni);
-          if (node.obfs) {
-            params.set('obfs', node.obfs);
-            if (node.obfsPassword) params.set('obfs-password', node.obfsPassword);
-          }
-          if (node.skipCertVerify) params.set('insecure', '1');
-          return `hysteria2://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-        }
-        if (node.type === 'vmess') {
-          const vmessObj = {
-            v: '2',
-            ps: node.name,
-            add: node.server,
-            port: node.port,
-            id: node.uuid,
-            aid: (node.clashObj as Record<string, unknown>)?.alterId || 0,
-            scy: 'auto',
-            net: node.network,
-            type: 'none',
-            host: node.wsHeaders?.Host || '',
-            path: node.wsPath || '',
-            tls: node.tls ? 'tls' : '',
-            sni: node.sni || ''
-          };
-          return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
-        }
-        if (node.type === 'shadowsocks') {
-          const method = encodeURIComponent(node.cipher || '');
-          const pass = encodeURIComponent(node.password || '');
-          const params = new URLSearchParams();
-          if (node.tls) {
-            params.set('security', 'tls');
-            if (node.sni) params.set('sni', node.sni);
-            if (node.alpn) params.set('alpn', node.alpn.join(','));
-            if (node.fingerprint) params.set('fp', node.fingerprint);
-            if (node.ech) {
-              if (node.echDoh && node.echQueryServerName) {
-                params.set('ech', `${node.echQueryServerName}+${node.echDoh}`);
-              } else if (node.echDoh) {
-                params.set('ech', node.echDoh);
-              } else if (node.echQueryServerName) {
-                params.set('ech', node.echQueryServerName);
-              } else {
-                params.set('ech', '1');
-              }
-            }
-            params.set('type', node.network || 'tcp');
-          }
-          const clashPlugin = (node.clashObj as Record<string, unknown>)?.plugin as string | undefined;
-          if (clashPlugin && !node.tls) {
-            const pluginOpts = (node.clashObj as Record<string, unknown>)?.['plugin-opts'] as Record<string, string> | undefined;
-            const optStr = pluginOpts ? ';' + new URLSearchParams(pluginOpts).toString().replace(/&/g, ';') : '';
-            params.set('plugin', clashPlugin + optStr);
-          }
-          const query = params.toString();
-          return `ss://${method}:${pass}@${node.server}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
-        }
-        if (node.type === 'tuic') {
-          const params = new URLSearchParams();
-          if (node.sni) params.set('sni', node.sni);
-          if (node.congestion_control) params.set('congestion_control', node.congestion_control);
-          if (node.udp_relay_mode) params.set('udp_relay_mode', node.udp_relay_mode);
-          if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
-          if (node.skipCertVerify) params.set('allow_insecure', '1');
-          return `tuic://${node.uuid || ''}:${node.password || ''}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-        }
-        if (node.type === 'anytls') {
-          const params = new URLSearchParams();
-          params.set('security', 'tls');
-          if (node.sni) params.set('sni', node.sni);
-          params.set('insecure', node.skipCertVerify ? '1' : '0');
-          if (node.fingerprint) params.set('fp', node.fingerprint);
-          if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
-          params.set('type', 'tcp');
-          return `anytls://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-        }
-        if (node.type === 'trojan') {
-          const params = new URLSearchParams();
-          if (node.sni) params.set('sni', node.sni);
-          if (node.skipCertVerify) params.set('allowInsecure', '1');
-          if (node.ech) {
-            if (node.echDoh && node.echQueryServerName) {
-              params.set('ech', `${node.echQueryServerName}+${node.echDoh}`);
-            } else if (node.echDoh) {
-              params.set('ech', node.echDoh);
-            } else if (node.echQueryServerName) {
-              params.set('ech', node.echQueryServerName);
-            } else {
-              params.set('ech', '1');
-            }
-          }
-          return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-        }
-        if (node.type === 'wireguard' && node.wireguard) {
-          const wg = node.wireguard;
-          const cleanIp = wg.localAddress[0]?.split('/')[0] || '10.2.0.2';
-          const params = new URLSearchParams();
-          params.set('publickey', wg.publicKey || '');
-          params.set('privatekey', wg.privateKey || '');
-          params.set('ip', cleanIp);
-          params.set('address', cleanIp);
-          if (wg.dns) params.set('dns', wg.dns);
-          if (wg.presharedKey) params.set('presharedkey', wg.presharedKey);
-          params.set('mtu', String(wg.mtu || 1420));
-          params.set('keepalive', '25');
-          return `wireguard://${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-        }
-        if (node.type === 'masque' && node.masque) {
-          const m = node.masque;
-          const params = new URLSearchParams();
-          params.set('public_key', m.publicKey);
-          if (m.localIpv4) params.set('ip', m.localIpv4.split('/')[0]);
-          if (m.localIpv6) params.set('ipv6', m.localIpv6.split('/')[0]);
-          if (m.mtu) params.set('mtu', String(m.mtu));
-          if (m.uri) params.set('uri', m.uri);
-          if (m.sni) params.set('sni', m.sni);
-
-          const cc = m.congestion_controller || 'bbr';
-          params.set('cca', cc);
-          params.set('cc', cc);
-          params.set('congestion_control', cc);
-          params.set('congestion_controller', cc);
-          params.set('congestion-controller', cc);
-
-          if (m.dns && m.dns.length > 0) params.set('dns', m.dns.join(','));
-          return `masque://${encodeURIComponent(m.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-        }
-        return null;
-      } catch {
-        return null;
-      }
-    })
-    .filter((l): l is string => Boolean(l));
-
-  return links.join('\n');
-}
-
-export function toBase64(nodes: ProxyNode[]): string {
-  const rawLinks = toRawLinks(nodes);
-  return utf8ToBase64(rawLinks);
-}
-
-````
-
-## File: src/generators/honk.ts
-````ts
-// src/generators/honk.ts
-import { ProxyNode } from '../types';
-import { REMOTE_CONFIG, FALLBACK_HONK_RULES } from '../config/rules';
-import { fetchTemplateDirect } from './common';
-
-export async function toHonk(_nodes: ProxyNode[], subUrl?: string, profileName?: string): Promise<string> {
-  const AI_DAE_URL = 'https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.dae';
-  let aiRulesBody = 'domain(geosite:openai, geosite:anthropic) -> AI';
-
-  try {
-    const aiResp = await fetch(`${AI_DAE_URL}?t=${Date.now()}`, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
-    });
-    if (aiResp.ok) {
-      const text = await aiResp.text();
-      if (text.includes('domain(')) {
-        aiRulesBody = text.replace(/->\s*proxy/g, '-> AI').trim();
-      }
-    }
-  } catch {}
-
-  const finalSubTag = (profileName || 'My_Sub').replace(/[^a-zA-Z0-9_-]/g, '_');
-  const targetSubUrl = subUrl || 'https://sub.myvs.dpdns.org/EDT?target=base64';
-
-  const template = await fetchTemplateDirect(REMOTE_CONFIG.honk, FALLBACK_HONK_RULES);
-
-  return template
-    .replace(/{{SUB_TAG}}/g, finalSubTag)
-    .replace(/{{SUB_URL}}/g, targetSubUrl)
-    .replace(/{{AI_RULES}}/g, aiRulesBody);
-}
-
-````
-
-## File: src/generators/legacy.ts
-````ts
-// src/generators/legacy.ts
-import { ProxyNode } from '../types';
-
-export function toSurge(nodes: ProxyNode[]): string {
-  const lines: string[] = ['[Proxy]'];
-  const nodeNames: string[] = [];
-  const wgSections: string[] = [];
-
-  for (const node of nodes) {
-    let line = '';
-    const name = node.name.replace(/[,=]/g, '').trim();
-
-    if (node.type === 'shadowsocks') {
-      line = `${name} = ss, ${node.server}, ${node.port}, encrypt-method=${node.cipher}, password=${node.password}, udp-relay=true`;
-      if (node.sni) line += `, sni=${node.sni}`;
-    } else if (node.type === 'trojan') {
-      line = `${name} = trojan, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
-      if (node.network === 'ws') {
-        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
-        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
-      }
-    } else if (node.type === 'vmess') {
-      line = `${name} = vmess, ${node.server}, ${node.port}, username=${node.uuid}, tls=${node.tls ? 'true' : 'false'}, udp-relay=true`;
-      if (node.sni) line += `, sni=${node.sni}`;
-      if (node.network === 'ws') {
-        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
-        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
-      }
-    } else if (node.type === 'vless') {
-      line = `${name} = vless, ${node.server}, ${node.port}, username=${node.uuid}, tls=${node.tls ? 'true' : 'false'}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
-      if (node.network === 'ws') {
-        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
-        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
-      }
-    } else if (node.type === 'hysteria2') {
-      line = `${name} = hysteria2, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
-    } else if (node.type === 'tuic') {
-      line = `${name} = tuic, ${node.server}, ${node.port}, token=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}`;
-    } else if (node.type === 'wireguard' && node.wireguard) {
-      const wg = node.wireguard;
-      const safeSecName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
-      line = `${name} = wireguard, section-name=${safeSecName}`;
-
-      let wgSec = `\n[WireGuard ${safeSecName}]\n`;
-      wgSec += `private-key = ${wg.privateKey}\n`;
-      wgSec += `self-ip = ${wg.localAddress[0]?.split('/')[0] || '10.2.0.2'}\n`;
-      if (wg.localAddress[1]) {
-        wgSec += `self-ip-v6 = ${wg.localAddress[1]?.split('/')[0]}\n`;
-      }
-      if (wg.dns) {
-        wgSec += `dns-server = ${wg.dns}\n`;
-      }
-      wgSec += `peer = (public-key = ${wg.publicKey || ''}, allowed-ips = "0.0.0.0/0, ::/0", endpoint = ${node.server}:${node.port}, keepalive = 25)\n`;
-      wgSections.push(wgSections.length > 0 ? '\n' + wgSec : wgSec);
-    }
-
-    if (line) {
-      lines.push(line);
-      nodeNames.push(name);
-    }
-  }
-
-  lines.push('\n[Proxy Group]');
-  if (nodeNames.length > 0) {
-    lines.push(`🚀 節點選擇 = select, ⚡ 自動選擇, DIRECT, ${nodeNames.join(', ')}`);
-    lines.push(`⚡ 自動選擇 = url-test, ${nodeNames.join(', ')}, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50`);
-  } else {
-    lines.push('🚀 節點選擇 = select, DIRECT');
-    lines.push('⚡ 自動選擇 = select, DIRECT');
-  }
-  lines.push('🐟 漏網之魚 = select, 🚀 節點選擇, DIRECT');
-
-  lines.push('\n[Rule]');
-  lines.push('GEOIP,CN,DIRECT');
-  lines.push('FINAL,🐟 漏網之魚\n');
-
-  if (wgSections.length > 0) {
-    lines.push(wgSections.join('\n'));
-  }
-
-  return lines.join('\n');
-}
-
-export function toQuantumultX(nodes: ProxyNode[]): string {
-  const lines: string[] = [];
-
-  for (const node of nodes) {
-    const name = node.name.replace(/[,=]/g, '').trim();
-
-    if (node.type === 'shadowsocks') {
-      lines.push(`shadowsocks=${node.server}:${node.port}, method=${node.cipher}, password=${node.password}, fast-open=false, udp-relay=true, tag=${name}`);
-    } else if (node.type === 'trojan') {
-      lines.push(`trojan=${node.server}:${node.port}, password=${node.password}, over-tls=true, tls-host=${node.sni || node.server}, fast-open=false, udp-relay=true, tag=${name}`);
-    } else if (node.type === 'vmess') {
-      let vmessLine = `vmess=${node.server}:${node.port}, method=none, password=${node.uuid}, fast-open=false, udp-relay=true, tag=${name}`;
-      if (node.tls) vmessLine += `, over-tls=true, tls-host=${node.sni || node.server}`;
-      if (node.network === 'ws') vmessLine += `, obfs=ws, obfs-uri=${node.wsPath || '/'}`;
-      lines.push(vmessLine);
-    } else if (node.type === 'vless') {
-      let vlessLine = `vless=${node.server}:${node.port}, method=none, password=${node.uuid}, fast-open=false, udp-relay=true, tag=${name}`;
-      if (node.tls) vlessLine += `, over-tls=true, tls-host=${node.sni || node.server}`;
-      if (node.network === 'ws') {
-        vlessLine += `, obfs=ws, obfs-uri=${node.wsPath || '/'}`;
-        if (node.wsHeaders?.Host) vlessLine += `, obfs-host=${node.wsHeaders.Host}`;
-      }
-      lines.push(vlessLine);
-    } else if (node.type === 'hysteria2') {
-      lines.push(`hysteria2=${node.server}:${node.port}, password=${node.password}, tls-host=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, tag=${name}`);
-    }
-  }
-
-  if (lines.length === 0) {
-    return '# 未在該訂閱中找到相容的節點';
-  }
-
-  return lines.join('\n');
-}
-
-export function toLoon(nodes: ProxyNode[]): string {
-  const lines: string[] = ['[Proxy]'];
-
-  for (const node of nodes) {
-    const name = node.name.replace(/,/g, '');
-    if (node.type === 'shadowsocks') {
-      lines.push(`${name} = Shadowsocks,${node.server},${node.port},${node.cipher},"${node.password}",fast-open=false,udp=true`);
-    } else if (node.type === 'trojan') {
-      lines.push(`${name} = Trojan,${node.server},${node.port},"${node.password}",sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`);
-    } else if (node.type === 'vless') {
-      let l = `${name} = Vless,${node.server},${node.port},"${node.uuid}",tls=${node.tls ? 'true' : 'false'},sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`;
-      if (node.network === 'ws') l += `,transport=ws,path=${node.wsPath || '/'}`;
-      lines.push(l);
-    } else if (node.type === 'vmess') {
-      let v = `${name} = vmess,${node.server},${node.port},auto,"${node.uuid}",fast-open=false,udp=true`;
-      if (node.tls) v += `,over-tls=true,tls-name=${node.sni || node.server}`;
-      if (node.network === 'ws') v += `,transport=ws,path=${node.wsPath || '/'}`;
-      lines.push(v);
-    } else if (node.type === 'hysteria2') {
-      lines.push(`${name} = Hysteria2,${node.server},${node.port},password=${node.password},sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`);
-    }
-  }
-
-  return lines.join('\n');
-}
-
-````
-
-## File: src/config/rules.ts
-````ts
-// src/config/rules.ts
-export const REMOTE_CONFIG = {
-  singbox: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Sing-Box_Rules.JSON',
-  clash: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Clash_Rules.YAML',
-  honk: 'https://raw.githubusercontent.com/sammy0101/cf-sub-converter/refs/heads/main/Honk_Rules.DAE'
-};
-
-// 內嵌緊急降級模板 (Sing-Box 純 IPv4 純淨版，已修正 Fake-IP 查詢過濾)
-export const FALLBACK_SINGBOX_RULES = JSON.stringify({
-  log: { level: "info" },
-  http_clients: [
-    { tag: "default" }
-  ],
-  dns: {
-    servers: [
-      { tag: "remote-dns", type: "https", server: "8.8.8.8", detour: "🚀 節點選擇" },
-      { tag: "remote-cf-dns", type: "https", server: "1.1.1.1", detour: "🚀 節點選擇" },
-      { tag: "system-dns", type: "local" },
-      { tag: "local-dns", type: "local" },
-      { tag: "fakeip-dns", type: "fakeip", inet4_range: "198.18.0.0/15" }
-    ],
-    rules: [
-      { rule_set: ["rs-private"], server: "system-dns" },
-      { rule_set: ["rs-cn"], server: "system-dns", disable_cache: true },
-      { rule_set: ["rs-apple"], server: "system-dns", disable_cache: true },
-      {
-        query_type: ["A", "AAAA"],
-        rule_set: [
-          "rs-geolocation-!cn",
-          "rs-ai"
-        ],
-        server: "fakeip-dns"
-      }
-    ],
-    final: "remote-dns",
-    strategy: "ipv4_only"
-  },
-  inbounds: [{ type: "tun", tag: "tun-in", interface_name: "tun0", auto_route: true, address: ["172.19.0.1/30"], stack: "mixed" }],
-  outbounds: [
-    { type: "selector", tag: "🚀 節點選擇", outbounds: ["⚡ 自動選擇", "direct"] },
-    { type: "urltest", tag: "⚡ 自動選擇", outbounds: [], url: "https://www.gstatic.com/generate_204", interval: "3m" },
-    { type: "selector", tag: "🛑 廣告攔截", outbounds: ["block", "direct"] },
-    { type: "direct", tag: "direct" },
-    { type: "block", tag: "block" }
-  ],
-  route: {
-    default_domain_resolver: "system-dns",
-    default_http_client: "default",
-    rules: [
-      { action: "sniff" },
-      { protocol: "dns", action: "hijack-dns" },
-      { rule_set: "rs-ads", outbound: "🛑 廣告攔截" }
-    ],
-    auto_detect_interface: true
-  },
-  experimental: {
-    cache_file: { enabled: true, store_fakeip: true }
-  }
-});
-
-export const FALLBACK_CLASH_RULES = `
-port: 7890
-allow-lan: true
-mode: rule
-log-level: info
-proxies: []
-proxy-groups:
-  - name: 🚀 節點選擇
-    type: select
-    proxies:
-      - ⚡ 自動選擇
-      - DIRECT
-  - name: ⚡ 自動選擇
-    type: url-test
-    url: http://www.gstatic.com/generate_204
-    interval: 300
-    proxies: []
-  - name: 🛑 廣告攔截
-    type: select
-    proxies:
-      - REJECT
-      - DIRECT
-dns:
-  enable: true
-  enhanced-mode: fake-ip
-  fake-ip-filter:
-    - '*.lan'
-    - '*.localdomain'
-    - '*.example'
-    - '*.invalid'
-    - '*.localhost'
-    - '*.test'
-    - '*.local'
-    - '*.home.arpa'
-    - '*.msftconnecttest.com'
-    - '*.msftncsi.com'
-    - 'msftconnecttest.com'
-    - 'msftncsi.com'
-    - 'captive.apple.com'
-    - 'connectivitycheck.gstatic.com'
-    - 'connectivitycheck.platform.hicloud.com'
-    - 'detectportal.firefox.com'
-    - '+.market.xiaomi.com'
-    - 'time.*.com'
-    - 'time.*.gov'
-    - 'time.*.edu.cn'
-    - 'time.*.apple.com'
-    - 'time.apple.com'
-    - 'time-ios.apple.com'
-    - 'ntp.*.com'
-    - '+.pool.ntp.org'
-    - 'stun.*.*'
-    - 'stun.*.*.*'
-    - '+.stun.*.*'
-    - '+.stun.*.*.*'
-    - '*.srv.nintendo.net'
-    - '*.stun.playstation.net'
-    - '+.playstation.net'
-    - '+.playstation.com'
-    - '+.sonyentertainmentnetwork.com'
-    - 'xbox.*.microsoft.com'
-    - '*.xboxlive.com'
-    - '*.battlenet.com.cn'
-    - '*.wotblitz.cn'
-    - '*.wggames.cn'
-    - '*.wowsblitz.cn'
-    - '+.services.googleapis.cn'
-    - '+.googleapis.cn'
-    - '+.xn--ngstr-lra8j.com'
-    - 'clientservices.googleapis.com'
-    - 'rule-set:cn'
-    - 'rule-set:private'
-    - 'rule-set:apple'
-  default-nameserver:
-    - system
-    - 119.29.29.29
-    - 223.5.5.5
-    - 1.1.1.1
-    - 8.8.8.8
-  direct-nameserver:
-    - system
-  nameserver-policy:
-    "rule-set:private":
-      - system
-    "rule-set:cn":
-      - system
-      - https://223.5.5.5/dns-query
-      - https://doh.pub/dns-query
-    "rule-set:apple":
-      - system
-  nameserver:
-    - https://8.8.8.8/dns-query
-    - https://1.1.1.1/dns-query
-rules:
-  - RULE-SET,category-ads-all,🛑 廣告攔截
-  - GEOIP,CN,DIRECT
-  - MATCH,🚀 節點選擇
-`;
-
-export const FALLBACK_HONK_RULES = `# ==============================================================================
-# OpenWrt Honk-Core / DAE 完整設定檔 (降級應急模板)
-# 儲存路徑: /etc/honk/config.dae
-# ==============================================================================
-
-global {
-    wan_interface: auto
-    lan_interface: br-lan
-    dial_mode: domain
-    allow_insecure: false
-    auto_config_kernel_parameter: true
-    data_dir: '/etc/honk'
-    log_level: info
-    log_file: ''
-    tcp_check_url: 'https://www.gstatic.com/generate_204'
-    tcp_check_http_method: HEAD
-    udp_check_dns: 'dns.google.com:53', '8.8.8.8', '2001:4860:4860::8888'
-    check_interval: 300s
-    check_tolerance: 50ms
-    bootstrap_resolver: '1.1.1.1:53'
-    store_subscribe: true
-    nfqueue_enable: true
-    udp_warm_node_count: 0
-    preconnect_node_count: 0
-}
-
-experimental {
-    native_api {
-        enabled: true
-        listen: '0.0.0.0:9527'
-        password_auth: true
-        config_write: true
-        ui: 'embedded'
-    }
-    cache_file {
-        enabled: true
-        store_dns: true
-    }
-}
-
-subscription {
-    {{SUB_TAG}}: '{{SUB_URL}}' {
-        route: direct
-        interval: 43200s
-    }
-}
-
-group {
-    AI {
-        policy: selector
-    }
-    Microsoft {
-        policy: selector
-    }
-    Game {
-        policy: selector
-    }
-    Apple {
-        policy: selector
-    }
-    Global {
-        policy: selector
-    }
-    Fallback {
-        policy: selector
-    }
-}
-
-dns {
-    client_subnet: auto
-    upstream {
-        googledns: 'tcp+udp://8.8.8.8:53'
-        googledoh: 'https://8.8.8.8/dns-query'
-        cfdns: 'tcp+udp://1.1.1.1:53'
-        cfdoh: 'https://1.1.1.1/dns-query'
-        localdns: 'udp://127.0.0.1:53'
-    }
-    routing {
-        request {
-            qtype(https) -> reject
-            qname(geosite:category-ads-all) -> reject
-            qname(geosite:cn) -> localdns
-            fallback: googledoh
-        }
-        response {
-            upstream(googledoh) && ip(geoip:cn) -> localdns
-            upstream(cfdoh) && ip(geoip:cn) -> localdns
-            fallback: accept
-        }
-    }
-}
-
-routing {
-    pname(dnsmasq, systemd-resolved) && l4proto(udp) && dport(53) -> direct(must)
-    pname(NetworkManager, systemd-networkd, systemd-resolved, dhcpcd) -> direct
-    pname(sing-box, mihomo, frpc, einat) -> direct(must)
-    dip(224.0.0.0/3, 'ff00::/8') -> direct
-    dip(geoip:private) -> direct
-    domain(geosite:category-ads-all) -> block
-
-    {{AI_RULES}}
-
-    domain(geosite:microsoft) -> Microsoft
-    domain(geosite:steam, geosite:epicgames, geosite:ea, geosite:ubisoft, geosite:blizzard) -> Game
-    domain(geosite:apple) -> Apple
-    domain(geosite:geolocation-!cn) -> Global
-    domain(geosite:cn) -> direct
-    dip(geoip:cn) -> direct
-    fallback: Fallback
-}
-`;
-
-````
-
-## File: src/routes/admin.ts
-````ts
-// src/routes/admin.ts
-import { Env, OperationLogEntry, TgConfig } from '../types';
-import { hasPasswordConfigured, checkAuth } from '../services/auth';
-import { LOGS_KEY, getClientMeta, formatUtc8Time, appendOperationLog } from '../services/audit';
-import {
-  TG_CONFIG_KEY,
-  getStoredTgConfig,
-  toPublicTgView,
-  postTelegramMessage,
-  escapeHtmlForTg
-} from '../services/telegram';
-
-export async function handleAdminRoutes(
-  request: Request,
-  env: Env,
-  ctx: ExecutionContext,
-  url: URL
-): Promise<Response | null> {
-  // --- Telegram 通知設定 API ---
-  if (url.pathname === '/tg-config') {
-    if (!hasPasswordConfigured(env)) {
-      return new Response(JSON.stringify({ error: '未設定管理密碼 (PAGE_PASSWORD)，禁止存取通知設定', unconfigured: true }), {
-        status: 403,
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-          'Access-Control-Allow-Origin': '*'
-        }
-      });
-    }
-    if (!checkAuth(request, env)) {
-      if ((request.headers.get('X-Password') || '').trim() !== '') {
-        await appendOperationLog(request, env, '登入失敗', ctx);
-      }
-      return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
-        status: 401,
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-          'Access-Control-Allow-Origin': '*'
-        }
-      });
-    }
-
-    if (request.method === 'GET') {
-      const cfg = await getStoredTgConfig(env);
-      return new Response(JSON.stringify(toPublicTgView(cfg)), {
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-          'Access-Control-Allow-Origin': '*'
-        }
-      });
-    }
-
-    if (request.method === 'POST') {
-      try {
-        const body = (await request.json()) as { enabled?: boolean; botToken?: string; chatId?: string };
-        const existing = await getStoredTgConfig(env);
-
-        const rawToken = typeof body.botToken === 'string' ? body.botToken.trim() : '';
-        const nextToken = rawToken && !rawToken.includes('***') ? rawToken : existing.botToken;
-        const nextChatId = typeof body.chatId === 'string' ? body.chatId.trim() : existing.chatId;
-        const nextEnabled = typeof body.enabled === 'boolean' ? body.enabled : existing.enabled;
-
-        if (nextEnabled && (!nextToken || !nextChatId)) {
-          return new Response(JSON.stringify({ error: '請先填寫有效的 Bot Token 與 Chat ID 後再啟用通知' }), {
-            status: 400,
-            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-          });
-        }
-
-        const updated: TgConfig = {
-          enabled: nextEnabled,
-          botToken: nextToken,
-          chatId: nextChatId
-        };
-
-        if (env.SUB_CACHE) {
-          await env.SUB_CACHE.put(TG_CONFIG_KEY, JSON.stringify(updated));
-        }
-
-        return new Response(JSON.stringify(toPublicTgView(updated)), {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            'Cache-Control': 'no-store, no-cache, must-revalidate',
-            'Access-Control-Allow-Origin': '*'
-          }
-        });
-      } catch {
-        return new Response(JSON.stringify({ error: '儲存 Telegram 設定失敗' }), {
-          status: 500,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        });
-      }
-    }
-
-    if (request.method === 'DELETE') {
-      if (env.SUB_CACHE) {
-        await env.SUB_CACHE.delete(TG_CONFIG_KEY);
-      }
-      return new Response(JSON.stringify(toPublicTgView({ enabled: false, botToken: '', chatId: '' })), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        }
-      });
-    }
-  }
-
-  // --- Telegram 測試訊息發送 API ---
-  if (request.method === 'POST' && url.pathname === '/tg-test') {
-    if (!hasPasswordConfigured(env)) {
-      return new Response(JSON.stringify({ ok: false, error: '未設定管理密碼 (PAGE_PASSWORD)' }), {
-        status: 403,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-    if (!checkAuth(request, env)) {
-      if ((request.headers.get('X-Password') || '').trim() !== '') {
-        await appendOperationLog(request, env, '登入失敗', ctx);
-      }
-      return new Response(JSON.stringify({ ok: false, error: '密碼錯誤或未授權' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-
-    try {
-      const body = (await request.json()) as { botToken?: string; chatId?: string };
-      const existing = await getStoredTgConfig(env);
-      const rawToken = typeof body.botToken === 'string' ? body.botToken.trim() : '';
-      const tokenToUse = rawToken && !rawToken.includes('***') ? rawToken : existing.botToken;
-      const chatIdToUse =
-        typeof body.chatId === 'string' && body.chatId.trim() ? body.chatId.trim() : existing.chatId;
-
-      if (!tokenToUse || !chatIdToUse) {
-        return new Response(JSON.stringify({ ok: false, error: '請先輸入 Bot Token 與 Chat ID' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        });
-      }
-
-      const meta = getClientMeta(request);
-      const testMsg = [
-        `✅ <b>SubConverter Pro Telegram 測試通知</b>`,
-        ``,
-        `🎉 恭喜！您的機器人連線正常，已準備好接收即時操作通知。`,
-        `🕒 <b>時間 (UTC+8)：</b><code>${escapeHtmlForTg(formatUtc8Time())}</code>`,
-        `🌐 <b>測試來源 IP：</b><code>${escapeHtmlForTg(meta.ip)}</code>`,
-        `📍 <b>地區：</b>${escapeHtmlForTg(meta.region)}`
-      ].join('\n');
-
-      const sendRes = await postTelegramMessage(tokenToUse, chatIdToUse, testMsg);
-      if (!sendRes.ok) {
-        return new Response(JSON.stringify({ ok: false, error: sendRes.error || 'Telegram API 回傳失敗' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        });
-      }
-
-      return new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return new Response(JSON.stringify({ ok: false, error: msg }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-  }
-
-  // --- 操作日誌 API ---
-  if (request.method === 'GET' && url.pathname === '/logs') {
-    if (!hasPasswordConfigured(env)) {
-      return new Response(JSON.stringify({ error: '未設定管理密碼 (PAGE_PASSWORD)，日誌 API 預設禁止公開讀取', unconfigured: true }), {
-        status: 403,
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-          'Access-Control-Allow-Origin': '*'
-        }
-      });
-    }
-    if (!checkAuth(request, env)) {
-      if ((request.headers.get('X-Password') || '').trim() !== '') {
-        await appendOperationLog(request, env, '登入失敗', ctx);
-      }
-      return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
-        status: 401,
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-          'Access-Control-Allow-Origin': '*'
-        }
-      });
-    }
-    const raw = env.SUB_CACHE ? await env.SUB_CACHE.get(LOGS_KEY) : null;
-    const logs: OperationLogEntry[] = raw ? (JSON.parse(raw) as OperationLogEntry[]) : [];
-    return new Response(JSON.stringify(logs), {
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-        'Access-Control-Allow-Origin': '*'
-      }
-    });
-  }
-
-  if (request.method === 'DELETE' && url.pathname === '/logs') {
-    if (!hasPasswordConfigured(env)) {
-      return new Response(JSON.stringify({ error: '未設定 PAGE_PASSWORD，禁止操作', unconfigured: true }), {
-        status: 403,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-    if (!checkAuth(request, env)) {
-      if ((request.headers.get('X-Password') || '').trim() !== '') {
-        await appendOperationLog(request, env, '登入失敗', ctx);
-      }
-      return new Response(JSON.stringify({ error: '未授權' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-    if (env.SUB_CACHE) {
-      await env.SUB_CACHE.put(LOGS_KEY, '[]');
-    }
-    return new Response('OK', {
-      status: 200,
-      headers: { 'Access-Control-Allow-Origin': '*' }
-    });
-  }
-
-  return null;
-}
-
-````
-
-## File: src/routes/argo.ts
-````ts
-// src/routes/argo.ts
-import { Env, ProxyNode } from '../types';
-import { utf8ToBase64 } from '../utils';
-import { loadNodes } from '../services/node-loader';
-
-async function getArgoScriptFromGithub(
-  node: ProxyNode,
-  port: string,
-  token: string,
-  domain: string
-): Promise<string> {
-  const GITHUB_TEMPLATE_URL = `https://raw.githubusercontent.com/sammy0101/cf-sub-converter/main/argo.sh?t=${Date.now()}`;
-  let template = '';
-
-  try {
-    const res = await fetch(GITHUB_TEMPLATE_URL, { headers: { 'User-Agent': 'v2rayNG/1.8.5' } });
-    if (res.ok) {
-      template = await res.text();
-    } else {
-      throw new Error('GitHub Fetch Failed');
-    }
-  } catch {
-    template = `#!/bin/bash
-if ! command -v cloudflared &> /dev/null; then
-  curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
-  chmod +x /usr/local/bin/cloudflared
-fi
-cloudflared tunnel --url http://127.0.0.1:{{VLESS_PORT}}
-`;
-  }
-
-  const vlessType = node.network || 'ws';
-  const vlessPath = node.wsPath || '/';
-  const argoNodeName = `${node.name}_Argo`;
-  const isTls = node.tls ? 'true' : 'false';
-  const realHost = node.wsHeaders?.Host || node.sni || node.server;
-
-  return template
-    .replace('{{NODE_TYPE}}', node.type)
-    .replace('{{VLESS_UUID}}', node.uuid || '')
-    .replace('{{VLESS_PATH}}', vlessPath)
-    .replace('{{VLESS_TYPE}}', vlessType)
-    .replace('{{VLESS_PORT}}', port)
-    .replace('{{NODE_NAME}}', argoNodeName)
-    .replace('{{TUNNEL_TOKEN}}', token.trim())
-    .replace('{{CUSTOM_DOMAIN}}', domain.trim())
-    .replace('{{VLESS_TLS}}', isTls)
-    .replace('{{ORIGIN_HOST}}', realHost);
-}
-
-export async function handleArgoRoutes(
-  request: Request,
-  env: Env,
-  url: URL
-): Promise<Response | null> {
-  if (request.method === 'GET' && url.pathname.startsWith('/argo/sh/')) {
-    const scriptId = url.pathname.split('/').pop();
-    if (env.SUB_CACHE && scriptId) {
-      const script = await env.SUB_CACHE.get(`script:${scriptId}`);
-      if (script) {
-        return new Response(script, {
-          headers: {
-            'Content-Type': 'text/plain; charset=utf-8',
-            'Access-Control-Allow-Origin': '*'
-          }
-        });
-      }
-    }
-    return new Response('# 錯誤: 該腳本不存在或已過期，請重新在網頁上生成。\nexit 1\n', {
-      status: 404,
-      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
-    });
-  }
-
-  if (request.method === 'POST' && (url.pathname === '/api/parse-vless' || url.pathname === '/api/parse-argo')) {
-    try {
-      const body = (await request.json()) as { url?: string };
-      const rawUrl = body.url || '';
-      if (!rawUrl.trim()) {
-        return new Response(JSON.stringify({ error: '請輸入有效的節點內容' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        });
-      }
-
-      const allNodes = await loadNodes(rawUrl);
-      const argoCompatibleNodes = allNodes
-        .filter(n => n.type === 'vless' || n.type === 'vmess')
-        .map((n, idx) => ({
-          index: idx,
-          name: n.name,
-          server: n.server,
-          port: n.port,
-          type: n.type,
-          host: n.wsHeaders?.Host || n.sni || n.server
-        }));
-
-      return new Response(JSON.stringify(argoCompatibleNodes), {
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-      });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      return new Response(JSON.stringify({ error: msg }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-  }
-
-  if (request.method === 'POST' && url.pathname === '/api/argo-generate') {
-    try {
-      const body = (await request.json()) as {
-        url?: string;
-        indices?: number[];
-        port?: string;
-        cleanIp?: string;
-        token?: string;
-        domain?: string;
-      };
-
-      const rawUrl = body.url || '';
-      const selectedIndices = body.indices || [];
-      const port = body.port || '8080';
-      const cleanIp = (body.cleanIp || '').trim();
-      const token = body.token || '';
-      const domain = body.domain || '';
-
-      if (!rawUrl.trim() || selectedIndices.length === 0) {
-        return new Response(JSON.stringify({ error: '無效的參數或未選擇節點' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        });
-      }
-
-      const allNodes = await loadNodes(rawUrl);
-      const compatibleNodes = allNodes.filter(n => n.type === 'vless' || n.type === 'vmess');
-      const selectedObjects = selectedIndices.map(idx => compatibleNodes[idx]).filter(Boolean);
-
-      let scripts = '';
-      const generatedNodesData: Array<{ originalIndex: number; link: string }> = [];
-
-      for (let i = 0; i < selectedObjects.length; i++) {
-        const node = selectedObjects[i];
-        const originalIndex = selectedIndices[i];
-
-        scripts += (await getArgoScriptFromGithub(node, port, token, domain)) + '\n\n';
-
-        const targetDomain =
-          token.trim() && domain.trim()
-            ? domain.trim()
-            : '請在VPS執行一鍵安裝腳本獲取臨時域名.trycloudflare.com';
-        const connectionServer = cleanIp || targetDomain;
-        const argoNodeName = `${node.name}_Argo${cleanIp ? '_優選' : ''}`;
-
-        let argoLink = '';
-        if (node.type === 'vless') {
-          argoLink = `vless://${node.uuid}@${connectionServer}:443?encryption=none&security=tls&type=${node.network || 'ws'}&host=${targetDomain}&sni=${targetDomain}&path=${node.wsPath || '/'}#${argoNodeName}`;
-        } else {
-          const vmessObj = {
-            v: '2',
-            ps: argoNodeName,
-            add: connectionServer,
-            port: 443,
-            id: node.uuid,
-            aid: 0,
-            scy: 'auto',
-            net: node.network || 'ws',
-            type: 'none',
-            host: targetDomain,
-            path: node.wsPath || '/',
-            tls: 'tls',
-            sni: targetDomain
-          };
-          argoLink = 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
-        }
-
-        generatedNodesData.push({ originalIndex, link: argoLink });
-      }
-
-      let scriptId = '';
-      if (env.SUB_CACHE) {
-        scriptId = crypto.randomUUID();
-        await env.SUB_CACHE.put('script:' + scriptId, scripts, { expirationTtl: 3600 });
-      }
-
-      return new Response(
-        JSON.stringify({
-          scriptId,
-          argoNodes: generatedNodesData
-        }),
-        {
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        }
-      );
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      return new Response(JSON.stringify({ error: msg }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-  }
-
-  return null;
-}
-
-````
-
-## File: src/routes/favs.ts
-````ts
-// src/routes/favs.ts
-import { Env } from '../types';
-import { hasPasswordConfigured, checkAuth } from '../services/auth';
-import { appendOperationLog } from '../services/audit';
-
-const FAVS_KEY = 'favorites';
-
-async function getFavs(env: Env): Promise<Array<Record<string, string>>> {
-  const data = await env.SUB_CACHE.get(FAVS_KEY);
-  return data ? (JSON.parse(data) as Array<Record<string, string>>) : [];
-}
-
-async function saveFavs(env: Env, favs: Array<Record<string, string>>): Promise<void> {
-  await env.SUB_CACHE.put(FAVS_KEY, JSON.stringify(favs));
-}
-
-function jsonError(error: string, status: number): Response {
-  return new Response(JSON.stringify({ error }), {
-    status,
-    headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*'
-    }
-  });
-}
-
-export async function handleFavsRoutes(
-  request: Request,
-  env: Env,
-  ctx: ExecutionContext,
-  url: URL
-): Promise<Response | null> {
-  if (request.method === 'POST' && url.pathname === '/save') {
-    try {
-      const body = (await request.json()) as {
-        path?: string;
-        content?: string;
-        include?: string;
-        exclude?: string;
-        rename?: string;
-        token?: string;
-      };
-      const cleanPath = (body.path || '').trim();
-      if (!cleanPath || !body.content) return jsonError('缺少短連結名稱或節點內容', 400);
-
-      const cleanToken = (body.token || '').trim();
-
-      // 安全防線：若該短連結已存在且設有 Token 保護，禁止未經管理密碼授權的公開覆蓋
-      const existingRaw =
-        (await env.SUB_CACHE.get(cleanPath)) ||
-        (cleanPath !== cleanPath.toLowerCase() ? await env.SUB_CACHE.get(cleanPath.toLowerCase()) : null);
-      if (existingRaw) {
-        try {
-          const existingParsed = JSON.parse(existingRaw) as { token?: string };
-          const existingToken = (existingParsed.token || '').trim();
-          if (existingToken) {
-            if (hasPasswordConfigured(env) && !checkAuth(request, env)) {
-              return jsonError('該短連結已受 Token 保護，需要管理密碼授權才可修改', 403);
-            }
-            if (!hasPasswordConfigured(env) && cleanToken !== existingToken) {
-              return jsonError('Token 不符，禁止覆蓋', 403);
-            }
-          }
-        } catch {}
-      }
-
-      const saveData = {
-        content: body.content,
-        include: body.include || '',
-        exclude: body.exclude || '',
-        rename: body.rename || '',
-        token: cleanToken
-      };
-      const jsonStr = JSON.stringify(saveData);
-
-      await env.SUB_CACHE.put(cleanPath, jsonStr);
-      if (cleanPath !== cleanPath.toLowerCase()) {
-        await env.SUB_CACHE.put(cleanPath.toLowerCase(), jsonStr);
-      }
-
-      await appendOperationLog(request, env, '儲存短連結', ctx);
-
-      return new Response('OK', {
-        status: 200,
-        headers: { 'Access-Control-Allow-Origin': '*' }
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return jsonError(`儲存短連結失敗: ${msg}`, 500);
-    }
-  }
-
-  if (url.pathname !== '/favs') {
-    return null;
-  }
-
-  if (request.method === 'GET') {
-    if (!checkAuth(request, env)) {
-      if ((request.headers.get('X-Password') || '').trim() !== '') {
-        await appendOperationLog(request, env, '登入失敗', ctx);
-      }
-      return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
-        status: 401,
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-          'Access-Control-Allow-Origin': '*'
-        }
-      });
-    }
-    if (hasPasswordConfigured(env) && request.headers.get('X-Login-Attempt') === '1') {
-      await appendOperationLog(request, env, '登入後台', ctx);
-    }
-    const favs = await getFavs(env);
-    return new Response(JSON.stringify(favs), {
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-        'Access-Control-Allow-Origin': '*'
-      }
-    });
-  }
-
-  if (request.method === 'POST') {
-    if (!checkAuth(request, env)) {
-      if ((request.headers.get('X-Password') || '').trim() !== '') {
-        await appendOperationLog(request, env, '登入失敗', ctx);
-      }
-      return jsonError('密碼錯誤或未授權', 401);
-    }
-    try {
-      const body = (await request.json()) as Record<string, string>;
-      if (!body.name || !body.url) return jsonError('缺少配置名稱或節點內容', 400);
-      const cleanToken = (body.token || '').trim();
-      const favs = await getFavs(env);
-      favs.push({
-        name: body.name,
-        url: body.url,
-        include: body.include || '',
-        exclude: body.exclude || '',
-        rename: body.rename || '',
-        token: cleanToken
-      });
-      await saveFavs(env, favs);
-
-      const cleanName = body.name.trim();
-      const syncData = JSON.stringify({
-        content: body.url,
-        include: body.include || '',
-        exclude: body.exclude || '',
-        rename: body.rename || '',
-        token: cleanToken
-      });
-      await env.SUB_CACHE.put(cleanName, syncData);
-      if (cleanName !== cleanName.toLowerCase()) {
-        await env.SUB_CACHE.put(cleanName.toLowerCase(), syncData);
-      }
-
-      await appendOperationLog(request, env, '新增配置', ctx);
-
-      return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return jsonError(`新增配置寫入 KV 失敗: ${msg}`, 500);
-    }
-  }
-
-  if (request.method === 'PUT') {
-    if (!checkAuth(request, env)) {
-      if ((request.headers.get('X-Password') || '').trim() !== '') {
-        await appendOperationLog(request, env, '登入失敗', ctx);
-      }
-      return jsonError('密碼錯誤或未授權', 401);
-    }
-    try {
-      const body = (await request.json()) as {
-        index?: number;
-        name?: string;
-        url?: string;
-        include?: string;
-        exclude?: string;
-        rename?: string;
-        token?: string;
-      };
-      if (body.index === undefined || !body.name || !body.url) {
-        return jsonError('缺少配置索引、名稱或節點內容', 400);
-      }
-      const cleanToken = (body.token || '').trim();
-      const favs = await getFavs(env);
-      if (body.index < 0 || body.index >= favs.length) {
-        return jsonError('欲修改的配置索引不存在，請重新整理頁面', 400);
-      }
-
-      const oldName = favs[body.index]?.name?.trim();
-      const newName = body.name.trim();
-
-      favs[body.index] = {
-        name: body.name,
-        url: body.url,
-        include: body.include || '',
-        exclude: body.exclude || '',
-        rename: body.rename || '',
-        token: cleanToken
-      };
-      await saveFavs(env, favs);
-
-      if (oldName && oldName !== newName) {
-        await env.SUB_CACHE.delete(oldName);
-        if (oldName !== oldName.toLowerCase()) {
-          await env.SUB_CACHE.delete(oldName.toLowerCase());
-        }
-      }
-
-      const syncData = JSON.stringify({
-        content: body.url,
-        include: body.include || '',
-        exclude: body.exclude || '',
-        rename: body.rename || '',
-        token: cleanToken
-      });
-      await env.SUB_CACHE.put(newName, syncData);
-      if (newName !== newName.toLowerCase()) {
-        await env.SUB_CACHE.put(newName.toLowerCase(), syncData);
-      }
-
-      await appendOperationLog(request, env, '修改配置', ctx);
-
-      return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return jsonError(`修改配置寫入 KV 失敗: ${msg}`, 500);
-    }
-  }
-
-  if (request.method === 'DELETE') {
-    if (!checkAuth(request, env)) {
-      if ((request.headers.get('X-Password') || '').trim() !== '') {
-        await appendOperationLog(request, env, '登入失敗', ctx);
-      }
-      return jsonError('密碼錯誤或未授權', 401);
-    }
-    try {
-      const body = (await request.json()) as { index?: number };
-      if (body.index === undefined) return jsonError('缺少索引參數', 400);
-      const favs = await getFavs(env);
-      if (body.index >= 0 && body.index < favs.length) {
-        const removed = favs.splice(body.index, 1)[0];
-        await saveFavs(env, favs);
-        if (removed && removed.name) {
-          const rName = removed.name.trim();
-          await env.SUB_CACHE.delete(rName);
-          if (rName !== rName.toLowerCase()) {
-            await env.SUB_CACHE.delete(rName.toLowerCase());
-          }
-        }
-        await appendOperationLog(request, env, '刪除配置', ctx);
-      }
-      return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return jsonError(`刪除配置失敗: ${msg}`, 500);
-    }
-  }
-
-  return null;
-}
-
-````
-
-## File: src/routes/sub.ts
-````ts
-// src/routes/sub.ts
-import { Env } from '../types';
-import { HTML_PAGE } from '../ui';
-import {
-  toSingBoxWithTemplate,
-  toClashWithTemplate,
-  toBase64,
-  toSurge,
-  toQuantumultX,
-  toLoon,
-  toHonk
-} from '../generators';
-import { loadNodesWithTraffic, filterAndRenameNodes } from '../services/node-loader';
-import { scheduleLog } from '../services/audit';
-
-function timingSafeEqualStr(a: string, b: string): boolean {
-  const enc = new TextEncoder();
-  const bufA = enc.encode(a);
-  const bufB = enc.encode(b);
-  if (bufA.length !== bufB.length) return false;
-  let diff = 0;
-  for (let i = 0; i < bufA.length; i++) {
-    diff |= bufA[i] ^ bufB[i];
-  }
-  return diff === 0;
-}
-
-export async function handleSubRoute(
-  request: Request,
-  env: Env,
-  ctx: ExecutionContext,
-  url: URL,
-  version: string
-): Promise<Response> {
-  let urlParam = url.searchParams.get('url') || '';
-  let includeParam = url.searchParams.get('include') || '';
-  let excludeParam = url.searchParams.get('exclude') || '';
-  let renameParam = url.searchParams.get('rename') || '';
-  const nameParam = url.searchParams.get('name') || '';
-  const forceRefresh = url.searchParams.has('force') || url.searchParams.has('nocache');
-
-  const rawPath = url.pathname.replace(/^\/+/, '');
-  const path = decodeURIComponent(rawPath).trim();
-  let detectedProfileName = nameParam;
-  let storedToken = '';
-  let foundInKv = false;
-
-  if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
-    if (!detectedProfileName) {
-      detectedProfileName = path;
-    }
-
-    let stored = await env.SUB_CACHE.get(path);
-    if (!stored && path !== path.toLowerCase()) {
-      stored = await env.SUB_CACHE.get(path.toLowerCase());
-    }
-    if (!stored && path !== path.toUpperCase()) {
-      stored = await env.SUB_CACHE.get(path.toUpperCase());
-    }
-
-    if (stored) {
-      foundInKv = true;
-      try {
-        const parsed = JSON.parse(stored) as {
-          content?: string;
-          include?: string;
-          exclude?: string;
-          rename?: string;
-          token?: string;
-        };
-        if (parsed && parsed.content) {
-          urlParam = parsed.content;
-          if (!includeParam) includeParam = parsed.include || '';
-          if (!excludeParam) excludeParam = parsed.exclude || '';
-          if (!renameParam) renameParam = parsed.rename || '';
-          storedToken = (parsed.token || '').trim();
-        }
-      } catch {
-        urlParam = stored;
-      }
-    }
-
-    if (!urlParam || urlParam.trim() === '') {
-      try {
-        const favsData = await env.SUB_CACHE.get('favorites');
-        if (favsData) {
-          const favsList = JSON.parse(favsData) as Array<Record<string, string>>;
-          const matched = favsList.find(f => f.name && f.name.trim().toLowerCase() === path.toLowerCase());
-          if (matched && matched.url) {
-            foundInKv = true;
-            urlParam = matched.url;
-            if (!includeParam) includeParam = matched.include || '';
-            if (!excludeParam) excludeParam = matched.exclude || '';
-            if (!renameParam) renameParam = matched.rename || '';
-            storedToken = (matched.token || '').trim();
-            detectedProfileName = matched.name;
-          }
-        }
-      } catch {}
-    }
-
-    // 防掃描校驗：若配置設有 Token，無 Token 或錯誤 Token 統一回傳 404 Not Found（防列舉），並記為異常存取
-    if (foundInKv && storedToken) {
-      const providedToken = (url.searchParams.get('token') || '').trim();
-      if (!providedToken || !timingSafeEqualStr(providedToken, storedToken)) {
-        scheduleLog(request, env, ctx, '異常存取');
-        return new Response('Not Found', {
-          status: 404,
-          headers: { 'Content-Type': 'text/plain; charset=utf-8' }
-        });
-      }
-    }
-  }
-
-  if (!urlParam || urlParam.trim() === '') {
-    if (path === 'sub') {
-      return new Response('Error: Missing parameter "url"', { status: 400 });
-    }
-    if (path === 'favicon.ico') {
-      return new Response(null, { status: 204 });
-    }
-    if (path !== '') {
-      return new Response('Not Found', {
-        status: 404,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8' }
-      });
-    }
-    const dynamicHtml = HTML_PAGE.replace('id="appVersionBadge">PRO</span>', `id="appVersionBadge">v${version}</span>`);
-    return new Response(dynamicHtml, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-  }
-
-  const { nodes: allNodes, errors, traffic } = await loadNodesWithTraffic(urlParam);
-
-  if (allNodes.length === 0) {
-    const errorMsg = errors.length > 0 ? errors.join('\n') : '未解析到任何有效節點。';
-    return new Response(errorMsg, { status: 400 });
-  }
-
-  const uniqueNodes = filterAndRenameNodes(allNodes, includeParam, excludeParam, renameParam);
-
-  let target = url.searchParams.get('target');
-
-  if (!target) {
-    const ua = (request.headers.get('User-Agent') || '').toLowerCase();
-    if (ua.includes('clash') || ua.includes('mihomo') || ua.includes('stash') || ua.includes('surfboard')) {
-      target = 'clash';
-    } else if (ua.includes('sing-box') || ua.includes('singbox') || ua.includes('hiddify')) {
-      target = 'singbox';
-    } else if (ua.includes('surge')) {
-      target = 'surge';
-    } else if (ua.includes('quantumult')) {
-      target = 'quanx';
-    } else if (ua.includes('loon')) {
-      target = 'loon';
-    } else if (ua.includes('honk') || ua.includes('dae')) {
-      target = 'honk';
-    } else if (ua.includes('v2ray') || ua.includes('shadowrocket')) {
-      target = 'base64';
-    }
-  }
-
-  const finalProfileName = detectedProfileName || 'subscription';
-
-  if (!target) {
-    scheduleLog(request, env, ctx, '獲取訂閱');
-
-    const host = `https://${url.host}`;
-    let basePreview = `${host}/?url=${encodeURIComponent(urlParam)}`;
-    if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
-      basePreview = `${host}/${encodeURIComponent(path)}`;
-      if (storedToken) basePreview += `?token=${encodeURIComponent(storedToken)}`;
-    }
-    const sep = basePreview.includes('?') ? '&' : '?';
-
-    let filterQuery = '';
-    if (includeParam && !foundInKv) filterQuery += `&include=${encodeURIComponent(includeParam)}`;
-    if (excludeParam && !foundInKv) filterQuery += `&exclude=${encodeURIComponent(excludeParam)}`;
-    if (renameParam && !foundInKv) filterQuery += `&rename=${encodeURIComponent(renameParam)}`;
-    if (detectedProfileName && !foundInKv) filterQuery += `&name=${encodeURIComponent(detectedProfileName)}`;
-
-    const htmlInfo = `<!DOCTYPE html><html lang="zh-TW"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>轉換完成</title><style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: radial-gradient(ellipse at 50% 0%, #0d1633 0%, #040711 75%); color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; position: relative; overflow-x: hidden; }
-body::before, body::after { content: ""; position: fixed; border-radius: 50%; filter: blur(90px); pointer-events: none; z-index: -1; }
-body::before { width: 420px; height: 420px; top: -100px; left: -80px; background: rgba(59, 130, 246, 0.34); }
-body::after { width: 440px; height: 440px; bottom: -120px; right: -80px; background: rgba(6, 182, 212, 0.25); }
-.glass-panel { background: linear-gradient(145deg, rgba(255,255,255,0.085) 0%, rgba(255,255,255,0.025) 100%); backdrop-filter: blur(24px) saturate(180%); -webkit-backdrop-filter: blur(24px) saturate(180%); border: 1px solid rgba(255,255,255,0.16); border-radius: 24px; padding: 36px 28px; max-width: 680px; width: 100%; text-align: center; box-shadow: 0 24px 56px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.22); }
-h1 { font-size: 1.5rem; margin-bottom: 22px; font-weight: 700; }
-.links { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
-a { display: inline-flex; align-items: center; justify-content: center; padding: 12px 20px; background: linear-gradient(135deg, rgba(59,130,246,0.88), rgba(37,99,235,0.85)); color: #fff; text-decoration: none; border-radius: 14px; font-weight: 600; font-size: 0.92rem; border: 1px solid rgba(255,255,255,0.24); box-shadow: 0 8px 20px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.32); transition: transform 0.2s, box-shadow 0.2s; }
-a:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(59,130,246,0.48), inset 0 1px 0 rgba(255,255,255,0.4); }
-@media (prefers-reduced-motion: reduce) { a { transition: none; } }
-</style></head>
-<body>
-  <div class="glass-panel">
-    <h1>⚡ 成功轉換 ${uniqueNodes.length} 個節點</h1>
-    <div class="links">
-      <a href="${basePreview}${sep}target=clash${filterQuery}">Clash Meta (YAML)</a>
-      <a href="${basePreview}${sep}target=singbox${filterQuery}">Sing-Box (JSON)</a>
-      <a href="${basePreview}${sep}target=surge${filterQuery}">Surge 5</a>
-      <a href="${basePreview}${sep}target=quanx${filterQuery}">Quantumult X</a>
-      <a href="${basePreview}${sep}target=loon${filterQuery}">Loon</a>
-      <a href="${basePreview}${sep}target=base64${filterQuery}">Base64</a>
-      <a href="${basePreview}${sep}target=honk${filterQuery}">Honk / dae (config.dae)</a>
-    </div>
-  </div>
-</body></html>`;
-    return new Response(htmlInfo, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-  }
-
-  let result = '';
-  let contentType = 'text/plain';
-  let fileExt = '.txt';
-
-  try {
-    if (target === 'clash') {
-      result = await toClashWithTemplate(uniqueNodes, env, forceRefresh);
-      contentType = 'text/yaml';
-      fileExt = '.yaml';
-    } else if (target === 'surge') {
-      result = toSurge(uniqueNodes);
-      contentType = 'text/plain';
-      fileExt = '.conf';
-    } else if (target === 'quanx' || target === 'qx') {
-      result = toQuantumultX(uniqueNodes);
-      contentType = 'text/plain';
-      fileExt = '.txt';
-    } else if (target === 'loon') {
-      result = toLoon(uniqueNodes);
-      contentType = 'text/plain';
-      fileExt = '.conf';
-    } else if (target === 'honk' || target === 'dae') {
-      const host = `https://${url.host}`;
-      let base64SubUrl = `${host}/?url=${encodeURIComponent(urlParam)}&target=base64`;
-      if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
-        base64SubUrl = `${host}/${encodeURIComponent(path)}?target=base64`;
-        if (storedToken) {
-          base64SubUrl += `&token=${encodeURIComponent(storedToken)}`;
-        }
-      }
-      if (includeParam) base64SubUrl += `&include=${encodeURIComponent(includeParam)}`;
-      if (excludeParam) base64SubUrl += `&exclude=${encodeURIComponent(excludeParam)}`;
-      if (renameParam) base64SubUrl += `&rename=${encodeURIComponent(renameParam)}`;
-
-      result = await toHonk(uniqueNodes, base64SubUrl, finalProfileName);
-      contentType = 'text/plain';
-      fileExt = '.dae';
-    } else if (target === 'base64') {
-      result = toBase64(uniqueNodes);
-      contentType = 'text/plain';
-      fileExt = '.txt';
-    } else {
-      result = await toSingBoxWithTemplate(uniqueNodes, env, forceRefresh);
-      contentType = 'application/json';
-      fileExt = '.json';
-    }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return new Response(`轉換配置失敗: ${msg}`, {
-      status: 500,
-      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
-    });
-  }
-
-  scheduleLog(request, env, ctx, '獲取訂閱');
-
-  const filenameAscii = `${finalProfileName.replace(/[^a-zA-Z0-9_-]/g, '_')}${fileExt}`;
-  const filenameUtf8 = encodeURIComponent(`${finalProfileName}${fileExt}`);
-
-  const responseHeaders: Record<string, string> = {
-    'Content-Type': `${contentType}; charset=utf-8`,
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Expose-Headers':
-      'Content-Disposition, Profile-Title, Subscription-Title, Profile-Update-Interval, subscription-userinfo',
-    'Cache-Control': 'no-store, no-cache, must-revalidate',
-    'Content-Disposition': `inline; filename="${filenameAscii}"; filename*=UTF-8''${filenameUtf8}`,
-    'Profile-Title': finalProfileName,
-    'Subscription-Title': finalProfileName,
-    'profile-update-interval': '3600'
-  };
-
-  if (traffic.hasTrafficInfo) {
-    let userInfoHeader = `upload=${traffic.totalUpload}; download=${traffic.totalDownload}; total=${traffic.totalTotal}`;
-    if (traffic.minExpire > 0) userInfoHeader += `; expire=${traffic.minExpire}`;
-    responseHeaders['subscription-userinfo'] = userInfoHeader;
-  }
-
-  return new Response(result, { headers: responseHeaders });
-}
-
-````
-
-## File: Clash_Rules.YAML
-````YAML
-port: 7890
-socks-port: 7891
-mixed-port: 7893
-redir-port: 7892
-tproxy-port: 7895
-allow-lan: true
-bind-address: "*"
-mode: rule
-log-level: info
-ipv6: false
-external-controller: 0.0.0.0:9090
-tcp-concurrent: true
-unified-delay: true
-
-fast-open: false
-
-profile:
-  store-selected: true
-  store-fake-ip: true
-
-sniffer:
-  enable: true
-  override-destination: true
-  sniff:
-    QUIC:
-      ports: [443]
-    TLS:
-      ports: [443, 8443]
-    HTTP:
-      ports: [80, 8080, 8880]
-      override-destination: true
-  force-domain:
-    - "+.netflix.com"
-    - "+.nflxvideo.net"
-    - "+.amazonaws.com"
-    - "+.media.dssott.com"
-  skip-domain:
-    - "+.apple.com"
-    - "Mijia Cloud"
-    - "dlg.io.mi.com"
-    - "+.oray.com"
-    - "+.sunlogin.net"
-    - "+.push.apple.com"
-  parse-pure-ip: true
-  force-dns-mapping: true
-
-dns:
-  enable: true
-  ipv6: false
-  listen: 0.0.0.0:1053
-  enhanced-mode: fake-ip
-  fake-ip-range: 198.18.0.1/16
-  fake-ip-filter-mode: blacklist
-  respect-rules: true
-  fake-ip-filter:
-    # 1. 本地局域網與保留頂級域
-    - '*.lan'
-    - '*.localdomain'
-    - '*.example'
-    - '*.invalid'
-    - '*.localhost'
-    - '*.test'
-    - '*.local'
-    - '*.home.arpa'
-    # 2. 網絡連通性測試 (NCSI / 門戶認證)
-    - '*.msftconnecttest.com'
-    - '*.msftncsi.com'
-    - 'msftconnecttest.com'
-    - 'msftncsi.com'
-    - 'captive.apple.com'
-    - 'connectivitycheck.gstatic.com'
-    - 'connectivitycheck.platform.hicloud.com'
-    - 'detectportal.firefox.com'
-    - '+.market.xiaomi.com'
-    # 3. NTP 時間同步服務
-    - 'time.*.com'
-    - 'time.*.gov'
-    - 'time.*.edu.cn'
-    - 'time.*.apple.com'
-    - 'time.apple.com'
-    - 'time-ios.apple.com'
-    - 'ntp.*.com'
-    - '+.pool.ntp.org'
-    # 4. 主機遊戲聯機與 STUN NAT 穿透
-    - 'stun.*.*'
-    - 'stun.*.*.*'
-    - '+.stun.*.*'
-    - '+.stun.*.*.*'
-    - '*.srv.nintendo.net'
-    - '*.stun.playstation.net'
-    - '+.playstation.net'
-    - '+.playstation.com'
-    - '+.sonyentertainmentnetwork.com'
-    - 'xbox.*.microsoft.com'
-    - '*.xboxlive.com'
-    - '*.battlenet.com.cn'
-    - '*.wotblitz.cn'
-    - '*.wggames.cn'
-    - '*.wowsblitz.cn'
-    # 5. Aethersailor 專屬推薦：Google Play 商店更新防轉圈
-    - '+.services.googleapis.cn'
-    - '+.googleapis.cn'
-    - '+.xn--ngstr-lra8j.com'
-    - 'clientservices.googleapis.com'
-    # 6. 規則集直連 (國內域名與私有網段返回真實 IP)
-    - 'rule-set:cn'
-    - 'rule-set:private'
-    - 'rule-set:apple'
-
-  default-nameserver:
-    - system
-    - 119.29.29.29
-    - 223.5.5.5
-    - 1.1.1.1
-    - 8.8.8.8
-
-  direct-nameserver:
-    - system
-
-  proxy-server-nameserver:
-    - https://223.5.5.5/dns-query
-    - https://doh.pub/dns-query
-    - https://1.1.1.1/dns-query
-
-  nameserver-policy:
-    "rule-set:private":
-      - system
-    "rule-set:cn":
-      - system
-      - https://223.5.5.5/dns-query
-      - https://doh.pub/dns-query
-    "rule-set:apple":
-      - system
-
-  nameserver:
-    - https://8.8.8.8/dns-query
-    - https://1.1.1.1/dns-query
-
-proxies:
-
-proxy-groups:
-  - name: 🚀 節點選擇
-    type: select
-    proxies:
-      - ⚡ 自動選擇
-      - DIRECT
-
-  - name: ⚡ 自動選擇
-    type: url-test
-    url: http://www.gstatic.com/generate_204
-    interval: 300
-    tolerance: 50
-    proxies:
-
-  - name: 💬 AI 服務
-    type: select
-    proxies:
-      - ⚡ 自動選擇
-      - 🚀 節點選擇
-
-  - name: 🍎 蘋果服務
-    type: select
-    proxies:
-      - DIRECT
-      - 🚀 節點選擇
-
-  - name: Ⓜ️ 微軟服務
-    type: select
-    proxies:
-      - DIRECT
-      - 🚀 節點選擇
-
-  - name: 🎮 遊戲平台
-    type: select
-    proxies:
-      - DIRECT
-      - 🚀 節點選擇
-
-  - name: 🌐 非中國
-    type: select
-    proxies:
-      - 🚀 節點選擇
-      - DIRECT
-
-  - name: 🇨🇳 國內服務
-    type: select
-    proxies:
-      - DIRECT
-      - 🚀 節點選擇
-
-  - name: 🏠 私有網絡
-    type: select
-    proxies:
-      - DIRECT
-
-  - name: 🐟 漏網之魚
-    type: select
-    proxies:
-      - 🚀 節點選擇
-      - DIRECT
-
-  - name: 🛑 廣告攔截
-    type: select
-    proxies:
-      - REJECT
-      - DIRECT
-
-rule-providers:
-  my-ai:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.mrs"
-    path: ./ruleset/my-ai.mrs
-    interval: 86400
-
-  category-ads-all:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/category-ads-all.mrs"
-    path: ./ruleset/category-ads-all.mrs
-    interval: 86400
-
-  private:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/private.mrs"
-    path: ./ruleset/private.mrs
-    interval: 86400
-
-  private-ip:
-    type: http
-    behavior: ipcidr
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/private.mrs"
-    path: ./ruleset/private-ip.mrs
-    interval: 86400
-
-  microsoft:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/microsoft.mrs"
-    path: ./ruleset/microsoft.mrs
-    interval: 86400
-
-  steam:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/steam.mrs"
-    path: ./ruleset/steam.mrs
-    interval: 86400
-
-  epicgames:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/epicgames.mrs"
-    path: ./ruleset/epicgames.mrs
-    interval: 86400
-
-  ea:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/ea.mrs"
-    path: ./ruleset/ea.mrs
-    interval: 86400
-
-  ubisoft:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/ubisoft.mrs"
-    path: ./ruleset/ubisoft.mrs
-    interval: 86400
-
-  blizzard:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/blizzard.mrs"
-    path: ./ruleset/blizzard.mrs
-    interval: 86400
-
-  apple:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/apple.mrs"
-    path: ./ruleset/apple.mrs
-    interval: 86400
-
-  geolocation-non-cn:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/geolocation-!cn.mrs"
-    path: ./ruleset/geolocation-non-cn.mrs
-    interval: 86400
-
-  cn:
-    type: http
-    behavior: domain
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/cn.mrs"
-    path: ./ruleset/cn.mrs
-    interval: 86400
-
-  cn-ip:
-    type: http
-    behavior: ipcidr
-    format: mrs
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/cn.mrs"
-    path: ./ruleset/cn-ip.mrs
-    interval: 86400
-
-rules:
-  - RULE-SET,category-ads-all,🛑 廣告攔截
-  - RULE-SET,private,🏠 私有網絡
-  - RULE-SET,private-ip,🏠 私有網絡,no-resolve
-  - RULE-SET,my-ai,💬 AI 服務
-  - RULE-SET,microsoft,Ⓜ️ 微軟服務
-  - RULE-SET,steam,🎮 遊戲平台
-  - RULE-SET,epicgames,🎮 遊戲平台
-  - RULE-SET,ea,🎮 遊戲平台
-  - RULE-SET,ubisoft,🎮 遊戲平台
-  - RULE-SET,blizzard,🎮 遊戲平台
-  - RULE-SET,apple,🍎 蘋果服務
-  - RULE-SET,geolocation-non-cn,🌐 非中國
-  - RULE-SET,cn,🇨🇳 國內服務
-  - RULE-SET,cn-ip,🇨🇳 國內服務,no-resolve
-  - MATCH,🐟 漏網之魚
 
 ````
 
@@ -8100,25 +8106,6 @@ cf-sub-converter/
 ## ⚠️ 免責聲明
 
 本專案僅供網路安全、分散式架構學習與技術交流使用，不提供任何代理伺服器或節點服務。請使用者自覺遵守當地法律法規，切勿用於任何非法用途。
-
-````
-
-## File: wrangler.toml
-````toml
-name = "my-sub-converter"
-main = "src/index.ts"
-compatibility_date = "2024-04-01"
-
-[placement]
-mode = "smart"
-
-[[kv_namespaces]]
-binding = "SUB_CACHE"
-id = "KV_ID_PLACEHOLDER"
-
-[vars]
-# 💥 私密管理密碼（選填）：設定後將保護「已儲存的配置」管理區域，避免他人檢視或竄改
-# PAGE_PASSWORD = "your_secret_password"
 
 ````
 
@@ -8559,6 +8546,25 @@ jobs:
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
+
+````
+
+## File: wrangler.toml
+````toml
+name = "my-sub-converter"
+main = "src/index.ts"
+compatibility_date = "2024-04-01"
+
+[placement]
+mode = "smart"
+
+[[kv_namespaces]]
+binding = "SUB_CACHE"
+id = "KV_ID_PLACEHOLDER"
+
+[vars]
+# 💥 私密管理密碼（選填）：設定後將保護「已儲存的配置」管理區域，避免他人檢視或竄改
+# PAGE_PASSWORD = "your_secret_password"
 
 ````
 

@@ -6,9 +6,9 @@ import { isIpAddress, stripJsonComments, fetchTemplateDirect } from './common';
 export async function toSingBoxWithTemplate(
   nodes: ProxyNode[],
   _env?: Env,
-  _forceRefresh = false
+  forceRefresh = false
 ): Promise<string> {
-  const text = await fetchTemplateDirect(REMOTE_CONFIG.singbox, FALLBACK_SINGBOX_RULES);
+  const text = await fetchTemplateDirect(REMOTE_CONFIG.singbox, FALLBACK_SINGBOX_RULES, forceRefresh);
   const config = JSON.parse(stripJsonComments(text));
 
   if (!config.http_clients || !Array.isArray(config.http_clients) || config.http_clients.length === 0) {

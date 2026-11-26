@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 16:46:05 UTC 2026
+Generated on: Thu Nov 26 16:46:43 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -1354,6 +1354,9 @@ import { Env, ProxyNode } from '../types';
 import { REMOTE_CONFIG, FALLBACK_SINGBOX_RULES } from '../config/rules';
 import { isIpAddress, stripJsonComments, fetchTemplateDirect } from './common';
 
+const SKIP_NODE_INJECTION_TAGS = new Set(['🏠 私有網絡', '🛑 廣告攔截']);
+const BUILTIN_ONLY_OUTBOUNDS = new Set(['direct', 'DIRECT', 'reject', 'REJECT', 'block']);
+
 export async function toSingBoxWithTemplate(
   nodes: ProxyNode[],
   _env?: Env,
@@ -1519,8 +1522,15 @@ export async function toSingBoxWithTemplate(
 
   config.outbounds.forEach((out: Record<string, unknown>) => {
     if (out.type === 'selector' || out.type === 'urltest') {
+      const groupTag = String(out.tag || '');
+      if (SKIP_NODE_INJECTION_TAGS.has(groupTag)) return;
+
       if (!Array.isArray(out.outbounds)) out.outbounds = [];
       const arr = out.outbounds as string[];
+      if (arr.length > 0 && arr.every(item => BUILTIN_ONLY_OUTBOUNDS.has(item))) {
+        return;
+      }
+
       allNodeTags.forEach(tag => {
         if (!arr.includes(tag)) arr.push(tag);
       });

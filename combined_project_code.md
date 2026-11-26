@@ -1,353 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 16:58:31 UTC 2026
-
-## File: Honk_Rules.DAE
-````DAE
-# ==============================================================================
-# OpenWrt Honk-Core / DAE 完整設定檔 (由 CF Sub Converter 動態產生，適配 Honk 最新規範)
-# 儲存路徑: /etc/honk/config.dae
-# 可在 GitHub 倉庫直接修改此檔案，客戶端拉取時即時生效！
-# ==============================================================================
-
-global {
-    # 綁定外網介面 (預設 auto 自動偵測。若為 PPPoE 撥接上網，可能需手動改為 pppoe-wan)
-    wan_interface: auto
-    # 綁定內網介面 (請務必確認你的路由器 LAN 網卡名稱，預設為 br-lan。多網卡可用逗號隔開)
-    lan_interface: br-lan
-
-    dial_mode: domain
-    allow_insecure: false
-    auto_config_kernel_parameter: true
-    data_dir: '/etc/honk'
-    log_level: info
-    log_file: ''
-
-    tcp_check_url: 'https://www.gstatic.com/generate_204'
-    tcp_check_http_method: HEAD
-    # 個別獨立加上引號，並採用 Google Public DNS 官方正確域名 dns.google:53
-    udp_check_dns: 'dns.google:53', '8.8.8.8', '2001:4860:4860::8888'
-    check_interval: 300s
-    check_tolerance: 50ms
-
-    # 基礎引導 DNS (用於節點與訂閱連結的初始解析)
-    bootstrap_resolver: '1.1.1.1:53'
-
-    # 【Honk 最新特性】保存成功獲取的訂閱正文到運行目錄，重啟或斷網時可離線恢復節點
-    store_subscribe: true
-
-    # 【Honk 最新特性】持有有歧義 LAN 轉發 UDP 首包，徹底消除遊戲或 UDP 連線首包丟失
-    nfqueue_enable: true
-
-    # 【Honk 最新特性】預熱與撥號預算：大訂閱基線關閉額外 UDP/TCP 預熱，保護路由器記憶體
-    udp_warm_node_count: 0
-    preconnect_node_count: 0
-}
-
-# ==============================================================================
-# 原生 Web API 與 Doona Web UI (內網瀏覽 http://<路由器IP>:9527)
-# ==============================================================================
-experimental {
-    native_api {
-        enabled: true
-        # Doona 面板監聽位址 (0.0.0.0 代表允許內網所有設備透過路由器 IP 訪問)
-        listen: '0.0.0.0:9527'
-        password_auth: true
-        config_write: true
-        ui: 'embedded'
-    }
-    cache_file {
-        enabled: true
-        store_dns: true
-    }
-}
-
-# ==============================================================================
-# 訂閱配置 (直連下載，每 12 小時自動更新)
-# ==============================================================================
-subscription {
-    {{SUB_TAG}}: '{{SUB_URL}}' {
-        route: direct
-        # 訂閱自動更新間隔 (43200 秒 = 12 小時，可自行更改)
-        interval: 43200s
-    }
-}
-
-# ==============================================================================
-# 策略分流群組 (Group)
-# 全面採用 Honk 主打的 policy: score 自適應綜合評分策略
-# ==============================================================================
-group {
-    # AI 服務
-    AI {
-        policy: score
-    }
-
-    # 微軟服務
-    Microsoft {
-        policy: score
-    }
-
-    # 遊戲平台
-    Game {
-        policy: score
-    }
-
-    # 蘋果服務
-    Apple {
-        policy: score
-    }
-
-    # 國外主流網站 (非中國)
-    Global {
-        policy: score
-    }
-
-    # 漏網之魚 (預設兜底)
-    Fallback {
-        policy: score
-    }
-}
-
-# ==============================================================================
-# DNS 智慧解析 (localdns 走本機 dnsmasq，即 OpenWrt 原生 system DNS)
-# ==============================================================================
-dns {
-    # 向上游攜帶 ECS (客戶端近似網段)，改善國內 CDN 解析在地性
-    client_subnet: auto
-
-    upstream {
-        googledns: 'tcp+udp://8.8.8.8:53'
-        googledoh: 'https://8.8.8.8/dns-query'
-        cfdns: 'tcp+udp://1.1.1.1:53'
-        cfdoh: 'https://1.1.1.1/dns-query'
-        localdns: 'udp://127.0.0.1:53'
-    }
-    routing {
-        request {
-            # 拒絕 HTTPS 記錄查詢，防止客戶端因 ECH 握手異常中斷
-            qtype(https) -> reject
-            qname(geosite:category-ads-all) -> reject
-            qname(geosite:cn) -> localdns
-            fallback: googledoh
-        }
-        response {
-            # 漏網國內網域挽救：若海外 DoH 回傳中國大陸 IP，退回 localdns 重新解析以獲得最優 CDN
-            upstream(googledoh) && ip(geoip:cn) -> localdns
-            upstream(cfdoh) && ip(geoip:cn) -> localdns
-            fallback: accept
-        }
-    }
-}
-
-# ==============================================================================
-# eBPF 流量路由規則
-# ==============================================================================
-routing {
-    # 核心系統服務與 DNS 直連，防回環加固
-    pname(dnsmasq, systemd-resolved) && l4proto(udp) && dport(53) -> direct(must)
-    pname(NetworkManager, systemd-networkd, systemd-resolved, dhcpcd) -> direct
-    pname(sing-box, mihomo, frpc, einat) -> direct(must)
-
-    dip(224.0.0.0/3, 'ff00::/8') -> direct
-
-    # 1. 🏠 私有網絡 (旁路由環境採用純 direct，保留 eBPF 狀態追蹤)
-    dip(geoip:private) -> direct
-
-    # 2. 🛑 廣告攔截
-    domain(geosite:category-ads-all) -> block
-
-    # 3. 💬 AI 服務 (動態注入目標為 AI 組)
-    {{AI_RULES}}
-
-    # 4. Ⓜ️ 微軟服務
-    domain(geosite:microsoft) -> Microsoft
-
-    # 5. 🎮 遊戲平台
-    domain(geosite:steam, geosite:epicgames, geosite:ea, geosite:ubisoft, geosite:blizzard) -> Game
-
-    # 6. 🍎 蘋果服務
-    domain(geosite:apple) -> Apple
-
-    # 7. 🌐 非中國 (國外網站)
-    domain(geosite:geolocation-!cn) -> Global
-
-    # 8. 🇨🇳 國內服務 (中國國內網域與 IP 全部直連)
-    domain(geosite:cn) -> direct
-    dip(geoip:cn) -> direct
-
-    # 9. 🐟 漏網之魚 (最終兜底)
-    fallback: Fallback
-}
-
-````
-
-## File: Sing-Box_Rules.JSON
-````JSON
-{
-  "log": {
-    "level": "info",
-    "timestamp": true
-  },
-  "http_clients": [
-    {
-      "tag": "default"
-    }
-  ],
-  "dns": {
-    "servers": [
-      {
-        "tag": "remote-dns",
-        "type": "https",
-        "server": "8.8.8.8",
-        "detour": "🚀 節點選擇"
-      },
-      {
-        "tag": "remote-cf-dns",
-        "type": "https",
-        "server": "1.1.1.1",
-        "detour": "🚀 節點選擇"
-      },
-      {
-        "tag": "system-dns",
-        "type": "local"
-      },
-      {
-        "tag": "local-dns",
-        "type": "local"
-      },
-      {
-        "tag": "fakeip-dns",
-        "type": "fakeip",
-        "inet4_range": "198.18.0.0/15"
-      }
-    ],
-    "rules": [
-      {
-        "clash_mode": "Direct",
-        "server": "system-dns"
-      },
-      {
-        "clash_mode": "Global",
-        "query_type": ["A", "AAAA"],
-        "server": "fakeip-dns"
-      },
-      {
-        "rule_set": [
-          "rs-private"
-        ],
-        "server": "system-dns"
-      },
-      {
-        "rule_set": [
-          "rs-cn"
-        ],
-        "server": "system-dns",
-        "disable_cache": true
-      },
-      {
-        "rule_set": [
-          "rs-apple"
-        ],
-        "server": "system-dns",
-        "disable_cache": true
-      },
-      {
-        "query_type": [
-          "A",
-          "AAAA"
-        ],
-        "rule_set": [
-          "rs-geolocation-!cn",
-          "rs-ai"
-        ],
-        "server": "fakeip-dns"
-      }
-    ],
-    "final": "remote-dns",
-    "strategy": "ipv4_only"
-  },
-  "inbounds": [
-    {
-      "type": "tun",
-      "tag": "tun-in",
-      "interface_name": "tun0",
-      "address": [
-        "172.19.0.1/30"
-      ],
-      "stack": "mixed",
-      "auto_route": true,
-      "strict_route": true
-    }
-  ],
-  "outbounds": [
-    { "type": "selector", "tag": "🚀 節點選擇", "outbounds": ["⚡ 自動選擇", "DIRECT"] },
-    { "type": "urltest", "tag": "⚡ 自動選擇", "outbounds": [], "url": "https://www.gstatic.com/generate_204", "interval": "3m", "tolerance": 50 },
-    { "type": "selector", "tag": "💬 AI 服務", "outbounds": ["⚡ 自動選擇", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🍎 蘋果服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "Ⓜ️ 微軟服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🎮 遊戲平台", "outbounds": ["DIRECT", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🌐 非中國", "outbounds": ["🚀 節點選擇", "DIRECT"] },
-    { "type": "selector", "tag": "🇨🇳 國內服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
-    { "type": "selector", "tag": "🏠 私有網絡", "outbounds": ["DIRECT"] },
-    { "type": "selector", "tag": "🐟 漏網之魚", "outbounds": ["🚀 節點選擇", "DIRECT"] },
-    { "type": "selector", "tag": "🛑 廣告攔截", "outbounds": ["REJECT", "DIRECT"] },
-    
-    { "type": "direct", "tag": "DIRECT" },
-    { "type": "block", "tag": "REJECT" }
-  ],
-  "route": {
-    "default_domain_resolver": "system-dns",
-    "default_http_client": "default",
-    "rule_set": [
-      { "type": "remote", "tag": "rs-ai", "format": "binary", "url": "https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.srs" },
-      { "type": "remote", "tag": "rs-apple", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/apple.srs" },
-      { "type": "remote", "tag": "rs-microsoft", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/microsoft.srs" },
-      { "type": "remote", "tag": "rs-steam", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/steam.srs" },
-      { "type": "remote", "tag": "rs-epicgames", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/epicgames.srs" },
-      { "type": "remote", "tag": "rs-ea", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/ea.srs" },
-      { "type": "remote", "tag": "rs-ubisoft", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/ubisoft.srs" },
-      { "type": "remote", "tag": "rs-blizzard", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/blizzard.srs" },
-      { "type": "remote", "tag": "rs-geolocation-!cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/geolocation-!cn.srs" },
-      { "type": "remote", "tag": "rs-cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs" },
-      { "type": "remote", "tag": "ip-cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/cn.srs" },
-      { "type": "remote", "tag": "rs-ads", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ads-all.srs" },
-      { "type": "remote", "tag": "rs-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/private.srs" },
-      { "type": "remote", "tag": "ip-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs" }
-    ],
-    "rules": [
-      {
-        "action": "sniff"
-      },
-      { "protocol": "dns", "action": "hijack-dns" },
-      { "clash_mode": "Direct", "outbound": "DIRECT" },
-      { "clash_mode": "Global", "outbound": "🚀 節點選擇" },
-      { "rule_set": "rs-ads", "outbound": "🛑 廣告攔截" },
-      { "rule_set": ["rs-private", "ip-private"], "outbound": "🏠 私有網絡" },
-      { "rule_set": "rs-ai", "outbound": "💬 AI 服務" },
-      { "rule_set": "rs-microsoft", "outbound": "Ⓜ️ 微軟服務" },
-      { "rule_set": ["rs-steam", "rs-epicgames", "rs-ea", "rs-ubisoft", "rs-blizzard"], "outbound": "🎮 遊戲平台" },
-      { "rule_set": "rs-geolocation-!cn", "outbound": "🌐 非中國" },
-      { "rule_set": "rs-apple", "outbound": "🍎 蘋果服務" },
-      { "rule_set": ["rs-cn", "ip-cn"], "outbound": "🇨🇳 國內服務" },
-      { "outbound": "🐟 漏網之魚" }
-    ],
-    "auto_detect_interface": true
-  },
-  "experimental": {
-    "cache_file": {
-      "enabled": true,
-      "store_fakeip": true
-    },
-    "clash_api": {
-      "external_controller": "127.0.0.1:9090",
-      "external_ui": "ui",
-      "secret": "",
-      "default_mode": "rule"
-    }
-  }
-}
-
-````
+Generated on: Thu Nov 26 17:01:11 UTC 2026
 
 ## File: argo.sh
 ````sh
@@ -485,6 +137,147 @@ fi
 
 ````
 
+## File: .github/workflows/deploy.yml
+````yml
+# .github/workflows/deploy.yml
+name: Deploy to Cloudflare Workers
+
+on:
+  # 僅保留手動執行按鈕（已關閉 push 自動部署，方便分批修改代碼後手動一次發布）
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 已將 Node.js 環境升級至 Node 24 以消除棄用警告
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # 替換成相容無鎖定檔的普通安裝
+      - name: Install dependencies
+        run: npm install --prefer-offline
+
+      # 替換 KV ID
+      - name: Inject KV ID from Secrets
+        run: |
+          sed -i 's/KV_ID_PLACEHOLDER/${{ secrets.CF_KV_ID }}/g' wrangler.toml
+
+      # 部署步驟
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+
+````
+
+## File: .github/workflows/combine-code.yml
+````yml
+name: Generate All Codebase to MD
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'combined_project_code.md' # 避免此檔案自身更新引發無限循環
+  workflow_dispatch: # 支援在 GitHub 網頁上手動觸發執行
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Combine All Files into MD
+        run: |
+          OUT_FILE="combined_project_code.md"
+          echo "# Complete Project Codebase" > "$OUT_FILE"
+          echo "Generated on: $(date)" >> "$OUT_FILE"
+          echo "" >> "$OUT_FILE"
+
+          # 遍歷專案內的所有檔案，排除依賴、Git 歷史、打包產物及二進位檔案
+          find . -type f \
+            -not -path "*/node_modules/*" \
+            -not -path "*/.git/*" \
+            -not -path "*/dist/*" \
+            -not -name "package-lock.json" \
+            -not -name "yarn.lock" \
+            -not -name "pnpm-lock.yaml" \
+            -not -name "$OUT_FILE" \
+            -not -name "*.png" \
+            -not -name "*.jpg" \
+            -not -name "*.jpeg" \
+            -not -name "*.gif" \
+            -not -name "*.ico" \
+            -not -name "*.woff*" \
+            -not -name "*.ttf" | while read -r file; do
+              
+              # 取得相對路徑與副檔名
+              rel_path="${file#./}"
+              ext="${file##*.}"
+              
+              # 如果無副檔名，清除變數避免格式混亂
+              if [ "$ext" = "$rel_path" ]; then
+                ext=""
+              fi
+              
+              # 寫入檔案標題
+              echo "## File: $rel_path" >> "$OUT_FILE"
+              # 使用四個反單引號（````）包裹，防止內部程式碼的三個反單引號造成排版衝突
+              echo "\`\`\`\`$ext" >> "$OUT_FILE"
+              cat "$file" >> "$OUT_FILE"
+              echo "" >> "$OUT_FILE"
+              echo "\`\`\`\`" >> "$OUT_FILE"
+              echo "" >> "$OUT_FILE"
+          done
+
+      - name: Commit and Push changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add combined_project_code.md
+          
+          if git diff --staged --quiet; then
+            echo "No changes in codebase."
+          else
+            git commit -m "docs: auto-generate complete codebase [skip ci]"
+            git push origin main
+          fi
+
+````
+
+## File: wrangler.toml
+````toml
+name = "my-sub-converter"
+main = "src/index.ts"
+compatibility_date = "2024-04-01"
+
+[placement]
+mode = "smart"
+
+[[kv_namespaces]]
+binding = "SUB_CACHE"
+id = "KV_ID_PLACEHOLDER"
+
+[vars]
+# 💥 私密管理密碼（選填）：設定後將保護「已儲存的配置」管理區域，避免他人檢視或竄改
+# PAGE_PASSWORD = "your_secret_password"
+
+````
+
 ## File: package.json
 ````json
 {
@@ -508,6 +301,324 @@ fi
     "wrangler": "^3.28.1"
   }
 }
+
+````
+
+## File: scripts/argo-converter.ts
+````ts
+// scripts/argo-converter.ts
+import fs from 'fs';
+import path from 'path';
+import readline from 'readline';
+import { Buffer } from 'buffer';
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
+
+const question = (query: string): Promise<string> => {
+  return new Promise((resolve) => rl.question(query, resolve));
+};
+
+interface VlessNode {
+  originalLink: string;
+  uuid: string;
+  server: string;
+  port: string;
+  type: string;
+  path: string;
+  host: string;
+  sni: string;
+  name: string;
+}
+
+// 簡易 VLESS 連結解析器
+function parseVlessLink(link: string): VlessNode | null {
+  try {
+    const urlStr = link.replace('vless://', 'http://');
+    const url = new URL(urlStr);
+    const params = url.searchParams;
+    return {
+      originalLink: link,
+      uuid: url.username,
+      server: url.hostname,
+      port: url.port,
+      type: params.get('type') || 'ws',
+      path: params.get('path') || '/',
+      host: params.get('host') || params.get('sni') || url.hostname,
+      sni: params.get('sni') || url.hostname,
+      name: decodeURIComponent(url.hash.slice(1)) || 'VLESS Node'
+    };
+  } catch {
+    return null;
+  }
+}
+
+// 獲取並解析訂閱
+async function fetchAndParse(input: string): Promise<VlessNode[]> {
+  let content = input.trim();
+  if (input.startsWith('http')) {
+    console.log('正在獲取網址內容...');
+    try {
+      const res = await fetch(input, {
+        headers: { 'User-Agent': 'v2rayNG/1.8.5' }
+      });
+      if (!res.ok) throw new Error(`HTTP 狀態碼 ${res.status}`);
+      content = await res.text();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.log(`獲取訂閱失敗: ${msg}`);
+      return [];
+    }
+  }
+
+  // 嘗試 Base64 解碼
+  let decoded = content;
+  try {
+    const cleaned = content.replace(/[\s\r\n]+/g, '');
+    decoded = Buffer.from(cleaned, 'base64').toString('utf8');
+  } catch {
+    // 解碼失敗則視為純文字
+  }
+
+  const lines = decoded.split(/\r?\n/);
+  const vlessNodes: VlessNode[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('vless://')) {
+      const parsed = parseVlessLink(trimmed);
+      if (parsed) vlessNodes.push(parsed);
+    }
+  }
+  return vlessNodes;
+}
+
+// 生成 VPS 安裝腳本模板
+function generateVpsScript(node: VlessNode, port: string, token: string, domain: string): string {
+  return `#!/bin/bash
+# Cloudflare Argo Tunnel 一鍵部署腳本 (由 cf-sub-converter 自動生成)
+# 適用於已使用 mack-a v2ray-agent 部署之 Xray/Sing-box 環境
+
+GREEN='\\033[0;32m'
+RED='\\033[0;31m'
+NC='\\033[0m'
+
+echo -e "\${GREEN}=== 開始部署 Cloudflare Argo 隧道 ===\${NC}"
+
+if [ "$EUID" -ne 0 ]; then
+  echo -e "\${RED}錯誤: 請使用 root 權限執行此腳本！\${NC}"
+  exit 1
+fi
+
+# 節點參數配置
+VLESS_UUID="${node.uuid}"
+VLESS_PATH="${node.path}"
+VLESS_TYPE="${node.type}"
+VLESS_PORT="${port}"
+NODE_NAME="${node.name}"
+TUNNEL_TOKEN="${token.trim()}"
+CUSTOM_DOMAIN="${domain.trim()}"
+
+# 下載安裝 cloudflared
+if ! command -v cloudflared &> /dev/null; then
+    echo "正在下載安裝 cloudflared..."
+    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+    chmod +x /usr/local/bin/cloudflared
+    echo "cloudflared 安裝完成！"
+else
+    echo "cloudflared 已存在，跳過安裝。"
+fi
+
+# 判斷是否使用固定隧道
+if [ -n "$TUNNEL_TOKEN" ]; then
+    echo -e "\${GREEN}【固定隧道模式】正在配置服務...\${NC}"
+    cloudflared service uninstall &> /dev/null
+    cloudflared service install "$TUNNEL_TOKEN"
+    systemctl daemon-reload
+    systemctl enable cloudflared
+    systemctl restart cloudflared
+    
+    echo -e "\${GREEN}部署成功！\${NC}"
+    echo "請確保已在 Cloudflare Dashboard 中將網域 '$CUSTOM_DOMAIN' 指向本地 'http://localhost:$VLESS_PORT'"
+    
+    # 輸出用戶端連結
+    FINAL_LINK="vless://$VLESS_UUID@$CUSTOM_DOMAIN:443?encryption=none&security=tls&type=$VLESS_TYPE&host=$CUSTOM_DOMAIN"
+    if [ "$VLESS_TYPE" = "ws" ]; then
+        FINAL_LINK="$FINAL_LINK&path=$(echo -n "$VLESS_PATH" | jq -s -R -r @uri 2>/dev/null || echo -n "$VLESS_PATH")"
+    fi
+    FINAL_LINK="$FINAL_LINK#Argo-$NODE_NAME"
+    echo -e "\n\${GREEN}您的 Argo VLESS 訂閱連結為:\${NC}"
+    echo -e "\${GREEN}$FINAL_LINK\${NC}\n"
+else
+    echo -e "\${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...\${NC}"
+    systemctl stop cloudflared-argo &> /dev/null
+    
+    # 寫入 systemd 臨時隧道服務
+    cat <<EOF > /etc/systemd/system/cloudflared-argo.service
+[Unit]
+Description=Cloudflare Argo Temporary Tunnel for VLESS
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/cloudflared tunnel --url http://127.0.0.1:$VLESS_PORT
+Restart=always
+RestartSec=5
+StandardOutput=file:/var/log/cloudflared-argo.log
+StandardError=file:/var/log/cloudflared-argo.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    touch /var/log/cloudflared-argo.log
+    systemctl daemon-reload
+    systemctl enable cloudflared-argo
+    systemctl start cloudflared-argo
+    
+    echo "正在等待 Cloudflare 分配臨時域名 (約需 10-15 秒)..."
+    TEMP_DOMAIN=""
+    for i in {1..15}; do
+        sleep 1
+        TEMP_DOMAIN=$(grep -oE 'https://[a-zA-Z0-9-]+\\.trycloudflare\\.com' /var/log/cloudflared-argo.log | head -n 1 | sed 's/https:\\/\\///')
+        if [ -n "$TEMP_DOMAIN" ]; then
+            break
+        fi
+    done
+    
+    if [ -n "$TEMP_DOMAIN" ]; then
+        echo -e "\${GREEN}獲取域名成功: \$TEMP_DOMAIN\${NC}"
+        FINAL_LINK="vless://$VLESS_UUID@\$TEMP_DOMAIN:443?encryption=none&security=tls&type=$VLESS_TYPE&host=\$TEMP_DOMAIN"
+        if [ "$VLESS_TYPE" = "ws" ]; then
+            FINAL_LINK="$FINAL_LINK&path=$(echo -n "$VLESS_PATH" | jq -s -R -r @uri 2>/dev/null || echo -n "$VLESS_PATH")"
+        fi
+        FINAL_LINK="$FINAL_LINK#Argo-Temp-$NODE_NAME"
+        
+        echo -e "\n\${GREEN}=== 部署成功 ===\${NC}"
+        echo -e "原節點名稱: $NODE_NAME"
+        echo -e "轉發連接埠: $VLESS_PORT"
+        echo -e "您的臨時 Argo 節點 VLESS 連結為 (注意：VPS 重啟或重開服務後域名會刷新):"
+        echo -e "\${GREEN}\$FINAL_LINK\${NC}\n"
+    else
+        echo -e "\${RED}錯誤: 獲取臨時域名超時！請執行 'cat /var/log/cloudflared-argo.log' 檢查日誌。\${NC}"
+    fi
+fi
+`;
+}
+
+async function main() {
+  console.log('==============================================');
+  console.log('      VLESS -> Cloudflare Argo 轉換工具');
+  console.log('==============================================');
+
+  const input = await question('請輸入訂閱地址、多個 VLESS 節點、或儲存配置的訂閱網址:\n> ');
+  if (!input.trim()) {
+    console.log('輸入不能為空。');
+    rl.close();
+    return;
+  }
+
+  const nodes = await fetchAndParse(input);
+  if (nodes.length === 0) {
+    console.log('未找到任何有效的 VLESS 節點。');
+    rl.close();
+    return;
+  }
+
+  console.log(`\n成功解析出 ${nodes.length} 個 VLESS 節點:`);
+  nodes.forEach((node, i) => {
+    console.log(`  [${i + 1}] ${node.name} (${node.server}:${node.port}, 傳輸協定: ${node.type})`);
+  });
+
+  const select = await question('\n請選擇要複製並轉換的節點 (輸入數字並用逗號隔開，例如: 1,3 ；或輸入 all 代表全部):\n> ');
+  let selectedNodes: VlessNode[] = [];
+  if (select.trim().toLowerCase() === 'all') {
+    selectedNodes = nodes;
+  } else {
+    const indices = select.split(',').map(s => parseInt(s.trim(), 10) - 1);
+    selectedNodes = indices.map(idx => nodes[idx]).filter((n): n is VlessNode => Boolean(n));
+  }
+
+  if (selectedNodes.length === 0) {
+    console.log('選擇無效，程式結束。');
+    rl.close();
+    return;
+  }
+
+  console.log(`\n已選擇 ${selectedNodes.length} 個節點進行轉換...`);
+
+  // 本地連接埠設定
+  const port = await question('\n1. 請輸入該 VLESS 節點在 VPS 上監聽的本地連接埠 (預設 8080，請與 mack-a 配置一致):\n> ') || '8080';
+
+  // Argo Tunnel 授權設定
+  console.log('\n2. 隧道設定（直接斷行即代表隨機生成臨時隧道）：');
+  const token = await question('   請貼上您的 Cloudflare Tunnel Token (選填):\n   > ');
+
+  let domain = '';
+  if (token.trim()) {
+    domain = await question('   請輸入該隧道綁定的自訂域名 (例如: vless.domain.com):\n   > ');
+    if (!domain.trim()) {
+      console.log('   錯誤: 固定隧道模式必須提供自訂域名。');
+      rl.close();
+      return;
+    }
+  }
+
+  // 建立腳本存放目錄
+  const outputDir = path.join(process.cwd(), 'argo_outputs');
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir);
+  }
+
+  const generatedNodes: string[] = [];
+
+  for (const node of selectedNodes) {
+    // 保留原本節點
+    generatedNodes.push(node.originalLink);
+
+    // 生成並寫入一鍵 VPS 腳本
+    const vpsScript = generateVpsScript(node, port, token, domain);
+    const safeNodeName = node.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
+    const scriptPath = path.join(outputDir, `argo-install-${safeNodeName}.sh`);
+    
+    fs.writeFileSync(scriptPath, vpsScript, { encoding: 'utf8', mode: 0o755 });
+    console.log(`\n[✓] 成功生成 VPS 安裝腳本: ${scriptPath}`);
+
+    // 如果是固定隧道，可以直接在本地計算出新的 Argo 節點
+    if (token.trim() && domain.trim()) {
+      const argoLink = `vless://${node.uuid}@${domain.trim()}:443?encryption=none&security=tls&type=${node.type}&host=${domain.trim()}${node.type === 'ws' ? `&path=${encodeURIComponent(node.path)}` : ''}#Argo-${node.name}`;
+      generatedNodes.push(argoLink);
+      console.log(`    └─ 同步生成 Argo 節點連結: ${argoLink}`);
+    } else {
+      console.log(`    └─ 臨時隧道模式：節點連結需在 VPS 上執行腳本後動態輸出。`);
+    }
+  }
+
+  // 如果有生成固定隧道的節點，將新舊節點整合寫入訂閱文件
+  if (generatedNodes.length > selectedNodes.length) {
+    const subPath = path.join(outputDir, 'argo_subscription.txt');
+    fs.writeFileSync(subPath, generatedNodes.join('\n'), 'utf8');
+    const base64Sub = Buffer.from(generatedNodes.join('\n')).toString('base64');
+    fs.writeFileSync(path.join(outputDir, 'argo_subscription_base64.txt'), base64Sub, 'utf8');
+    
+    console.log(`\n[✓] 整合訂閱已生成（含原節點 + 新 Argo 節點）:`);
+    console.log(`    - 明文列表: ${path.join(outputDir, 'argo_subscription.txt')}`);
+    console.log(`    - Base64 格式: ${path.join(outputDir, 'argo_subscription_base64.txt')}`);
+  }
+
+  console.log('\n==============================================');
+  console.log('部署說明：');
+  console.log('1. 請將 argo_outputs 目錄內對應的 .sh 腳本上傳至您的 VPS。');
+  console.log('2. 執行命令賦予執行權限並啟動：');
+  console.log('   chmod +x argo-install-*.sh && ./argo-install-*.sh');
+  console.log('==============================================');
+
+  rl.close();
+}
+
+main();
 
 ````
 
@@ -1120,2229 +1231,6 @@ routing {
 
 ````
 
-## File: src/index.ts
-````ts
-// src/index.ts
-// @ts-ignore
-import packageJson from '../package.json';
-import { Env } from './types';
-import { handleArgoRoutes } from './routes/argo';
-import { handleAdminRoutes } from './routes/admin';
-import { handleFavsRoutes } from './routes/favs';
-import { handleSubRoute } from './routes/sub';
-
-const version = packageJson.version;
-
-export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const url = new URL(request.url);
-
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, X-Password, X-Login-Attempt'
-        }
-      });
-    }
-
-    if (request.method === 'GET' && url.pathname === '/version') {
-      return new Response(`subconverter v${version} ${url.host} backend\n`, {
-        headers: {
-          'Content-Type': 'text/plain; charset=utf-8',
-          'Access-Control-Allow-Origin': '*'
-        }
-      });
-    }
-
-    const argoResp = await handleArgoRoutes(request, env, url);
-    if (argoResp) return argoResp;
-
-    const adminResp = await handleAdminRoutes(request, env, ctx, url);
-    if (adminResp) return adminResp;
-
-    const favsResp = await handleFavsRoutes(request, env, ctx, url);
-    if (favsResp) return favsResp;
-
-    return handleSubRoute(request, env, ctx, url, version);
-  }
-};
-
-````
-
-## File: src/generators/honk.ts
-````ts
-// src/generators/honk.ts
-import { ProxyNode } from '../types';
-import { REMOTE_CONFIG, FALLBACK_HONK_RULES } from '../config/rules';
-import { fetchTemplateDirect } from './common';
-
-const AI_DAE_URL = 'https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.dae';
-const FALLBACK_AI_DAE_RULE = 'domain(geosite:openai, geosite:anthropic) -> AI';
-
-export async function toHonk(
-  _nodes: ProxyNode[],
-  subUrl?: string,
-  profileName?: string,
-  forceRefresh = false
-): Promise<string> {
-  const [template, aiRawText] = await Promise.all([
-    fetchTemplateDirect(REMOTE_CONFIG.honk, FALLBACK_HONK_RULES, forceRefresh),
-    fetchTemplateDirect(AI_DAE_URL, '', forceRefresh)
-  ]);
-
-  let aiRulesBody = FALLBACK_AI_DAE_RULE;
-  if (aiRawText && aiRawText.includes('domain(')) {
-    aiRulesBody = aiRawText.replace(/->\s*proxy/g, '-> AI').trim();
-  }
-
-  const finalSubTag = (profileName || 'My_Sub').replace(/[^a-zA-Z0-9_-]/g, '_');
-  const targetSubUrl = (subUrl || 'https://example.com/sub?target=base64').replace(/'/g, '%27');
-
-  return template
-    .replace(/{{SUB_TAG}}/g, finalSubTag)
-    .replace(/{{SUB_URL}}/g, targetSubUrl)
-    .replace(/{{AI_RULES}}/g, aiRulesBody);
-}
-
-````
-
-## File: src/generators/legacy.ts
-````ts
-// src/generators/legacy.ts
-import { ProxyNode } from '../types';
-
-export function toSurge(nodes: ProxyNode[]): string {
-  const lines: string[] = ['[Proxy]'];
-  const nodeNames: string[] = [];
-  const wgSections: string[] = [];
-
-  for (const node of nodes) {
-    let line = '';
-    const name = node.name.replace(/[,=]/g, '').trim();
-
-    if (node.type === 'shadowsocks') {
-      line = `${name} = ss, ${node.server}, ${node.port}, encrypt-method=${node.cipher}, password=${node.password}, udp-relay=true`;
-      if (node.sni) line += `, sni=${node.sni}`;
-    } else if (node.type === 'trojan') {
-      line = `${name} = trojan, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
-      if (node.network === 'ws') {
-        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
-        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
-      }
-    } else if (node.type === 'vmess') {
-      line = `${name} = vmess, ${node.server}, ${node.port}, username=${node.uuid}, tls=${node.tls ? 'true' : 'false'}, udp-relay=true`;
-      if (node.sni) line += `, sni=${node.sni}`;
-      if (node.network === 'ws') {
-        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
-        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
-      }
-    } else if (node.type === 'vless') {
-      line = `${name} = vless, ${node.server}, ${node.port}, username=${node.uuid}, tls=${node.tls ? 'true' : 'false'}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
-      if (node.network === 'ws') {
-        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
-        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
-      }
-    } else if (node.type === 'hysteria2') {
-      line = `${name} = hysteria2, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
-    } else if (node.type === 'tuic') {
-      line = `${name} = tuic, ${node.server}, ${node.port}, token=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}`;
-    } else if (node.type === 'wireguard' && node.wireguard) {
-      const wg = node.wireguard;
-      const safeSecName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
-      line = `${name} = wireguard, section-name=${safeSecName}`;
-
-      let wgSec = `\n[WireGuard ${safeSecName}]\n`;
-      wgSec += `private-key = ${wg.privateKey}\n`;
-      wgSec += `self-ip = ${wg.localAddress[0]?.split('/')[0] || '10.2.0.2'}\n`;
-      if (wg.localAddress[1]) {
-        wgSec += `self-ip-v6 = ${wg.localAddress[1]?.split('/')[0]}\n`;
-      }
-      if (wg.dns) {
-        wgSec += `dns-server = ${wg.dns}\n`;
-      }
-      wgSec += `peer = (public-key = ${wg.publicKey || ''}, allowed-ips = "0.0.0.0/0, ::/0", endpoint = ${node.server}:${node.port}, keepalive = 25)\n`;
-      wgSections.push(wgSec);
-    }
-
-    if (line) {
-      lines.push(line);
-      nodeNames.push(name);
-    }
-  }
-
-  lines.push('\n[Proxy Group]');
-  if (nodeNames.length > 0) {
-    lines.push(`🚀 節點選擇 = select, ⚡ 自動選擇, DIRECT, ${nodeNames.join(', ')}`);
-    lines.push(`⚡ 自動選擇 = url-test, ${nodeNames.join(', ')}, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50`);
-  } else {
-    lines.push('🚀 節點選擇 = select, DIRECT');
-    lines.push('⚡ 自動選擇 = select, DIRECT');
-  }
-  lines.push('🐟 漏網之魚 = select, 🚀 節點選擇, DIRECT');
-
-  lines.push('\n[Rule]');
-  lines.push('GEOIP,CN,DIRECT');
-  lines.push('FINAL,🐟 漏網之魚\n');
-
-  if (wgSections.length > 0) {
-    lines.push(wgSections.join('\n'));
-  }
-
-  return lines.join('\n');
-}
-
-export function toQuantumultX(nodes: ProxyNode[]): string {
-  const lines: string[] = [];
-
-  for (const node of nodes) {
-    const name = node.name.replace(/[,=]/g, '').trim();
-
-    if (node.type === 'shadowsocks') {
-      lines.push(`shadowsocks=${node.server}:${node.port}, method=${node.cipher}, password=${node.password}, fast-open=false, udp-relay=true, tag=${name}`);
-    } else if (node.type === 'trojan') {
-      lines.push(`trojan=${node.server}:${node.port}, password=${node.password}, over-tls=true, tls-host=${node.sni || node.server}, fast-open=false, udp-relay=true, tag=${name}`);
-    } else if (node.type === 'vmess') {
-      let vmessLine = `vmess=${node.server}:${node.port}, method=none, password=${node.uuid}, fast-open=false, udp-relay=true, tag=${name}`;
-      if (node.tls) vmessLine += `, over-tls=true, tls-host=${node.sni || node.server}`;
-      if (node.network === 'ws') vmessLine += `, obfs=ws, obfs-uri=${node.wsPath || '/'}`;
-      lines.push(vmessLine);
-    } else if (node.type === 'vless') {
-      let vlessLine = `vless=${node.server}:${node.port}, method=none, password=${node.uuid}, fast-open=false, udp-relay=true, tag=${name}`;
-      if (node.tls) vlessLine += `, over-tls=true, tls-host=${node.sni || node.server}`;
-      if (node.network === 'ws') {
-        vlessLine += `, obfs=ws, obfs-uri=${node.wsPath || '/'}`;
-        if (node.wsHeaders?.Host) vlessLine += `, obfs-host=${node.wsHeaders.Host}`;
-      }
-      lines.push(vlessLine);
-    } else if (node.type === 'hysteria2') {
-      lines.push(`hysteria2=${node.server}:${node.port}, password=${node.password}, tls-host=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, tag=${name}`);
-    }
-  }
-
-  if (lines.length === 0) {
-    return '# 未在該訂閱中找到相容的節點';
-  }
-
-  return lines.join('\n');
-}
-
-export function toLoon(nodes: ProxyNode[]): string {
-  const lines: string[] = ['[Proxy]'];
-
-  for (const node of nodes) {
-    const name = node.name.replace(/[,=]/g, '').trim();
-    if (node.type === 'shadowsocks') {
-      lines.push(`${name} = Shadowsocks,${node.server},${node.port},${node.cipher},"${node.password}",fast-open=false,udp=true`);
-    } else if (node.type === 'trojan') {
-      lines.push(`${name} = Trojan,${node.server},${node.port},"${node.password}",sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`);
-    } else if (node.type === 'vless') {
-      let l = `${name} = Vless,${node.server},${node.port},"${node.uuid}",tls=${node.tls ? 'true' : 'false'},sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`;
-      if (node.network === 'ws') l += `,transport=ws,path=${node.wsPath || '/'}`;
-      lines.push(l);
-    } else if (node.type === 'vmess') {
-      let v = `${name} = vmess,${node.server},${node.port},auto,"${node.uuid}",fast-open=false,udp=true`;
-      if (node.tls) v += `,over-tls=true,tls-name=${node.sni || node.server}`;
-      if (node.network === 'ws') v += `,transport=ws,path=${node.wsPath || '/'}`;
-      lines.push(v);
-    } else if (node.type === 'hysteria2') {
-      lines.push(`${name} = Hysteria2,${node.server},${node.port},password=${node.password},sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`);
-    }
-  }
-
-  return lines.join('\n');
-}
-
-````
-
-## File: src/generators/singbox.ts
-````ts
-// src/generators/singbox.ts
-import { Env, ProxyNode } from '../types';
-import { REMOTE_CONFIG, FALLBACK_SINGBOX_RULES } from '../config/rules';
-import { isIpAddress, stripJsonComments, fetchTemplateDirect } from './common';
-
-const SKIP_NODE_INJECTION_TAGS = new Set(['🏠 私有網絡', '🛑 廣告攔截']);
-const BUILTIN_ONLY_OUTBOUNDS = new Set(['direct', 'DIRECT', 'reject', 'REJECT', 'block']);
-
-export async function toSingBoxWithTemplate(
-  nodes: ProxyNode[],
-  _env?: Env,
-  forceRefresh = false
-): Promise<string> {
-  const text = await fetchTemplateDirect(REMOTE_CONFIG.singbox, FALLBACK_SINGBOX_RULES, forceRefresh);
-  const config = JSON.parse(stripJsonComments(text));
-
-  if (!config.http_clients || !Array.isArray(config.http_clients) || config.http_clients.length === 0) {
-    config.http_clients = [{ tag: 'default' }];
-  } else {
-    config.http_clients.forEach((hc: Record<string, unknown>) => {
-      if (hc.detour === 'direct' || hc.detour === 'DIRECT') {
-        delete hc.detour;
-      }
-    });
-  }
-
-  if (config.dns) {
-    config.dns.final = 'remote-dns';
-    if (Array.isArray(config.dns.servers)) {
-      config.dns.servers = config.dns.servers.filter((s: Record<string, unknown>) => s.type !== 'rcode');
-      config.dns.servers.forEach((s: Record<string, unknown>) => {
-        if (s.detour === 'direct' || s.detour === 'DIRECT') delete s.detour;
-      });
-    }
-    if (Array.isArray(config.dns.rules)) {
-      config.dns.rules = config.dns.rules.filter((r: Record<string, unknown>) => !('outbound' in r));
-    }
-
-    const nodesWithCustomDoh = nodes.filter(n => n.ech && n.echDoh && /^https?:\/\//i.test(n.echDoh));
-    if (nodesWithCustomDoh.length > 0) {
-      const dohMap = new Map<string, string>();
-      for (const n of nodesWithCustomDoh) {
-        const domain = n.echQueryServerName || n.sni || n.server;
-        const dohUrl = n.echDoh!;
-        if (domain && !isIpAddress(domain) && !dohMap.has(domain)) {
-          dohMap.set(domain, dohUrl);
-        }
-      }
-
-      for (const [domain, dohUrl] of dohMap.entries()) {
-        let serverHost = dohUrl;
-        let serverPath = '/dns-query';
-        try {
-          const u = new URL(dohUrl);
-          serverHost = u.hostname;
-          serverPath = u.pathname || '/dns-query';
-        } catch {}
-
-        const tag = `ech-doh-${domain.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
-        if (!config.dns.servers.some((s: Record<string, unknown>) => s.tag === tag)) {
-          const dnsServerObj: Record<string, unknown> = {
-            tag,
-            type: 'https',
-            server: serverHost,
-            domain_resolver: 'system-dns'
-          };
-          if (serverPath && serverPath !== '/') {
-            dnsServerObj.path = serverPath;
-          }
-          config.dns.servers.push(dnsServerObj);
-        }
-
-        const alreadyExists = config.dns.rules.some((r: Record<string, unknown>) => {
-          const doms = r.domain as string[] | undefined;
-          return Array.isArray(doms) && doms.includes(domain);
-        });
-
-        if (!alreadyExists) {
-          config.dns.rules.unshift({
-            domain: [domain],
-            domain_suffix: [domain],
-            server: tag
-          });
-        }
-      }
-    }
-
-    // 遍歷所有 DNS 伺服器，確保域名地址均帶有 domain_resolver (Sing-Box 1.14+ 強制規範)
-    if (Array.isArray(config.dns.servers)) {
-      config.dns.servers.forEach((s: Record<string, unknown>) => {
-        if (s.server && typeof s.server === 'string' && !isIpAddress(s.server)) {
-          if (!s.domain_resolver) {
-            s.domain_resolver = 'system-dns';
-          }
-        }
-      });
-    }
-  }
-
-  if (!config.route) config.route = {};
-  config.route.default_domain_resolver = 'system-dns';
-  config.route.default_http_client = 'default';
-
-  if (Array.isArray(config.route.rule_set)) {
-    config.route.rule_set.forEach((rs: Record<string, unknown>) => {
-      delete rs.download_detour;
-    });
-  }
-
-  if (Array.isArray(config.inbounds)) {
-    config.inbounds.forEach((ib: Record<string, unknown>) => {
-      delete ib.sniff;
-      delete ib.sniff_override_destination;
-      delete ib.domain_strategy;
-    });
-  }
-
-  const outbounds: Record<string, unknown>[] = [];
-  const endpoints: Record<string, unknown>[] = [];
-  const allNodeTags: string[] = [];
-
-  nodes.forEach(n => {
-    allNodeTags.push(n.name);
-
-    if (n.type === 'wireguard' && n.wireguard) {
-      const wg = n.wireguard;
-      const peerObj: Record<string, unknown> = {
-        address: n.server,
-        port: n.port,
-        public_key: wg.publicKey,
-        allowed_ips: ['0.0.0.0/0', '::/0']
-      };
-      if (wg.presharedKey) peerObj.pre_shared_key = wg.presharedKey;
-      if (wg.reserved && wg.reserved.length > 0) peerObj.reserved = wg.reserved;
-
-      endpoints.push({
-        type: 'wireguard',
-        tag: n.name,
-        address: wg.localAddress,
-        private_key: wg.privateKey,
-        peers: [peerObj],
-        mtu: wg.mtu || 1420
-      });
-    } else {
-      const obj = JSON.parse(JSON.stringify(n.singboxObj));
-      if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {
-        obj.tls.alpn = ['http/1.1'];
-      }
-
-      if (n.ech && obj.tls) {
-        const echObj: Record<string, unknown> = { enabled: true };
-        if (n.echQueryServerName && !isIpAddress(n.echQueryServerName)) {
-          echObj.query_server_name = n.echQueryServerName;
-        }
-        obj.tls.ech = echObj;
-      }
-
-      outbounds.push(obj);
-    }
-  });
-
-  if (endpoints.length > 0) {
-    if (!config.endpoints || !Array.isArray(config.endpoints)) {
-      config.endpoints = [];
-    }
-    config.endpoints.push(...endpoints);
-  }
-
-  if (!Array.isArray(config.outbounds)) config.outbounds = [];
-  config.outbounds.push(...outbounds);
-
-  config.outbounds.forEach((out: Record<string, unknown>) => {
-    if (out.type === 'selector' || out.type === 'urltest') {
-      const groupTag = String(out.tag || '');
-      if (SKIP_NODE_INJECTION_TAGS.has(groupTag)) return;
-
-      if (!Array.isArray(out.outbounds)) out.outbounds = [];
-      const arr = out.outbounds as string[];
-      if (arr.length > 0 && arr.every(item => BUILTIN_ONLY_OUTBOUNDS.has(item))) {
-        return;
-      }
-
-      allNodeTags.forEach(tag => {
-        if (!arr.includes(tag)) arr.push(tag);
-      });
-    }
-  });
-
-  return JSON.stringify(config, null, 2);
-}
-
-````
-
-## File: src/generators/index.ts
-````ts
-// src/generators/index.ts
-export { toRawLinks, toBase64 } from './uri';
-export { toSingBoxWithTemplate } from './singbox';
-export { toClashWithTemplate } from './clash';
-export { toHonk } from './honk';
-export { toSurge, toQuantumultX, toLoon } from './legacy';
-
-````
-
-## File: src/generators/uri.ts
-````ts
-// src/generators/uri.ts
-import { ProxyNode } from '../types';
-import { utf8ToBase64 } from '../utils';
-
-function formatHost(host: string): string {
-  return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
-}
-
-export function toRawLinks(nodes: ProxyNode[]): string {
-  const links = nodes
-    .map(node => {
-      try {
-        const host = formatHost(node.server);
-
-        if (node.type === 'vless') {
-          const params = new URLSearchParams();
-          params.set('encryption', 'none');
-          params.set('security', node.reality ? 'reality' : node.tls ? 'tls' : 'none');
-          params.set('type', node.network || 'tcp');
-          if (node.flow) params.set('flow', node.flow);
-          if (node.sni) params.set('sni', node.sni);
-          if (node.fingerprint) params.set('fp', node.fingerprint);
-          if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
-          if (node.ech) {
-            if (node.echDoh && node.echQueryServerName) {
-              params.set('ech', `${node.echQueryServerName}+${node.echDoh}`);
-            } else if (node.echDoh) {
-              params.set('ech', node.echDoh);
-            } else if (node.echQueryServerName) {
-              params.set('ech', node.echQueryServerName);
-            } else {
-              params.set('ech', '1');
-            }
-          }
-          if (node.reality) {
-            params.set('pbk', node.reality.publicKey);
-            params.set('sid', node.reality.shortId);
-            if (node.reality.spiderX) params.set('spx', node.reality.spiderX);
-          }
-          if (node.network === 'ws') {
-            if (node.wsPath) params.set('path', node.wsPath);
-            if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host);
-          }
-          if (node.network === 'xhttp' || node.network === 'splithttp') {
-            if (node.xhttpPath) params.set('path', node.xhttpPath);
-            if (node.xhttpHost) params.set('host', node.xhttpHost);
-            if (node.xhttpMode) params.set('mode', node.xhttpMode);
-          }
-          if (node.network === 'grpc' && node.grpcServiceName) {
-            params.set('serviceName', node.grpcServiceName);
-          }
-          return `vless://${encodeURIComponent(node.uuid || '')}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-        }
-        if (node.type === 'hysteria2') {
-          const params = new URLSearchParams();
-          if (node.sni) params.set('sni', node.sni);
-          if (node.obfs) {
-            params.set('obfs', node.obfs);
-            if (node.obfsPassword) params.set('obfs-password', node.obfsPassword);
-          }
-          if (node.skipCertVerify) params.set('insecure', '1');
-          return `hysteria2://${encodeURIComponent(node.password || '')}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-        }
-        if (node.type === 'vmess') {
-          const vmessObj = {
-            v: '2',
-            ps: node.name,
-            add: node.server,
-            port: node.port,
-            id: node.uuid,
-            aid: (node.clashObj as Record<string, unknown>)?.alterId || 0,
-            scy: 'auto',
-            net: node.network,
-            type: 'none',
-            host: node.wsHeaders?.Host || '',
-            path: node.wsPath || '',
-            tls: node.tls ? 'tls' : '',
-            sni: node.sni || ''
-          };
-          return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
-        }
-        if (node.type === 'shadowsocks') {
-          const method = encodeURIComponent(node.cipher || '');
-          const pass = encodeURIComponent(node.password || '');
-          const params = new URLSearchParams();
-          if (node.tls) {
-            params.set('security', 'tls');
-            if (node.sni) params.set('sni', node.sni);
-            if (node.alpn) params.set('alpn', node.alpn.join(','));
-            if (node.fingerprint) params.set('fp', node.fingerprint);
-            if (node.ech) {
-              if (node.echDoh && node.echQueryServerName) {
-                params.set('ech', `${node.echQueryServerName}+${node.echDoh}`);
-              } else if (node.echDoh) {
-                params.set('ech', node.echDoh);
-              } else if (node.echQueryServerName) {
-                params.set('ech', node.echQueryServerName);
-              } else {
-                params.set('ech', '1');
-              }
-            }
-            params.set('type', node.network || 'tcp');
-          }
-          const clashPlugin = (node.clashObj as Record<string, unknown>)?.plugin as string | undefined;
-          if (clashPlugin && !node.tls) {
-            const pluginOpts = (node.clashObj as Record<string, unknown>)?.['plugin-opts'] as Record<string, string> | undefined;
-            const optStr = pluginOpts ? ';' + new URLSearchParams(pluginOpts).toString().replace(/&/g, ';') : '';
-            params.set('plugin', clashPlugin + optStr);
-          }
-          const query = params.toString();
-          return `ss://${method}:${pass}@${host}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
-        }
-        if (node.type === 'tuic') {
-          const params = new URLSearchParams();
-          if (node.sni) params.set('sni', node.sni);
-          if (node.congestion_control) params.set('congestion_control', node.congestion_control);
-          if (node.udp_relay_mode) params.set('udp_relay_mode', node.udp_relay_mode);
-          if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
-          if (node.skipCertVerify) params.set('allow_insecure', '1');
-          return `tuic://${encodeURIComponent(node.uuid || '')}:${encodeURIComponent(node.password || '')}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-        }
-        if (node.type === 'anytls') {
-          const params = new URLSearchParams();
-          params.set('security', 'tls');
-          if (node.sni) params.set('sni', node.sni);
-          params.set('insecure', node.skipCertVerify ? '1' : '0');
-          if (node.fingerprint) params.set('fp', node.fingerprint);
-          if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
-          params.set('type', 'tcp');
-          return `anytls://${encodeURIComponent(node.password || '')}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-        }
-        if (node.type === 'trojan') {
-          const params = new URLSearchParams();
-          if (node.sni) params.set('sni', node.sni);
-          if (node.skipCertVerify) params.set('allowInsecure', '1');
-          if (node.ech) {
-            if (node.echDoh && node.echQueryServerName) {
-              params.set('ech', `${node.echQueryServerName}+${node.echDoh}`);
-            } else if (node.echDoh) {
-              params.set('ech', node.echDoh);
-            } else if (node.echQueryServerName) {
-              params.set('ech', node.echQueryServerName);
-            } else {
-              params.set('ech', '1');
-            }
-          }
-          return `trojan://${encodeURIComponent(node.password || '')}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-        }
-        if (node.type === 'wireguard' && node.wireguard) {
-          const wg = node.wireguard;
-          const cleanIp = wg.localAddress[0]?.split('/')[0] || '10.2.0.2';
-          const params = new URLSearchParams();
-          params.set('publickey', wg.publicKey || '');
-          params.set('privatekey', wg.privateKey || '');
-          params.set('ip', cleanIp);
-          params.set('address', cleanIp);
-          if (wg.dns) params.set('dns', wg.dns);
-          if (wg.presharedKey) params.set('presharedkey', wg.presharedKey);
-          params.set('mtu', String(wg.mtu || 1420));
-          params.set('keepalive', '25');
-          return `wireguard://${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-        }
-        if (node.type === 'masque' && node.masque) {
-          const m = node.masque;
-          const params = new URLSearchParams();
-          params.set('public_key', m.publicKey);
-          if (m.localIpv4) params.set('ip', m.localIpv4.split('/')[0]);
-          if (m.localIpv6) params.set('ipv6', m.localIpv6.split('/')[0]);
-          if (m.mtu) params.set('mtu', String(m.mtu));
-          if (m.uri) params.set('uri', m.uri);
-          if (m.sni) params.set('sni', m.sni);
-
-          const cc = m.congestion_controller || 'bbr';
-          params.set('cca', cc);
-          params.set('cc', cc);
-          params.set('congestion_control', cc);
-          params.set('congestion_controller', cc);
-          params.set('congestion-controller', cc);
-
-          if (m.dns && m.dns.length > 0) params.set('dns', m.dns.join(','));
-          return `masque://${encodeURIComponent(m.privateKey)}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
-        }
-        return null;
-      } catch {
-        return null;
-      }
-    })
-    .filter((l): l is string => Boolean(l));
-
-  return links.join('\n');
-}
-
-export function toBase64(nodes: ProxyNode[]): string {
-  const rawLinks = toRawLinks(nodes);
-  return utf8ToBase64(rawLinks);
-}
-
-````
-
-## File: src/generators/common.ts
-````ts
-// src/generators/common.ts
-export function isIpAddress(str: string): boolean {
-  return /^(\d{1,3}\.){3}\d{1,3}$/.test(str) || str.includes(':');
-}
-
-// 防禦性濾網：安全過濾 JSON 字串中意外存在的單行與多行註解，防止 JSON.parse 報錯
-export function stripJsonComments(jsonStr: string): string {
-  return jsonStr.replace(/\\"|"(?:\\"|[^"])*"|(\/\/.*|\/\*[\s\S]*?\*\/)/g, (match, group) => {
-    return group ? '' : match;
-  });
-}
-
-export async function fetchWithTimeout(
-  url: string,
-  init: RequestInit = {},
-  timeoutMs = 5000
-): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-// 具備 Cloudflare 60 秒邊緣快取與 4 秒超時降級的遠端模板直讀（帶 ?force=1 可強制穿透刷新）
-export async function fetchTemplateDirect(
-  url: string,
-  fallbackStr: string,
-  forceRefresh = false
-): Promise<string> {
-  const edgeCache = typeof caches !== 'undefined' ? (caches as unknown as { default?: Cache }).default : undefined;
-  const cacheKey = new Request(url, { method: 'GET' });
-
-  if (!forceRefresh && edgeCache) {
-    try {
-      const cached = await edgeCache.match(cacheKey);
-      if (cached) {
-        return await cached.text();
-      }
-    } catch {}
-  }
-
-  try {
-    const sep = url.includes('?') ? '&' : '?';
-    const fetchUrl = forceRefresh ? `${url}${sep}t=${Date.now()}` : url;
-    const resp = await fetchWithTimeout(
-      fetchUrl,
-      { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },
-      4000
-    );
-    if (resp.ok) {
-      const text = await resp.text();
-      if (edgeCache && text.trim()) {
-        try {
-          await edgeCache.put(
-            cacheKey,
-            new Response(text, {
-              headers: {
-                'Content-Type': 'text/plain; charset=utf-8',
-                'Cache-Control': 'public, max-age=60'
-              }
-            })
-          );
-        } catch {}
-      }
-      return text;
-    }
-  } catch {}
-
-  return fallbackStr;
-}
-
-````
-
-## File: src/generators/clash.ts
-````ts
-// src/generators/clash.ts
-import yaml from 'js-yaml';
-import { Env, ProxyNode } from '../types';
-import { REMOTE_CONFIG, FALLBACK_CLASH_RULES } from '../config/rules';
-import { isIpAddress, fetchTemplateDirect } from './common';
-
-const SKIP_NODE_INJECTION_GROUPS = new Set(['🏠 私有網絡', '🛑 廣告攔截']);
-const BUILTIN_ONLY_PROXIES = new Set(['DIRECT', 'REJECT']);
-
-export async function toClashWithTemplate(
-  nodes: ProxyNode[],
-  _env?: Env,
-  forceRefresh = false
-): Promise<string> {
-  const text = await fetchTemplateDirect(REMOTE_CONFIG.clash, FALLBACK_CLASH_RULES, forceRefresh);
-  const config = yaml.load(text) as Record<string, unknown>;
-
-  const proxies = nodes.map(n => {
-    const obj = JSON.parse(JSON.stringify(n.clashObj));
-
-    if (n.ech) {
-      const echOpts: Record<string, unknown> = { enable: true };
-      if (n.echQueryServerName && !isIpAddress(n.echQueryServerName)) {
-        echOpts['query-server-name'] = n.echQueryServerName;
-      }
-      obj['ech-opts'] = echOpts;
-    }
-
-    return obj as Record<string, unknown>;
-  });
-  const proxyNames = proxies.map(p => p.name as string);
-
-  if (!Array.isArray(config.proxies)) config.proxies = [];
-  config.proxies.push(...proxies);
-
-  if (Array.isArray(config['proxy-groups'])) {
-    const groups = config['proxy-groups'] as Array<Record<string, unknown>>;
-
-    groups.forEach(group => {
-      const groupName = String(group.name || '');
-      if (SKIP_NODE_INJECTION_GROUPS.has(groupName)) return;
-
-      if (!Array.isArray(group.proxies)) group.proxies = [];
-      const arr = group.proxies as string[];
-      if (arr.length > 0 && arr.every(item => BUILTIN_ONLY_PROXIES.has(item))) {
-        return;
-      }
-
-      proxyNames.forEach(name => {
-        if (!arr.includes(name)) arr.push(name);
-      });
-    });
-  }
-
-  const nodesWithCustomDoh = nodes.filter(n => n.ech && n.echDoh && /^https?:\/\//i.test(n.echDoh));
-  if (nodesWithCustomDoh.length > 0 && config.dns && typeof config.dns === 'object') {
-    const dnsObj = config.dns as Record<string, unknown>;
-    if (!dnsObj['nameserver-policy'] || typeof dnsObj['nameserver-policy'] !== 'object') {
-      dnsObj['nameserver-policy'] = {};
-    }
-    const policy = dnsObj['nameserver-policy'] as Record<string, string[]>;
-    for (const n of nodesWithCustomDoh) {
-      const domain = n.echQueryServerName || n.sni || n.server;
-      if (domain && !isIpAddress(domain)) {
-        policy[domain] = [n.echDoh!];
-      }
-    }
-  }
-
-  return yaml.dump(config, { indent: 2, noRefs: true });
-}
-
-````
-
-## File: src/routes/argo.ts
-````ts
-// src/routes/argo.ts
-import { Env, ProxyNode } from '../types';
-import { utf8ToBase64 } from '../utils';
-import { loadNodes } from '../services/node-loader';
-
-function escapeBashDoubleQuoted(val: string): string {
-  return val
-    .replace(/[\r\n\0]/g, '')
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\$/g, '\\$')
-    .replace(/`/g, '\\`');
-}
-
-function replaceAllTokens(template: string, token: string, value: string): string {
-  return template.split(token).join(escapeBashDoubleQuoted(value));
-}
-
-function formatHost(host: string): string {
-  return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
-}
-
-async function getArgoScriptFromGithub(
-  node: ProxyNode,
-  port: string,
-  token: string,
-  domain: string
-): Promise<string> {
-  const GITHUB_TEMPLATE_URL = `https://raw.githubusercontent.com/sammy0101/cf-sub-converter/main/argo.sh?t=${Date.now()}`;
-  let template = '';
-
-  try {
-    const res = await fetch(GITHUB_TEMPLATE_URL, { headers: { 'User-Agent': 'v2rayNG/1.8.5' } });
-    if (res.ok) {
-      template = await res.text();
-    } else {
-      throw new Error('GitHub Fetch Failed');
-    }
-  } catch {
-    template = `#!/bin/bash
-if ! command -v cloudflared &> /dev/null; then
-  curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
-  chmod +x /usr/local/bin/cloudflared
-fi
-cloudflared tunnel --url http://127.0.0.1:{{VLESS_PORT}}
-`;
-  }
-
-  const vlessType = node.network || 'ws';
-  const vlessPath = node.wsPath || '/';
-  const argoNodeName = `${node.name}_Argo`;
-  const isTls = node.tls ? 'true' : 'false';
-  const realHost = node.wsHeaders?.Host || node.sni || node.server;
-  const safePort = String(parseInt(port, 10) || 8080);
-
-  let rendered = template;
-  rendered = replaceAllTokens(rendered, '{{NODE_TYPE}}', node.type);
-  rendered = replaceAllTokens(rendered, '{{VLESS_UUID}}', node.uuid || '');
-  rendered = replaceAllTokens(rendered, '{{VLESS_PATH}}', vlessPath);
-  rendered = replaceAllTokens(rendered, '{{VLESS_TYPE}}', vlessType);
-  rendered = replaceAllTokens(rendered, '{{VLESS_PORT}}', safePort);
-  rendered = replaceAllTokens(rendered, '{{NODE_NAME}}', argoNodeName);
-  rendered = replaceAllTokens(rendered, '{{TUNNEL_TOKEN}}', token.trim());
-  rendered = replaceAllTokens(rendered, '{{CUSTOM_DOMAIN}}', domain.trim());
-  rendered = replaceAllTokens(rendered, '{{VLESS_TLS}}', isTls);
-  rendered = replaceAllTokens(rendered, '{{ORIGIN_HOST}}', realHost);
-  return rendered;
-}
-
-export async function handleArgoRoutes(
-  request: Request,
-  env: Env,
-  url: URL
-): Promise<Response | null> {
-  if (request.method === 'GET' && url.pathname.startsWith('/argo/sh/')) {
-    const scriptId = url.pathname.split('/').pop();
-    if (env.SUB_CACHE && scriptId) {
-      const script = await env.SUB_CACHE.get(`script:${scriptId}`);
-      if (script) {
-        return new Response(script, {
-          headers: {
-            'Content-Type': 'text/plain; charset=utf-8',
-            'Access-Control-Allow-Origin': '*'
-          }
-        });
-      }
-    }
-    return new Response('# 錯誤: 該腳本不存在或已過期，請重新在網頁上生成。\nexit 1\n', {
-      status: 404,
-      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
-    });
-  }
-
-  if (request.method === 'POST' && (url.pathname === '/api/parse-vless' || url.pathname === '/api/parse-argo')) {
-    try {
-      const body = (await request.json()) as { url?: string };
-      const rawUrl = body.url || '';
-      if (!rawUrl.trim()) {
-        return new Response(JSON.stringify({ error: '請輸入有效的節點內容' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        });
-      }
-
-      const allNodes = await loadNodes(rawUrl);
-      const argoCompatibleNodes = allNodes
-        .filter(n => n.type === 'vless' || n.type === 'vmess')
-        .map((n, idx) => ({
-          index: idx,
-          name: n.name,
-          server: n.server,
-          port: n.port,
-          type: n.type,
-          host: n.wsHeaders?.Host || n.sni || n.server
-        }));
-
-      return new Response(JSON.stringify(argoCompatibleNodes), {
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-      });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      return new Response(JSON.stringify({ error: msg }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-  }
-
-  if (request.method === 'POST' && url.pathname === '/api/argo-generate') {
-    try {
-      const body = (await request.json()) as {
-        url?: string;
-        indices?: number[];
-        port?: string;
-        cleanIp?: string;
-        token?: string;
-        domain?: string;
-      };
-
-      const rawUrl = body.url || '';
-      const selectedIndices = body.indices || [];
-      const port = body.port || '8080';
-      const cleanIp = (body.cleanIp || '').trim();
-      const token = body.token || '';
-      const domain = body.domain || '';
-
-      if (!rawUrl.trim() || selectedIndices.length === 0) {
-        return new Response(JSON.stringify({ error: '無效的參數或未選擇節點' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        });
-      }
-
-      const allNodes = await loadNodes(rawUrl);
-      const compatibleNodes = allNodes.filter(n => n.type === 'vless' || n.type === 'vmess');
-      const selectedPairs = selectedIndices
-        .map(idx => ({ originalIndex: idx, node: compatibleNodes[idx] }))
-        .filter((item): item is { originalIndex: number; node: ProxyNode } => Boolean(item.node));
-
-      if (selectedPairs.length === 0) {
-        return new Response(JSON.stringify({ error: '找不到對應的節點索引' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        });
-      }
-
-      const scriptParts: string[] = [];
-      const generatedNodesData: Array<{ originalIndex: number; link: string }> = [];
-      const isFixedTunnel = Boolean(token.trim() && domain.trim());
-
-      for (let i = 0; i < selectedPairs.length; i++) {
-        const { originalIndex, node } = selectedPairs[i];
-
-        // 固定隧道僅有一個全域 cloudflared 服務實例，避免重複卸載與安裝
-        if (!isFixedTunnel || i === 0) {
-          scriptParts.push(await getArgoScriptFromGithub(node, port, token, domain));
-        }
-
-        const targetDomain = isFixedTunnel
-          ? domain.trim()
-          : '請在VPS執行一鍵安裝腳本獲取臨時域名.trycloudflare.com';
-        const connectionServer = formatHost(cleanIp || targetDomain);
-        const argoNodeName = `${node.name}_Argo${cleanIp ? '_優選' : ''}`;
-
-        let argoLink = '';
-        if (node.type === 'vless') {
-          const params = new URLSearchParams({
-            encryption: 'none',
-            security: 'tls',
-            type: node.network || 'ws',
-            host: targetDomain,
-            sni: targetDomain,
-            path: node.wsPath || '/'
-          });
-          argoLink = `vless://${encodeURIComponent(node.uuid || '')}@${connectionServer}:443?${params.toString()}#${encodeURIComponent(argoNodeName)}`;
-        } else {
-          const vmessObj = {
-            v: '2',
-            ps: argoNodeName,
-            add: cleanIp || targetDomain,
-            port: 443,
-            id: node.uuid,
-            aid: 0,
-            scy: 'auto',
-            net: node.network || 'ws',
-            type: 'none',
-            host: targetDomain,
-            path: node.wsPath || '/',
-            tls: 'tls',
-            sni: targetDomain
-          };
-          argoLink = 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
-        }
-
-        generatedNodesData.push({ originalIndex, link: argoLink });
-      }
-
-      const scripts = scriptParts.join('\n\n');
-      let scriptId = '';
-      if (env.SUB_CACHE) {
-        scriptId = crypto.randomUUID();
-        await env.SUB_CACHE.put('script:' + scriptId, scripts, { expirationTtl: 3600 });
-      }
-
-      return new Response(
-        JSON.stringify({
-          scriptId,
-          argoNodes: generatedNodesData
-        }),
-        {
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        }
-      );
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      return new Response(JSON.stringify({ error: msg }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-  }
-
-  return null;
-}
-
-````
-
-## File: src/routes/admin.ts
-````ts
-// src/routes/admin.ts
-import { Env, OperationLogEntry, TgConfig } from '../types';
-import { hasPasswordConfigured, checkAuth } from '../services/auth';
-import { LOGS_KEY, getClientMeta, formatUtc8Time, appendOperationLog } from '../services/audit';
-import {
-  TG_CONFIG_KEY,
-  getStoredTgConfig,
-  toPublicTgView,
-  postTelegramMessage,
-  escapeHtmlForTg
-} from '../services/telegram';
-
-export async function handleAdminRoutes(
-  request: Request,
-  env: Env,
-  ctx: ExecutionContext,
-  url: URL
-): Promise<Response | null> {
-  // --- Telegram 通知設定 API ---
-  if (url.pathname === '/tg-config') {
-    if (!hasPasswordConfigured(env)) {
-      return new Response(
-        JSON.stringify({ error: '未設定管理密碼 (PAGE_PASSWORD)，禁止存取通知設定', unconfigured: true }),
-        {
-          status: 403,
-          headers: {
-            'Content-Type': 'application/json',
-            'Cache-Control': 'no-store, no-cache, must-revalidate',
-            'Access-Control-Allow-Origin': '*'
-          }
-        }
-      );
-    }
-    if (!checkAuth(request, env)) {
-      if ((request.headers.get('X-Password') || '').trim() !== '') {
-        await appendOperationLog(request, env, '登入失敗', ctx);
-      }
-      return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
-        status: 401,
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-          'Access-Control-Allow-Origin': '*'
-        }
-      });
-    }
-
-    if (request.method === 'GET') {
-      const cfg = await getStoredTgConfig(env);
-      return new Response(JSON.stringify(toPublicTgView(cfg)), {
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-          'Access-Control-Allow-Origin': '*'
-        }
-      });
-    }
-
-    if (request.method === 'POST') {
-      try {
-        const body = (await request.json()) as { enabled?: boolean; botToken?: string; chatId?: string };
-        const existing = await getStoredTgConfig(env);
-
-        const rawToken = typeof body.botToken === 'string' ? body.botToken.trim() : '';
-        const nextToken = rawToken && !rawToken.includes('***') ? rawToken : existing.botToken;
-        const nextChatId = typeof body.chatId === 'string' ? body.chatId.trim() : existing.chatId;
-        const nextEnabled = typeof body.enabled === 'boolean' ? body.enabled : existing.enabled;
-
-        if (nextEnabled && (!nextToken || !nextChatId)) {
-          return new Response(JSON.stringify({ error: '請先填寫有效的 Bot Token 與 Chat ID 後再啟用通知' }), {
-            status: 400,
-            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-          });
-        }
-
-        const updated: TgConfig = {
-          enabled: nextEnabled,
-          botToken: nextToken,
-          chatId: nextChatId
-        };
-
-        if (env.SUB_CACHE) {
-          await env.SUB_CACHE.put(TG_CONFIG_KEY, JSON.stringify(updated));
-        }
-
-        return new Response(JSON.stringify(toPublicTgView(updated)), {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            'Cache-Control': 'no-store, no-cache, must-revalidate',
-            'Access-Control-Allow-Origin': '*'
-          }
-        });
-      } catch {
-        return new Response(JSON.stringify({ error: '儲存 Telegram 設定失敗' }), {
-          status: 500,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        });
-      }
-    }
-
-    if (request.method === 'DELETE') {
-      if (env.SUB_CACHE) {
-        await env.SUB_CACHE.delete(TG_CONFIG_KEY);
-      }
-      return new Response(JSON.stringify(toPublicTgView({ enabled: false, botToken: '', chatId: '' })), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        }
-      });
-    }
-  }
-
-  // --- Telegram 測試訊息發送 API ---
-  if (request.method === 'POST' && url.pathname === '/tg-test') {
-    if (!hasPasswordConfigured(env)) {
-      return new Response(JSON.stringify({ ok: false, error: '未設定管理密碼 (PAGE_PASSWORD)' }), {
-        status: 403,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-    if (!checkAuth(request, env)) {
-      if ((request.headers.get('X-Password') || '').trim() !== '') {
-        await appendOperationLog(request, env, '登入失敗', ctx);
-      }
-      return new Response(JSON.stringify({ ok: false, error: '密碼錯誤或未授權' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-
-    try {
-      const body = (await request.json()) as { botToken?: string; chatId?: string };
-      const existing = await getStoredTgConfig(env);
-      const rawToken = typeof body.botToken === 'string' ? body.botToken.trim() : '';
-      const tokenToUse = rawToken && !rawToken.includes('***') ? rawToken : existing.botToken;
-      const chatIdToUse =
-        typeof body.chatId === 'string' && body.chatId.trim() ? body.chatId.trim() : existing.chatId;
-
-      if (!tokenToUse || !chatIdToUse) {
-        return new Response(JSON.stringify({ ok: false, error: '請先輸入 Bot Token 與 Chat ID' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        });
-      }
-
-      const meta = getClientMeta(request);
-      const testMsg = [
-        `✅ <b>SubConverter Pro Telegram 測試通知</b>`,
-        ``,
-        `🎉 恭喜！您的機器人連線正常，已準備好接收即時操作通知。`,
-        `🕒 <b>時間 (UTC+8)：</b><code>${escapeHtmlForTg(formatUtc8Time())}</code>`,
-        `🌐 <b>測試來源 IP：</b><code>${escapeHtmlForTg(meta.ip)}</code>`,
-        `📍 <b>地區：</b>${escapeHtmlForTg(meta.region)}`
-      ].join('\n');
-
-      const sendRes = await postTelegramMessage(tokenToUse, chatIdToUse, testMsg);
-      if (!sendRes.ok) {
-        return new Response(JSON.stringify({ ok: false, error: sendRes.error || 'Telegram API 回傳失敗' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        });
-      }
-
-      return new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return new Response(JSON.stringify({ ok: false, error: msg }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-  }
-
-  // --- 操作日誌 API ---
-  if (request.method === 'GET' && url.pathname === '/logs') {
-    if (!hasPasswordConfigured(env)) {
-      return new Response(
-        JSON.stringify({ error: '未設定管理密碼 (PAGE_PASSWORD)，日誌 API 預設禁止公開讀取', unconfigured: true }),
-        {
-          status: 403,
-          headers: {
-            'Content-Type': 'application/json',
-            'Cache-Control': 'no-store, no-cache, must-revalidate',
-            'Access-Control-Allow-Origin': '*'
-          }
-        }
-      );
-    }
-    if (!checkAuth(request, env)) {
-      if ((request.headers.get('X-Password') || '').trim() !== '') {
-        await appendOperationLog(request, env, '登入失敗', ctx);
-      }
-      return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
-        status: 401,
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-          'Access-Control-Allow-Origin': '*'
-        }
-      });
-    }
-    const raw = env.SUB_CACHE ? await env.SUB_CACHE.get(LOGS_KEY) : null;
-    let logs: OperationLogEntry[] = [];
-    if (raw) {
-      try {
-        const parsed: unknown = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          logs = parsed as OperationLogEntry[];
-        }
-      } catch {}
-    }
-    return new Response(JSON.stringify(logs), {
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-        'Access-Control-Allow-Origin': '*'
-      }
-    });
-  }
-
-  if (request.method === 'DELETE' && url.pathname === '/logs') {
-    if (!hasPasswordConfigured(env)) {
-      return new Response(JSON.stringify({ error: '未設定 PAGE_PASSWORD，禁止操作', unconfigured: true }), {
-        status: 403,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-    if (!checkAuth(request, env)) {
-      if ((request.headers.get('X-Password') || '').trim() !== '') {
-        await appendOperationLog(request, env, '登入失敗', ctx);
-      }
-      return new Response(JSON.stringify({ error: '未授權' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-    if (env.SUB_CACHE) {
-      await env.SUB_CACHE.put(LOGS_KEY, '[]');
-    }
-    return new Response('OK', {
-      status: 200,
-      headers: { 'Access-Control-Allow-Origin': '*' }
-    });
-  }
-
-  return null;
-}
-
-````
-
-## File: src/routes/favs.ts
-````ts
-// src/routes/favs.ts
-import { Env } from '../types';
-import { hasPasswordConfigured, checkAuth } from '../services/auth';
-import { appendOperationLog } from '../services/audit';
-
-const FAVS_KEY = 'favorites';
-
-const RESERVED_EXACT_KEYS = new Set([
-  'favorites',
-  'operation_logs',
-  'tg_config',
-  'sub',
-  'logs',
-  'favs',
-  'tg-config',
-  'tg-test',
-  'version',
-  'favicon.ico',
-  'argo',
-  'api'
-]);
-
-const RESERVED_PREFIXES = ['script:', 'lkg:', 'argo/', 'api/'];
-
-function isReservedPath(name: string): boolean {
-  const lower = name.trim().toLowerCase();
-  if (!lower) return true;
-  if (RESERVED_EXACT_KEYS.has(lower)) return true;
-  if (RESERVED_PREFIXES.some(prefix => lower.startsWith(prefix))) return true;
-  if (lower.includes('/') || lower.includes('?') || lower.includes('#')) return true;
-  return false;
-}
-
-async function getFavs(env: Env): Promise<Array<Record<string, string>>> {
-  const data = await env.SUB_CACHE.get(FAVS_KEY);
-  return data ? (JSON.parse(data) as Array<Record<string, string>>) : [];
-}
-
-async function saveFavs(env: Env, favs: Array<Record<string, string>>): Promise<void> {
-  await env.SUB_CACHE.put(FAVS_KEY, JSON.stringify(favs));
-}
-
-function jsonError(error: string, status: number): Response {
-  return new Response(JSON.stringify({ error }), {
-    status,
-    headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*'
-    }
-  });
-}
-
-export async function handleFavsRoutes(
-  request: Request,
-  env: Env,
-  ctx: ExecutionContext,
-  url: URL
-): Promise<Response | null> {
-  if (request.method === 'POST' && url.pathname === '/save') {
-    try {
-      const body = (await request.json()) as {
-        path?: string;
-        content?: string;
-        include?: string;
-        exclude?: string;
-        rename?: string;
-        token?: string;
-      };
-      const cleanPath = (body.path || '').trim();
-      if (!cleanPath || !body.content) return jsonError('缺少短連結名稱或節點內容', 400);
-      if (isReservedPath(cleanPath)) {
-        return jsonError('該短連結名稱為系統保留字或包含不合法字元 (/, ?, #)', 400);
-      }
-
-      const cleanToken = (body.token || '').trim();
-      const passwordConfigured = hasPasswordConfigured(env);
-      const isAdmin = checkAuth(request, env);
-
-      // 安全防線 1：禁止未經授權透過 /save 覆蓋後台「已儲存的配置」所管理的短連結
-      const favs = await getFavs(env);
-      const matchedFavIdx = favs.findIndex(
-        f => f.name && f.name.trim().toLowerCase() === cleanPath.toLowerCase()
-      );
-      if (matchedFavIdx !== -1 && passwordConfigured && !isAdmin) {
-        return jsonError('該配置屬於後台管理收藏，需要管理密碼授權才可修改', 403);
-      }
-
-      // 安全防線 2：若該短連結已存在且設有 Token 保護，禁止未授權或 Token 不符的覆蓋
-      const existingRaw =
-        (await env.SUB_CACHE.get(cleanPath)) ||
-        (cleanPath !== cleanPath.toLowerCase() ? await env.SUB_CACHE.get(cleanPath.toLowerCase()) : null);
-      if (existingRaw) {
-        try {
-          const existingParsed = JSON.parse(existingRaw) as { token?: string };
-          const existingToken = (existingParsed.token || '').trim();
-          if (existingToken) {
-            if (passwordConfigured && !isAdmin) {
-              return jsonError('該短連結已受 Token 保護，需要管理密碼授權才可修改', 403);
-            }
-            if (!passwordConfigured && cleanToken !== existingToken) {
-              return jsonError('Token 不符，禁止覆蓋', 403);
-            }
-          }
-        } catch {}
-      }
-
-      const saveData = {
-        content: body.content,
-        include: body.include || '',
-        exclude: body.exclude || '',
-        rename: body.rename || '',
-        token: cleanToken
-      };
-      const jsonStr = JSON.stringify(saveData);
-
-      await env.SUB_CACHE.put(cleanPath, jsonStr);
-      if (cleanPath !== cleanPath.toLowerCase()) {
-        await env.SUB_CACHE.put(cleanPath.toLowerCase(), jsonStr);
-      }
-
-      // 若管理員已解鎖且該短連結存在於 favorites，同步更新 favorites 以避免前後端資料漂移
-      if (matchedFavIdx !== -1 && (!passwordConfigured || isAdmin)) {
-        favs[matchedFavIdx] = {
-          name: favs[matchedFavIdx].name || cleanPath,
-          url: body.content,
-          include: body.include || '',
-          exclude: body.exclude || '',
-          rename: body.rename || '',
-          token: cleanToken
-        };
-        await saveFavs(env, favs);
-      }
-
-      await appendOperationLog(request, env, '儲存短連結', ctx);
-
-      return new Response('OK', {
-        status: 200,
-        headers: { 'Access-Control-Allow-Origin': '*' }
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return jsonError(`儲存短連結失敗: ${msg}`, 500);
-    }
-  }
-
-  if (url.pathname !== '/favs') {
-    return null;
-  }
-
-  if (request.method === 'GET') {
-    if (!checkAuth(request, env)) {
-      if ((request.headers.get('X-Password') || '').trim() !== '') {
-        await appendOperationLog(request, env, '登入失敗', ctx);
-      }
-      return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
-        status: 401,
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-          'Access-Control-Allow-Origin': '*'
-        }
-      });
-    }
-    if (hasPasswordConfigured(env) && request.headers.get('X-Login-Attempt') === '1') {
-      await appendOperationLog(request, env, '登入後台', ctx);
-    }
-    const favs = await getFavs(env);
-    return new Response(JSON.stringify(favs), {
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-        'Access-Control-Allow-Origin': '*'
-      }
-    });
-  }
-
-  if (request.method === 'POST') {
-    if (!checkAuth(request, env)) {
-      if ((request.headers.get('X-Password') || '').trim() !== '') {
-        await appendOperationLog(request, env, '登入失敗', ctx);
-      }
-      return jsonError('密碼錯誤或未授權', 401);
-    }
-    try {
-      const body = (await request.json()) as Record<string, string>;
-      if (!body.name || !body.url) return jsonError('缺少配置名稱或節點內容', 400);
-      const cleanName = body.name.trim();
-      if (isReservedPath(cleanName)) {
-        return jsonError('該配置名稱為系統保留字或包含不合法字元 (/, ?, #)', 400);
-      }
-
-      const cleanToken = (body.token || '').trim();
-      const favs = await getFavs(env);
-      if (favs.some(f => f.name && f.name.trim().toLowerCase() === cleanName.toLowerCase())) {
-        return jsonError('已存在相同名稱的配置，請改用編輯或更換名稱', 400);
-      }
-
-      favs.push({
-        name: cleanName,
-        url: body.url,
-        include: body.include || '',
-        exclude: body.exclude || '',
-        rename: body.rename || '',
-        token: cleanToken
-      });
-      await saveFavs(env, favs);
-
-      const syncData = JSON.stringify({
-        content: body.url,
-        include: body.include || '',
-        exclude: body.exclude || '',
-        rename: body.rename || '',
-        token: cleanToken
-      });
-      await env.SUB_CACHE.put(cleanName, syncData);
-      if (cleanName !== cleanName.toLowerCase()) {
-        await env.SUB_CACHE.put(cleanName.toLowerCase(), syncData);
-      }
-
-      await appendOperationLog(request, env, '新增配置', ctx);
-
-      return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return jsonError(`新增配置寫入 KV 失敗: ${msg}`, 500);
-    }
-  }
-
-  if (request.method === 'PUT') {
-    if (!checkAuth(request, env)) {
-      if ((request.headers.get('X-Password') || '').trim() !== '') {
-        await appendOperationLog(request, env, '登入失敗', ctx);
-      }
-      return jsonError('密碼錯誤或未授權', 401);
-    }
-    try {
-      const body = (await request.json()) as {
-        index?: number;
-        origName?: string;
-        name?: string;
-        url?: string;
-        include?: string;
-        exclude?: string;
-        rename?: string;
-        token?: string;
-      };
-      if ((body.index === undefined && !body.origName) || !body.name || !body.url) {
-        return jsonError('缺少配置識別資訊、名稱或節點內容', 400);
-      }
-      const newName = body.name.trim();
-      if (isReservedPath(newName)) {
-        return jsonError('該配置名稱為系統保留字或包含不合法字元 (/, ?, #)', 400);
-      }
-
-      const cleanToken = (body.token || '').trim();
-      const favs = await getFavs(env);
-
-      let targetIdx =
-        typeof body.origName === 'string' && body.origName.trim() !== ''
-          ? favs.findIndex(f => f.name && f.name.trim() === body.origName!.trim())
-          : -1;
-      if (targetIdx === -1 && body.index !== undefined) {
-        targetIdx = body.index;
-      }
-
-      if (targetIdx < 0 || targetIdx >= favs.length) {
-        return jsonError('欲修改的配置不存在，請重新整理頁面', 400);
-      }
-
-      const duplicateIdx = favs.findIndex(
-        (f, idx) => idx !== targetIdx && f.name && f.name.trim().toLowerCase() === newName.toLowerCase()
-      );
-      if (duplicateIdx !== -1) {
-        return jsonError('已存在相同名稱的其他配置', 400);
-      }
-
-      const oldName = favs[targetIdx]?.name?.trim();
-
-      favs[targetIdx] = {
-        name: newName,
-        url: body.url,
-        include: body.include || '',
-        exclude: body.exclude || '',
-        rename: body.rename || '',
-        token: cleanToken
-      };
-      await saveFavs(env, favs);
-
-      if (oldName && oldName !== newName) {
-        await env.SUB_CACHE.delete(oldName);
-        if (oldName !== oldName.toLowerCase()) {
-          await env.SUB_CACHE.delete(oldName.toLowerCase());
-        }
-      }
-
-      const syncData = JSON.stringify({
-        content: body.url,
-        include: body.include || '',
-        exclude: body.exclude || '',
-        rename: body.rename || '',
-        token: cleanToken
-      });
-      await env.SUB_CACHE.put(newName, syncData);
-      if (newName !== newName.toLowerCase()) {
-        await env.SUB_CACHE.put(newName.toLowerCase(), syncData);
-      }
-
-      await appendOperationLog(request, env, '修改配置', ctx);
-
-      return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return jsonError(`修改配置寫入 KV 失敗: ${msg}`, 500);
-    }
-  }
-
-  if (request.method === 'DELETE') {
-    if (!checkAuth(request, env)) {
-      if ((request.headers.get('X-Password') || '').trim() !== '') {
-        await appendOperationLog(request, env, '登入失敗', ctx);
-      }
-      return jsonError('密碼錯誤或未授權', 401);
-    }
-    try {
-      const body = (await request.json()) as { index?: number; origName?: string };
-      if (body.index === undefined && !body.origName) return jsonError('缺少識別參數', 400);
-      const favs = await getFavs(env);
-
-      let targetIdx =
-        typeof body.origName === 'string' && body.origName.trim() !== ''
-          ? favs.findIndex(f => f.name && f.name.trim() === body.origName!.trim())
-          : -1;
-      if (targetIdx === -1 && body.index !== undefined) {
-        targetIdx = body.index;
-      }
-
-      if (targetIdx >= 0 && targetIdx < favs.length) {
-        const removed = favs.splice(targetIdx, 1)[0];
-        await saveFavs(env, favs);
-        if (removed && removed.name) {
-          const rName = removed.name.trim();
-          await env.SUB_CACHE.delete(rName);
-          if (rName !== rName.toLowerCase()) {
-            await env.SUB_CACHE.delete(rName.toLowerCase());
-          }
-        }
-        await appendOperationLog(request, env, '刪除配置', ctx);
-      }
-      return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return jsonError(`刪除配置失敗: ${msg}`, 500);
-    }
-  }
-
-  return null;
-}
-
-````
-
-## File: src/routes/sub.ts
-````ts
-// src/routes/sub.ts
-import { Env } from '../types';
-import { HTML_PAGE } from '../ui';
-import {
-  toSingBoxWithTemplate,
-  toClashWithTemplate,
-  toBase64,
-  toSurge,
-  toQuantumultX,
-  toLoon,
-  toHonk
-} from '../generators';
-import { loadNodesWithTraffic, filterAndRenameNodes } from '../services/node-loader';
-import { scheduleLog } from '../services/audit';
-import { timingSafeEqualStr } from '../utils';
-
-function buildExactBase64SubUrl(url: URL, storedToken: string): string {
-  const u = new URL(url.toString());
-  const isLocal = u.hostname === 'localhost' || u.hostname === '127.0.0.1';
-  if (!isLocal) {
-    u.protocol = 'https:';
-  }
-  u.searchParams.delete('force');
-  u.searchParams.delete('nocache');
-  if (storedToken && !u.searchParams.has('token')) {
-    u.searchParams.set('token', storedToken);
-  }
-  u.searchParams.set('target', 'base64');
-  return u.toString();
-}
-
-export async function handleSubRoute(
-  request: Request,
-  env: Env,
-  ctx: ExecutionContext,
-  url: URL,
-  version: string
-): Promise<Response> {
-  let urlParam = url.searchParams.get('url') || '';
-  let includeParam = url.searchParams.get('include') || '';
-  let excludeParam = url.searchParams.get('exclude') || '';
-  let renameParam = url.searchParams.get('rename') || '';
-  const nameParam = url.searchParams.get('name') || '';
-  const forceRefresh = url.searchParams.has('force') || url.searchParams.has('nocache');
-
-  const rawPath = url.pathname.replace(/^\/+/, '');
-  const path = decodeURIComponent(rawPath).trim();
-  let detectedProfileName = nameParam;
-  let storedToken = '';
-  let foundInKv = false;
-
-  if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
-    if (!detectedProfileName) {
-      detectedProfileName = path;
-    }
-
-    const candidateKeys = Array.from(new Set([path, path.toLowerCase(), path.toUpperCase()]));
-    const kvResults = await Promise.all(candidateKeys.map(k => env.SUB_CACHE.get(k)));
-    const stored = kvResults.find(v => Boolean(v)) || null;
-
-    if (stored) {
-      foundInKv = true;
-      try {
-        const parsed = JSON.parse(stored) as {
-          content?: string;
-          include?: string;
-          exclude?: string;
-          rename?: string;
-          token?: string;
-        };
-        if (parsed && parsed.content) {
-          urlParam = parsed.content;
-          if (!includeParam) includeParam = parsed.include || '';
-          if (!excludeParam) excludeParam = parsed.exclude || '';
-          if (!renameParam) renameParam = parsed.rename || '';
-          storedToken = (parsed.token || '').trim();
-        }
-      } catch {
-        urlParam = stored;
-      }
-    }
-
-    if (!urlParam || urlParam.trim() === '') {
-      try {
-        const favsData = await env.SUB_CACHE.get('favorites');
-        if (favsData) {
-          const favsList = JSON.parse(favsData) as Array<Record<string, string>>;
-          const matched = favsList.find(f => f.name && f.name.trim().toLowerCase() === path.toLowerCase());
-          if (matched && matched.url) {
-            foundInKv = true;
-            urlParam = matched.url;
-            if (!includeParam) includeParam = matched.include || '';
-            if (!excludeParam) excludeParam = matched.exclude || '';
-            if (!renameParam) renameParam = matched.rename || '';
-            storedToken = (matched.token || '').trim();
-            detectedProfileName = matched.name;
-          }
-        }
-      } catch {}
-    }
-
-    // 防掃描校驗：若配置設有 Token，無 Token 或錯誤 Token 統一回傳 404 Not Found（防列舉），並記為異常存取
-    if (foundInKv && storedToken) {
-      const providedToken = (url.searchParams.get('token') || '').trim();
-      if (!providedToken || !timingSafeEqualStr(providedToken, storedToken)) {
-        scheduleLog(request, env, ctx, '異常存取');
-        return new Response('Not Found', {
-          status: 404,
-          headers: { 'Content-Type': 'text/plain; charset=utf-8' }
-        });
-      }
-    }
-  }
-
-  if (!urlParam || urlParam.trim() === '') {
-    if (path === 'sub') {
-      return new Response('Error: Missing parameter "url"', { status: 400 });
-    }
-    if (path === 'favicon.ico') {
-      return new Response(null, { status: 204 });
-    }
-    if (path !== '') {
-      return new Response('Not Found', {
-        status: 404,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8' }
-      });
-    }
-    const dynamicHtml = HTML_PAGE.replace('id="appVersionBadge">PRO</span>', `id="appVersionBadge">v${version}</span>`);
-    return new Response(dynamicHtml, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-  }
-
-  let target = url.searchParams.get('target');
-
-  if (!target) {
-    const ua = (request.headers.get('User-Agent') || '').toLowerCase();
-    if (ua.includes('clash') || ua.includes('mihomo') || ua.includes('stash') || ua.includes('surfboard')) {
-      target = 'clash';
-    } else if (ua.includes('sing-box') || ua.includes('singbox') || ua.includes('hiddify')) {
-      target = 'singbox';
-    } else if (ua.includes('surge')) {
-      target = 'surge';
-    } else if (ua.includes('quantumult')) {
-      target = 'quanx';
-    } else if (ua.includes('loon')) {
-      target = 'loon';
-    } else if (ua.includes('honk') || ua.includes('dae')) {
-      target = 'honk';
-    } else if (ua.includes('v2ray') || ua.includes('shadowrocket')) {
-      target = 'base64';
-    }
-  }
-
-  const finalProfileName = detectedProfileName || 'subscription';
-
-  // Honk / DAE 快速通道：僅需產出引用 Base64 訂閱的 config.dae，無需浪費時間重複抓取與解析所有上游節點
-  if (target === 'honk' || target === 'dae') {
-    try {
-      const base64SubUrl = buildExactBase64SubUrl(url, storedToken);
-      const result = await toHonk([], base64SubUrl, finalProfileName, forceRefresh);
-      scheduleLog(request, env, ctx, '獲取訂閱');
-
-      const filenameAscii = `${finalProfileName.replace(/[^a-zA-Z0-9_-]/g, '_')}.dae`;
-      const filenameUtf8 = encodeURIComponent(`${finalProfileName}.dae`);
-
-      return new Response(result, {
-        headers: {
-          'Content-Type': 'text/plain; charset=utf-8',
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Expose-Headers':
-            'Content-Disposition, Profile-Title, Subscription-Title, Profile-Update-Interval, subscription-userinfo',
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-          'Content-Disposition': `inline; filename="${filenameAscii}"; filename*=UTF-8''${filenameUtf8}`,
-          'Profile-Title': finalProfileName,
-          'Subscription-Title': finalProfileName,
-          'profile-update-interval': '3600'
-        }
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return new Response(`轉換配置失敗: ${msg}`, {
-        status: 500,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
-      });
-    }
-  }
-
-  const { nodes: allNodes, errors, traffic } = await loadNodesWithTraffic(urlParam);
-
-  if (allNodes.length === 0) {
-    const errorMsg = errors.length > 0 ? errors.join('\n') : '未解析到任何有效節點。';
-    return new Response(errorMsg, { status: 400 });
-  }
-
-  const uniqueNodes = filterAndRenameNodes(allNodes, includeParam, excludeParam, renameParam);
-
-  if (uniqueNodes.length === 0) {
-    return new Response('所有節點均已被過濾條件排除，無可用節點。', { status: 400 });
-  }
-
-  if (!target) {
-    scheduleLog(request, env, ctx, '獲取訂閱');
-
-    const host = `https://${url.host}`;
-    let basePreview = `${host}/?url=${encodeURIComponent(urlParam)}`;
-    if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
-      basePreview = `${host}/${encodeURIComponent(path)}`;
-      if (storedToken) basePreview += `?token=${encodeURIComponent(storedToken)}`;
-    }
-    const sep = basePreview.includes('?') ? '&' : '?';
-
-    let filterQuery = '';
-    if (includeParam && !foundInKv) filterQuery += `&include=${encodeURIComponent(includeParam)}`;
-    if (excludeParam && !foundInKv) filterQuery += `&exclude=${encodeURIComponent(excludeParam)}`;
-    if (renameParam && !foundInKv) filterQuery += `&rename=${encodeURIComponent(renameParam)}`;
-    if (detectedProfileName && !foundInKv) filterQuery += `&name=${encodeURIComponent(detectedProfileName)}`;
-
-    const htmlInfo = `<!DOCTYPE html><html lang="zh-TW"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>轉換完成</title><style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: radial-gradient(ellipse at 50% 0%, #0d1633 0%, #040711 75%); color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; position: relative; overflow-x: hidden; }
-body::before, body::after { content: ""; position: fixed; border-radius: 50%; filter: blur(90px); pointer-events: none; z-index: -1; }
-body::before { width: 420px; height: 420px; top: -100px; left: -80px; background: rgba(59, 130, 246, 0.34); }
-body::after { width: 440px; height: 440px; bottom: -120px; right: -80px; background: rgba(6, 182, 212, 0.25); }
-.glass-panel { background: linear-gradient(145deg, rgba(255,255,255,0.085) 0%, rgba(255,255,255,0.025) 100%); backdrop-filter: blur(24px) saturate(180%); -webkit-backdrop-filter: blur(24px) saturate(180%); border: 1px solid rgba(255,255,255,0.16); border-radius: 24px; padding: 36px 28px; max-width: 680px; width: 100%; text-align: center; box-shadow: 0 24px 56px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.22); }
-h1 { font-size: 1.5rem; margin-bottom: 22px; font-weight: 700; }
-.links { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
-a { display: inline-flex; align-items: center; justify-content: center; padding: 12px 20px; background: linear-gradient(135deg, rgba(59,130,246,0.88), rgba(37,99,235,0.85)); color: #fff; text-decoration: none; border-radius: 14px; font-weight: 600; font-size: 0.92rem; border: 1px solid rgba(255,255,255,0.24); box-shadow: 0 8px 20px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.32); transition: transform 0.2s, box-shadow 0.2s; }
-a:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(59,130,246,0.48), inset 0 1px 0 rgba(255,255,255,0.4); }
-@media (prefers-reduced-motion: reduce) { a { transition: none; } }
-</style></head>
-<body>
-  <div class="glass-panel">
-    <h1>⚡ 成功轉換 ${uniqueNodes.length} 個節點</h1>
-    <div class="links">
-      <a href="${basePreview}${sep}target=clash${filterQuery}">Clash Meta (YAML)</a>
-      <a href="${basePreview}${sep}target=singbox${filterQuery}">Sing-Box (JSON)</a>
-      <a href="${basePreview}${sep}target=surge${filterQuery}">Surge 5</a>
-      <a href="${basePreview}${sep}target=quanx${filterQuery}">Quantumult X</a>
-      <a href="${basePreview}${sep}target=loon${filterQuery}">Loon</a>
-      <a href="${basePreview}${sep}target=base64${filterQuery}">Base64</a>
-      <a href="${basePreview}${sep}target=honk${filterQuery}">Honk / dae (config.dae)</a>
-    </div>
-  </div>
-</body></html>`;
-    return new Response(htmlInfo, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-  }
-
-  let result = '';
-  let contentType = 'text/plain';
-  let fileExt = '.txt';
-
-  try {
-    if (target === 'clash') {
-      result = await toClashWithTemplate(uniqueNodes, env, forceRefresh);
-      contentType = 'text/yaml';
-      fileExt = '.yaml';
-    } else if (target === 'surge') {
-      result = toSurge(uniqueNodes);
-      contentType = 'text/plain';
-      fileExt = '.conf';
-    } else if (target === 'quanx' || target === 'qx') {
-      result = toQuantumultX(uniqueNodes);
-      contentType = 'text/plain';
-      fileExt = '.txt';
-    } else if (target === 'loon') {
-      result = toLoon(uniqueNodes);
-      contentType = 'text/plain';
-      fileExt = '.conf';
-    } else if (target === 'base64') {
-      result = toBase64(uniqueNodes);
-      contentType = 'text/plain';
-      fileExt = '.txt';
-    } else {
-      result = await toSingBoxWithTemplate(uniqueNodes, env, forceRefresh);
-      contentType = 'application/json';
-      fileExt = '.json';
-    }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return new Response(`轉換配置失敗: ${msg}`, {
-      status: 500,
-      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
-    });
-  }
-
-  scheduleLog(request, env, ctx, '獲取訂閱');
-
-  const filenameAscii = `${finalProfileName.replace(/[^a-zA-Z0-9_-]/g, '_')}${fileExt}`;
-  const filenameUtf8 = encodeURIComponent(`${finalProfileName}${fileExt}`);
-
-  const responseHeaders: Record<string, string> = {
-    'Content-Type': `${contentType}; charset=utf-8`,
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Expose-Headers':
-      'Content-Disposition, Profile-Title, Subscription-Title, Profile-Update-Interval, subscription-userinfo',
-    'Cache-Control': 'no-store, no-cache, must-revalidate',
-    'Content-Disposition': `inline; filename="${filenameAscii}"; filename*=UTF-8''${filenameUtf8}`,
-    'Profile-Title': finalProfileName,
-    'Subscription-Title': finalProfileName,
-    'profile-update-interval': '3600'
-  };
-
-  if (traffic.hasTrafficInfo) {
-    let userInfoHeader = `upload=${traffic.totalUpload}; download=${traffic.totalDownload}; total=${traffic.totalTotal}`;
-    if (traffic.minExpire > 0) userInfoHeader += `; expire=${traffic.minExpire}`;
-    responseHeaders['subscription-userinfo'] = userInfoHeader;
-  }
-
-  return new Response(result, { headers: responseHeaders });
-}
-
-````
-
-## File: src/utils.ts
-````ts
-// src/utils.ts
-import { ProxyNode } from './types';
-
-// --- Constant-Time 字串比對（防時序側信道） ---
-export function timingSafeEqualStr(a: string, b: string): boolean {
-  const enc = new TextEncoder();
-  const bufA = enc.encode(a);
-  const bufB = enc.encode(b);
-  const maxLen = Math.max(bufA.length, bufB.length);
-  let diff = bufA.length ^ bufB.length;
-  for (let i = 0; i < maxLen; i++) {
-    diff |= (bufA[i] ?? 0) ^ (bufB[i] ?? 0);
-  }
-  return diff === 0;
-}
-
-// --- 安全 Base64 解碼 ---
-export function safeBase64Decode(str: string): string {
-  try {
-    let b64 = str.replace(/-/g, '+').replace(/_/g, '/').replace(/[^A-Za-z0-9+/=]/g, '');
-    while (b64.length % 4) b64 += '=';
-
-    const binaryStr = atob(b64);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      bytes[i] = binaryStr.charCodeAt(i);
-    }
-    return new TextDecoder('utf-8').decode(bytes);
-  } catch {
-    return '';
-  }
-}
-
-export function utf8ToBase64(str: string): string {
-  try {
-    return btoa(
-      encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => {
-        return String.fromCharCode(parseInt(p1, 16));
-      })
-    );
-  } catch {
-    return btoa(str);
-  }
-}
-
-export function tryDecodeURIComponent(str: string): string {
-  try {
-    return decodeURIComponent(str);
-  } catch {
-    return str;
-  }
-}
-
-// --- 自動加入國旗 Emoji 的智慧辨識系統 ---
-export function addFlag(name: string): string {
-  if (/[\uD83C][\uDDE6-\uDDFF][\uD83C][\uDDE6-\uDDFF]/.test(name)) {
-    return name;
-  }
-
-  const upper = name.toUpperCase();
-
-  const isMatch = (codes: string, keywords: string): boolean => {
-    const codeRegex = new RegExp(`(?:^|[^A-Z])(${codes})(?![A-Z])`);
-    const keywordRegex = new RegExp(`(${keywords})`);
-    return codeRegex.test(upper) || keywordRegex.test(upper);
-  };
-
-  if (isMatch('HK|HKG', '香港|深港|HONGKONG|HONG KONG')) return '🇭🇰 ' + name;
-  if (isMatch('TW|TWN|TPE', '台灣|台湾|台北|新北|彰化')) return '🇹🇼 ' + name;
-  if (isMatch('JP|JPN|TYO|OSA|NRT|HND|KIX', '日本|东京|大阪|埼玉|慢日|川日|JAPAN')) return '🇯🇵 ' + name;
-  if (isMatch('SG|SGP|SIN', '新加坡|狮城|SINGAPORE')) return '🇸🇬 ' + name;
-  if (isMatch('US|USA|LAX|SFO|SJC|SEA|NYC|JFK|EWR', '美国|美利堅|洛杉矶|圣何塞|硅谷|波特兰|西雅图|AMERICA|UNITED STATES')) return '🇺🇸 ' + name;
-  if (isMatch('KR|KOR|ICN|SEL', '韩国|首尔|KOREA')) return '🇰🇷 ' + name;
-  if (isMatch('UK|GB|GBR|LHR|LON', '英国|英國|伦敦|BRITAIN|ENGLAND')) return '🇬🇧 ' + name;
-  if (isMatch('NL|NLD|AMS', '荷兰|荷蘭|阿姆斯特丹|NETHERLANDS')) return '🇳🇱 ' + name;
-  if (isMatch('BR|BRA|SAO', '巴西|圣保罗|聖保羅|BRAZIL')) return '🇧🇷 ' + name;
-  if (isMatch('EG|EGY|CAI', '埃及|开罗|開羅|EGYPT')) return '🇪🇬 ' + name;
-  if (isMatch('VN|VNM|HAN|SGN', '越南|河内|河內|西贡|VIETNAM')) return '🇻🇳 ' + name;
-  if (isMatch('MO|MAC|MFM', '澳門|澳门')) return '🇲🇴 ' + name;
-  if (isMatch('KH|KHM|PNH', '柬埔寨|金边|金邊|CAMBODIA')) return '🇰🇭 ' + name;
-  if (isMatch('GR|GRC|ATH', '希腊|希臘|雅典|GREECE')) return '🇬🇷 ' + name;
-  if (isMatch('PL|POL|WAW', '波兰|波蘭|华沙|華沙|POLAND')) return '🇵🇱 ' + name;
-  if (isMatch('IT|ITA|MIL', '意大利|義大利|米兰|羅馬|ITALY')) return '🇮🇹 ' + name;
-  if (isMatch('ES|ESP|MAD', '西班牙|马德里|巴塞隆納|SPAIN')) return '🇪🇸 ' + name;
-  // 先匹配法國明確標識（避免 "France FRA" 被 FRA 當成法蘭克福）
-  if (isMatch('FR|CDG|PAR', '法国|法國|巴黎|FRANCE')) return '🇫🇷 ' + name;
-  if (isMatch('DE|DEU|FRA', '德国|德國|法兰克福|法蘭克福|GERMANY|FRANKFURT')) return '🇩🇪 ' + name;
-  if (isMatch('RU|RUS', '俄罗斯|俄羅斯|莫斯科|RUSSIA')) return '🇷🇺 ' + name;
-  if (isMatch('CH|CHE|ZRH', '瑞士|苏黎世|日内瓦|SWITZERLAND')) return '🇨🇭 ' + name;
-  if (isMatch('SE|SWE|ARN', '瑞典|斯德哥尔摩|SWEDEN')) return '🇸🇪 ' + name;
-  if (isMatch('NO|NOR|OSL', '挪威|奥斯陆|NORWAY')) return '🇳🇴 ' + name;
-  if (isMatch('FI|FIN|HEL', '芬兰|芬蘭|赫尔辛基|FINLAND')) return '🇫🇮 ' + name;
-  if (isMatch('DK|DNK|CPH', '丹麦|丹麥|哥本哈根|DENMARK')) return '🇩🇰 ' + name;
-  if (isMatch('IE|IRL|DUB', '爱尔兰|愛爾蘭|都柏林|IRELAND')) return '🇮🇪 ' + name;
-  if (isMatch('PT|PRT|LIS', '葡萄牙|里斯本|PORTUGAL')) return '🇵🇹 ' + name;
-  if (isMatch('TH|THA|BKK', '泰国|泰國|曼谷|THAILAND')) return '🇹🇭 ' + name;
-  if (isMatch('MY|MYS|KUL', '马来西亚|馬來西亞|吉隆坡|MALAYSIA')) return '🇲🇾 ' + name;
-  if (isMatch('PH|PHL|MNL', '菲律宾|菲律賓|马尼拉|PHILIPPINES')) return '🇵🇭 ' + name;
-  if (isMatch('ID|IDN|CGK', '印度尼西亚|印尼|雅加达|INDONESIA')) return '🇮🇩 ' + name;
-  if (isMatch('TR|TUR|IST', '土耳其|伊斯坦堡|TURKEY')) return '🇹🇷 ' + name;
-  if (isMatch('IN|IND|BOM', '印度|孟买|INDIA')) return '🇮🇳 ' + name;
-  if (isMatch('CA|CAN|YVR|YYZ', '加拿大|多伦多|温哥华|CANADA')) return '🇨🇦 ' + name;
-  if (isMatch('AU|AUS|SYD|MEL', '澳大利亚|澳洲|悉尼|墨本|AUSTRALIA')) return '🇦🇺 ' + name;
-  if (isMatch('CN|CHN', '中国|回国|国内|北京|上海|廣州|深圳|CHINA')) return '🇨🇳 ' + name;
-  if (isMatch('NZ|NZL|AKL', '新西兰|紐西蘭|奥克兰|NEW ZEALAND')) return '🇳🇿 ' + name;
-  if (isMatch('AE|ARE|DXB', '阿联酋|迪拜|杜拜|UAE')) return '🇦🇪 ' + name;
-  if (isMatch('SA|SAU|RUH', '沙特|沙烏地阿拉伯|利雅德|SAUDI')) return '🇸🇦 ' + name;
-  if (isMatch('IL|ISR|TLV', '以色列|特拉维夫|ISRAEL')) return '🇮🇱 ' + name;
-  if (isMatch('KZ|KAZ', '哈萨克斯坦|哈薩克|KAZAKHSTAN')) return '🇰🇿 ' + name;
-  if (isMatch('PK|PAK', '巴基斯坦|PAKISTAN')) return '🇵🇰 ' + name;
-  if (isMatch('ZA|ZAF|CPT', '南非|开普敦|SOUTH AFRICA')) return '🇿🇦 ' + name;
-
-  return '🇺🇳 ' + name;
-}
-
-// 按國旗進行歸類排序（🇺🇳 置於頂部）
-export function groupNodesByFlag(nodes: ProxyNode[]): ProxyNode[] {
-  const groups = new Map<string, ProxyNode[]>();
-  const flagOrder: string[] = [];
-
-  for (const node of nodes) {
-    const flaggedName = addFlag(node.name || 'node');
-
-    let flag = '🇺🇳';
-    const match = flaggedName.match(/^([\uD83C][\uDDE6-\uDDFF][\uD83C][\uDDE6-\uDDFF])/);
-    if (match) {
-      flag = match[1];
-    }
-
-    if (!groups.has(flag)) {
-      groups.set(flag, []);
-      flagOrder.push(flag);
-    }
-    groups.get(flag)!.push(node);
-  }
-
-  const standardOrder = [
-    '🇭🇰', '🇹🇼', '🇯🇵', '🇸🇬', '🇰🇷',
-    '🇺🇸', '🇬🇧', '🇨🇦', '🇦🇺',
-    '🇲🇴', '🇨🇳', '🇹🇭', '🇻🇳', '🇲🇾', '🇵🇭', '🇮🇩',
-    '🇩🇪', '🇫🇷', '🇳🇱', '🇷🇺', '🇮🇳', '🇹🇷'
-  ];
-
-  flagOrder.sort((a, b) => {
-    if (a === '🇺🇳' && b !== '🇺🇳') return -1;
-    if (b === '🇺🇳' && a !== '🇺🇳') return 1;
-
-    const idxA = standardOrder.indexOf(a);
-    const idxB = standardOrder.indexOf(b);
-
-    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-    if (idxA !== -1) return -1;
-    if (idxB !== -1) return 1;
-
-    return a.localeCompare(b);
-  });
-
-  const result: ProxyNode[] = [];
-  for (const flag of flagOrder) {
-    result.push(...groups.get(flag)!);
-  }
-  return result;
-}
-
-// 去重複命名與標籤對齊
-export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
-  const seenKey = new Set<string>();
-  const nameCount = new Map<string, number>();
-
-  return nodes.filter(node => {
-    const credKey =
-      node.type === 'wireguard'
-        ? `${node.wireguard?.privateKey || ''}:${node.wireguard?.publicKey || ''}:${node.wireguard?.localAddress.join(',') || ''}`
-        : node.type === 'masque'
-          ? `${node.masque?.privateKey || ''}:${node.masque?.publicKey || ''}:${node.masque?.localIpv4 || ''}`
-          : `${node.uuid || ''}:${node.password || ''}:${node.cipher || ''}`;
-    const transportKey = `${node.network || ''}:${node.wsPath || node.xhttpPath || node.grpcServiceName || ''}:${node.sni || ''}:${node.wsHeaders?.Host || ''}`;
-    const key = `${node.type}:${node.server}:${node.port}:${credKey}:${transportKey}`;
-
-    if (seenKey.has(key)) return false;
-    seenKey.add(key);
-
-    let baseName = node.name || 'node';
-    baseName = addFlag(baseName);
-
-    if (!nameCount.has(baseName)) {
-      nameCount.set(baseName, 1);
-      node.name = baseName;
-    } else {
-      const count = nameCount.get(baseName)! + 1;
-      nameCount.set(baseName, count);
-      node.name = `${baseName}_${count}`;
-    }
-
-    if (node.singboxObj) {
-      node.singboxObj.tag = node.name;
-    }
-    if (node.clashObj) {
-      node.clashObj.name = node.name;
-    }
-
-    return true;
-  });
-}
-
-````
-
-## File: src/ui/index.ts
-````ts
-// src/ui/index.ts
-import { UI_STYLES } from './styles';
-import { UI_MARKUP } from './markup';
-import { UI_SCRIPT } from './script';
-
-export const HTML_PAGE = `<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SubConverter Pro | 全能訂閱轉換器</title>
-  
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-  
-  <style>
-${UI_STYLES}
-  </style>
-</head>
-<body>
-${UI_MARKUP}
-  <script>
-${UI_SCRIPT}
-  </script>
-</body>
-</html>
-`;
-
-````
-
 ## File: src/ui/styles.ts
 ````ts
 // src/ui/styles.ts
@@ -3810,6 +1698,1131 @@ export const UI_STYLES = `
         background: rgba(15, 23, 42, 0.94);
       }
     }
+`;
+
+````
+
+## File: src/ui/script.ts
+````ts
+// src/ui/script.ts
+export const UI_SCRIPT = `
+    var favs = [];
+    var operationLogs = [];
+    var tgConfigState = { enabled: false, hasToken: false, maskedToken: '', chatId: '' };
+    var isFavLocked = false;
+    var isLogsUnconfigured = false;
+    var isLogsCollapsed = false;
+    var isTgCollapsed = false;
+    var parsedArgoNodesCache = [];
+    var lastLogsFetchAt = 0;
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function utf8ToBase64Client(str) {
+      try {
+        return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, function(_, p1) {
+          return String.fromCharCode(parseInt(p1, 16));
+        }));
+      } catch {
+        return btoa(str);
+      }
+    }
+
+    function getStoredPwd() {
+      return localStorage.getItem('sub_fav_pwd') || '';
+    }
+
+    function showToast(msg, isSuccess) {
+      if (isSuccess === undefined) isSuccess = true;
+      var t = document.getElementById('toast');
+      var m = document.getElementById('toastMsg');
+      m.textContent = msg;
+      t.className = 'toast show ' + (isSuccess ? 'success' : 'error');
+      setTimeout(function() {
+        t.className = 'toast';
+      }, 3000);
+    }
+
+    function parseErrorResponse(resp, fallbackMsg) {
+      return resp.text().then(function(txt) {
+        var detail = txt;
+        try {
+          var parsed = JSON.parse(txt);
+          if (parsed && parsed.error) detail = parsed.error;
+        } catch {}
+        return detail || fallbackMsg || ('HTTP ' + resp.status);
+      }).catch(function() {
+        return fallbackMsg || ('HTTP ' + resp.status);
+      });
+    }
+
+    function generateRandomToken(targetId) {
+      var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+      var bytes = new Uint8Array(24);
+      window.crypto.getRandomValues(bytes);
+      var token = '';
+      for (var i = 0; i < bytes.length; i++) {
+        token += chars.charAt(bytes[i] % chars.length);
+      }
+      var el = document.getElementById(targetId);
+      if (el) {
+        el.value = token;
+        showToast('已生成 24 位高強度隨機 Token');
+      }
+    }
+
+    function copyResult(id) {
+      var input = document.getElementById(id);
+      if (!input || !input.value) return;
+      input.select();
+      navigator.clipboard.writeText(input.value).then(function() {
+        showToast('已複製訂閱連結至剪貼簿！');
+      }).catch(function() {
+        document.execCommand('copy');
+        showToast('已複製訂閱連結至剪貼簿！');
+      });
+    }
+
+    function copyText(id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var text = el.value || el.textContent;
+      navigator.clipboard.writeText(text).then(function() {
+        showToast('複製成功！');
+      }).catch(function() {
+        showToast('複製失敗，請手動複製', false);
+      });
+    }
+
+    function openModal() {
+      document.getElementById('modalTitle').textContent = '新增配置';
+      document.getElementById('favName').value = '';
+      document.getElementById('favUrl').value = '';
+      document.getElementById('favInclude').value = '';
+      document.getElementById('favExclude').value = '';
+      document.getElementById('favRename').value = '';
+      document.getElementById('favToken').value = '';
+      document.getElementById('modal').dataset.edit = '';
+      document.getElementById('modal').dataset.origName = '';
+      document.getElementById('modal').classList.add('show');
+    }
+
+    function closeModal() {
+      document.getElementById('modal').classList.remove('show');
+    }
+
+    function openArgoHelpModal() {
+      document.getElementById('argoHelpModal').classList.add('show');
+    }
+
+    function closeArgoHelpModal() {
+      document.getElementById('argoHelpModal').classList.remove('show');
+    }
+
+    function loadFavs(isInitialLogin) {
+      var pwd = getStoredPwd();
+      var reqHeaders = { 'X-Password': pwd };
+      if (isInitialLogin && pwd) {
+        reqHeaders['X-Login-Attempt'] = '1';
+      }
+
+      fetch('/favs?t=' + Date.now(), {
+        headers: reqHeaders
+      }).then(function(resp) {
+        if (resp.status === 401) {
+          isFavLocked = true;
+          renderLockScreen();
+          hideLogsPanel();
+          hideTgPanel();
+          return;
+        }
+        if (resp.ok) {
+          resp.json().then(function(data) {
+            favs = data;
+            isFavLocked = false;
+            renderFavs();
+            loadLogs();
+            loadTgConfig();
+          });
+        } else {
+          renderErrorScreen('載入配置失敗 (HTTP ' + resp.status + ')');
+        }
+      }).catch(function() {
+        renderErrorScreen('網路連線失敗');
+      });
+    }
+
+    function hideLogsPanel() {
+      operationLogs = [];
+      var panel = document.getElementById('logsPanel');
+      if (panel) panel.style.display = 'none';
+      closeLogsModal();
+    }
+
+    function hideTgPanel() {
+      tgConfigState = { enabled: false, hasToken: false, maskedToken: '', chatId: '' };
+      var panel = document.getElementById('tgPanel');
+      if (panel) panel.style.display = 'none';
+      closeTgModal();
+      closeTgHelpModal();
+    }
+
+    function loadTgConfig() {
+      var pwd = getStoredPwd();
+      var panel = document.getElementById('tgPanel');
+
+      fetch('/tg-config?t=' + Date.now(), {
+        headers: { 'X-Password': pwd }
+      }).then(function(resp) {
+        if (resp.status === 403 || resp.status === 401) {
+          hideTgPanel();
+          return;
+        }
+        if (resp.ok) {
+          resp.json().then(function(data) {
+            tgConfigState = data || { enabled: false, hasToken: false, maskedToken: '', chatId: '' };
+            panel.style.display = 'block';
+            renderTgPanel();
+          });
+        }
+      }).catch(function() {
+        hideTgPanel();
+      });
+    }
+
+    function renderTgPanel() {
+      var cb = document.getElementById('tgEnabledCheckbox');
+      var badge = document.getElementById('tgStatusBadge');
+      if (cb) cb.checked = Boolean(tgConfigState.enabled);
+
+      if (badge) {
+        if (tgConfigState.hasToken && tgConfigState.chatId) {
+          badge.style.display = 'inline-block';
+          badge.textContent = tgConfigState.enabled ? '已配置 · 運行中' : '已配置 · 已暫停';
+          if (tgConfigState.enabled) {
+            badge.style.background = 'rgba(16, 185, 129, 0.14)';
+            badge.style.color = '#6ee7b7';
+            badge.style.borderColor = 'rgba(16, 185, 129, 0.35)';
+          } else {
+            badge.style.background = 'rgba(59, 130, 246, 0.14)';
+            badge.style.color = '#93c5fd';
+            badge.style.borderColor = 'rgba(96, 165, 250, 0.3)';
+          }
+        } else {
+          badge.style.display = 'inline-block';
+          badge.textContent = '未配置';
+          badge.style.background = 'rgba(148, 163, 184, 0.12)';
+          badge.style.color = 'var(--text-muted)';
+          badge.style.borderColor = 'rgba(148, 163, 184, 0.24)';
+        }
+      }
+    }
+
+    function toggleTgCollapse() {
+      isTgCollapsed = !isTgCollapsed;
+      var header = document.getElementById('tgPanelHeader');
+      var body = document.getElementById('tgBody');
+      var icon = document.getElementById('toggleTgIcon');
+      var text = document.getElementById('toggleTgText');
+      if (isTgCollapsed) {
+        body.style.display = 'none';
+        header.style.marginBottom = '0';
+        icon.style.transform = 'rotate(-90deg)';
+        if (text) text.textContent = '展開';
+      } else {
+        body.style.display = 'block';
+        header.style.marginBottom = '1.25rem';
+        icon.style.transform = 'rotate(0deg)';
+        if (text) text.textContent = '收合';
+      }
+    }
+
+    function toggleTgEnabled(checkbox) {
+      var targetEnabled = checkbox.checked;
+      if (targetEnabled && (!tgConfigState.hasToken || !tgConfigState.chatId)) {
+        checkbox.checked = false;
+        showToast('請先完成參數配置（Bot Token 與 Chat ID）', false);
+        openTgModal();
+        return;
+      }
+
+      var pwd = getStoredPwd();
+      fetch('/tg-config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Password': pwd
+        },
+        body: JSON.stringify({ enabled: targetEnabled })
+      }).then(function(resp) {
+        if (!resp.ok) {
+          return parseErrorResponse(resp, '更新失敗').then(function(msg) {
+            throw new Error(msg);
+          });
+        }
+        return resp.json();
+      }).then(function(data) {
+        tgConfigState = data;
+        renderTgPanel();
+        showToast(tgConfigState.enabled ? '已啟用 Telegram 通知' : '已暫停 Telegram 通知');
+      }).catch(function(e) {
+        checkbox.checked = !targetEnabled;
+        showToast(e.message, false);
+      });
+    }
+
+    function openTgModal() {
+      var tokenInput = document.getElementById('tgBotTokenInput');
+      var chatIdInput = document.getElementById('tgChatIdInput');
+      var hint = document.getElementById('tgTokenHint');
+
+      tokenInput.value = '';
+      if (tgConfigState.hasToken) {
+        tokenInput.placeholder = '已設定 (' + tgConfigState.maskedToken + ')，留空保留原 Token';
+        hint.textContent = '目前已有儲存的 Bot Token (' + tgConfigState.maskedToken + ')，留空代表維持原密鑰不變。';
+      } else {
+        tokenInput.placeholder = '例如: 123456789:AAHxxxxxxxxxxxxxxxxxxxx';
+        hint.textContent = '請從 @BotFather 取得 Bot Token。';
+      }
+      chatIdInput.value = tgConfigState.chatId || '';
+      document.getElementById('tgModal').classList.add('show');
+    }
+
+    function closeTgModal() {
+      document.getElementById('tgModal').classList.remove('show');
+    }
+
+    function openTgHelpModal() {
+      document.getElementById('tgHelpModal').classList.add('show');
+    }
+
+    function closeTgHelpModal() {
+      document.getElementById('tgHelpModal').classList.remove('show');
+    }
+
+    function saveTgConfig() {
+      var tokenVal = document.getElementById('tgBotTokenInput').value.trim();
+      var chatIdVal = document.getElementById('tgChatIdInput').value.trim();
+
+      if (!tgConfigState.hasToken && !tokenVal) {
+        return showToast('請輸入 Bot Token', false);
+      }
+      if (!chatIdVal) {
+        return showToast('請輸入 Chat ID', false);
+      }
+
+      var pwd = getStoredPwd();
+      var shouldEnable = tgConfigState.hasToken ? tgConfigState.enabled : true;
+
+      fetch('/tg-config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Password': pwd
+        },
+        body: JSON.stringify({
+          enabled: shouldEnable,
+          botToken: tokenVal,
+          chatId: chatIdVal
+        })
+      }).then(function(resp) {
+        if (!resp.ok) {
+          return parseErrorResponse(resp, '儲存失敗').then(function(msg) {
+            throw new Error(msg);
+          });
+        }
+        return resp.json();
+      }).then(function(data) {
+        tgConfigState = data;
+        renderTgPanel();
+        closeTgModal();
+        showToast('Telegram 通知參數已儲存！');
+      }).catch(function(e) {
+        showToast('儲存失敗: ' + e.message, false);
+      });
+    }
+
+    function testTgConfig() {
+      var tokenVal = document.getElementById('tgBotTokenInput').value.trim();
+      var chatIdVal = document.getElementById('tgChatIdInput').value.trim();
+
+      if (!tgConfigState.hasToken && !tokenVal) {
+        return showToast('請先輸入 Bot Token', false);
+      }
+      if (!chatIdVal && !tgConfigState.chatId) {
+        return showToast('請先輸入 Chat ID', false);
+      }
+
+      var btn = document.getElementById('tgTestBtn');
+      var oldHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.textContent = '發送中...';
+
+      var pwd = getStoredPwd();
+      fetch('/tg-test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Password': pwd
+        },
+        body: JSON.stringify({
+          botToken: tokenVal,
+          chatId: chatIdVal
+        })
+      }).then(function(resp) {
+        return resp.json().then(function(data) {
+          if (!resp.ok || !data.ok) {
+            throw new Error(data.error || '發送失敗');
+          }
+          showToast('測試訊息已發送，請檢查 Telegram！');
+        });
+      }).catch(function(e) {
+        showToast('測試失敗: ' + e.message, false);
+      }).finally(function() {
+        btn.disabled = false;
+        btn.innerHTML = oldHtml;
+      });
+    }
+
+    function clearTgConfig() {
+      if (!confirm('確定要清除 Telegram 通知配置嗎？')) return;
+      var pwd = getStoredPwd();
+      fetch('/tg-config', {
+        method: 'DELETE',
+        headers: { 'X-Password': pwd }
+      }).then(function(resp) {
+        if (resp.ok) {
+          return resp.json().then(function(data) {
+            tgConfigState = data;
+            renderTgPanel();
+            showToast('已清除 Telegram 通知配置');
+          });
+        } else {
+          return parseErrorResponse(resp, '清除失敗').then(function(msg) {
+            showToast('清除失敗：' + msg, false);
+          });
+        }
+      }).catch(function(e) {
+        showToast('清除失敗: ' + e.message, false);
+      });
+    }
+
+    function loadLogs(showSuccessToast) {
+      var pwd = getStoredPwd();
+      var panel = document.getElementById('logsPanel');
+      var container = document.getElementById('logsTableContainer');
+      var footer = document.getElementById('logsFooter');
+      lastLogsFetchAt = Date.now();
+
+      fetch('/logs?t=' + Date.now(), {
+        headers: { 'X-Password': pwd }
+      }).then(function(resp) {
+        if (resp.status === 403) {
+          isLogsUnconfigured = true;
+          panel.style.display = 'block';
+          footer.style.display = 'none';
+          container.innerHTML = '<div class="empty-state" style="padding: 1.5rem;">🔒 未設定管理密碼 (PAGE_PASSWORD)，基於隱私保護，操作日誌與消息通知功能預設禁用。<br>請至 Cloudflare Workers 設定 PAGE_PASSWORD 環境變數即可自動啟用。</div>';
+          return;
+        }
+        if (resp.status === 401) {
+          hideLogsPanel();
+          return;
+        }
+        if (resp.ok) {
+          isLogsUnconfigured = false;
+          resp.json().then(function(data) {
+            operationLogs = Array.isArray(data) ? data : [];
+            panel.style.display = 'block';
+            footer.style.display = 'flex';
+            renderCompactLogs();
+            if (document.getElementById('logsModal').classList.contains('show')) {
+              renderAllLogsModal();
+            }
+            if (showSuccessToast) {
+              showToast('已同步最新操作日誌');
+            }
+          });
+        }
+      }).catch(function() {
+        hideLogsPanel();
+      });
+    }
+
+    function refreshLogsNow() {
+      loadLogs(true);
+    }
+
+    function getLogBadgeClass(action) {
+      if (action === '獲取訂閱') return 'log-badge log-badge-sub';
+      if (action === '登入後台') return 'log-badge log-badge-login';
+      if (action === '登入失敗' || action === '異常存取') return 'log-badge log-badge-fail';
+      return 'log-badge log-badge-edit';
+    }
+
+    function renderCompactLogs() {
+      var container = document.getElementById('logsTableContainer');
+      if (!operationLogs || operationLogs.length === 0) {
+        container.innerHTML = '<div class="empty-state" style="padding: 1.5rem;">尚無任何操作日誌記錄</div>';
+        return;
+      }
+
+      var previewLogs = operationLogs.slice(0, 5);
+      var html = '<div class="logs-table-wrap"><table class="logs-table">' +
+        '<thead><tr>' +
+          '<th>時間 (UTC+8)</th>' +
+          '<th>IP</th>' +
+          '<th>地區</th>' +
+          '<th>操作</th>' +
+        '</tr></thead><tbody>';
+
+      for (var i = 0; i < previewLogs.length; i++) {
+        var item = previewLogs[i];
+        html += '<tr>' +
+          '<td class="logs-mono" style="white-space:nowrap;">' + escapeHtml(item.time) + '</td>' +
+          '<td class="logs-mono">' + escapeHtml(item.ip) + '</td>' +
+          '<td>' + escapeHtml(item.region) + '</td>' +
+          '<td><span class="' + getLogBadgeClass(item.action) + '">' + escapeHtml(item.action) + '</span></td>' +
+        '</tr>';
+      }
+
+      html += '</tbody></table></div>';
+      container.innerHTML = html;
+    }
+
+    function renderAllLogsModal() {
+      var container = document.getElementById('allLogsTableContainer');
+      if (!operationLogs || operationLogs.length === 0) {
+        container.innerHTML = '<div class="empty-state" style="border: none;">目前沒有任何操作日誌記錄</div>';
+        return;
+      }
+
+      var html = '<table class="logs-table">' +
+        '<thead><tr>' +
+          '<th>時間 (UTC+8)</th>' +
+          '<th>IP</th>' +
+          '<th>地區</th>' +
+          '<th>ASN</th>' +
+          '<th>操作</th>' +
+          '<th>URL</th>' +
+          '<th>UA</th>' +
+        '</tr></thead><tbody>';
+
+      for (var i = 0; i < operationLogs.length; i++) {
+        var item = operationLogs[i];
+        html += '<tr>' +
+          '<td class="logs-mono" style="white-space:nowrap;">' + escapeHtml(item.time) + '</td>' +
+          '<td class="logs-mono" style="white-space:nowrap;">' + escapeHtml(item.ip) + '</td>' +
+          '<td style="white-space:nowrap;">' + escapeHtml(item.region) + '</td>' +
+          '<td class="logs-mono" style="min-width:140px;">' + escapeHtml(item.asn) + '</td>' +
+          '<td><span class="' + getLogBadgeClass(item.action) + '">' + escapeHtml(item.action) + '</span></td>' +
+          '<td class="logs-url-cell">' + escapeHtml(item.url) + '</td>' +
+          '<td class="logs-ua-cell">' + escapeHtml(item.ua) + '</td>' +
+        '</tr>';
+      }
+
+      html += '</tbody></table>';
+      container.innerHTML = html;
+    }
+
+    function toggleLogsCollapse() {
+      isLogsCollapsed = !isLogsCollapsed;
+      var header = document.getElementById('logsPanelHeader');
+      var body = document.getElementById('logsBody');
+      var icon = document.getElementById('toggleLogsIcon');
+      var text = document.getElementById('toggleLogsText');
+      if (isLogsCollapsed) {
+        body.style.display = 'none';
+        header.style.marginBottom = '0';
+        icon.style.transform = 'rotate(-90deg)';
+        if (text) text.textContent = '展開';
+      } else {
+        body.style.display = 'block';
+        header.style.marginBottom = '1.25rem';
+        icon.style.transform = 'rotate(0deg)';
+        if (text) text.textContent = '收合';
+      }
+    }
+
+    function openLogsModal() {
+      renderAllLogsModal();
+      document.getElementById('logsModal').classList.add('show');
+      loadLogs();
+    }
+
+    function closeLogsModal() {
+      document.getElementById('logsModal').classList.remove('show');
+    }
+
+    function clearLogs() {
+      if (!confirm('確定要清空所有操作日誌嗎？此動作無法復原。')) return;
+      var pwd = getStoredPwd();
+      fetch('/logs', {
+        method: 'DELETE',
+        headers: { 'X-Password': pwd }
+      }).then(function(resp) {
+        if (resp.ok) {
+          operationLogs = [];
+          renderCompactLogs();
+          renderAllLogsModal();
+          showToast('已清空所有操作日誌');
+        } else {
+          return parseErrorResponse(resp, '清空失敗').then(function(msg) {
+            showToast('清空失敗：' + msg, false);
+          });
+        }
+      }).catch(function(e) {
+        showToast('清空失敗: ' + e.message, false);
+      });
+    }
+
+    function renderLockScreen() {
+      var headerActions = document.getElementById('favHeaderActions');
+      headerActions.innerHTML = '';
+
+      var grid = document.getElementById('favGrid');
+      grid.className = '';
+      grid.innerHTML = '<div class="lock-card" id="lockCardElement">' +
+        '<div class="lock-icon-badge">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+            '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>' +
+            '<path d="M7 11V7a5 5 0 0 1 10 0v4"></path>' +
+          '</svg>' +
+        '</div>' +
+        '<div class="lock-title">私密配置與審計通知已鎖定</div>' +
+        '<div class="lock-desc">此區域受管理密碼保護，請輸入密碼解鎖</div>' +
+        '<div class="lock-form">' +
+          '<input type="password" id="lockPwdInput" placeholder="請輸入管理密碼..." onkeydown="if(event.key===\\'Enter\\') unlockFavs()">' +
+          '<button class="btn btn-primary" onclick="unlockFavs()">' +
+            '<svg viewBox="0 0 24 24" style="width:16px;height:16px;margin-right:4px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>' +
+            '解鎖全部功能' +
+          '</button>' +
+        '</div>' +
+      '</div>';
+    }
+
+    function renderErrorScreen(msg) {
+      document.getElementById('favHeaderActions').innerHTML = '';
+      document.getElementById('favGrid').innerHTML = '<div class="empty-state">' + escapeHtml(msg) + '</div>';
+    }
+
+    function unlockFavs() {
+      var input = document.getElementById('lockPwdInput');
+      var pwd = input ? input.value.trim() : '';
+      if (!pwd) {
+        triggerShake();
+        return showToast('請輸入管理密碼', false);
+      }
+
+      showToast('正在驗證密碼...');
+
+      fetch('/favs?t=' + Date.now(), {
+        headers: {
+          'X-Password': pwd,
+          'X-Login-Attempt': '1'
+        }
+      }).then(function(resp) {
+        if (resp.ok) {
+          localStorage.setItem('sub_fav_pwd', pwd);
+          resp.json().then(function(data) {
+            favs = data;
+            isFavLocked = false;
+            renderFavs();
+            loadLogs();
+            loadTgConfig();
+            showToast('🔓 解鎖成功！已記住登入狀態');
+          });
+        } else {
+          triggerShake();
+          showToast('❌ 密碼錯誤，請重新輸入', false);
+        }
+      }).catch(function() {
+        triggerShake();
+        showToast('❌ 網路請求失敗', false);
+      });
+    }
+
+    function triggerShake() {
+      var el = document.getElementById('lockCardElement');
+      if (el) {
+        el.classList.add('shake');
+        setTimeout(function() { el.classList.remove('shake'); }, 400);
+      }
+    }
+
+    function lockFavs() {
+      localStorage.removeItem('sub_fav_pwd');
+      isFavLocked = true;
+      hideLogsPanel();
+      hideTgPanel();
+      renderLockScreen();
+      showToast('🔒 已鎖定配置、日誌與通知設定');
+    }
+
+    function renderFavs() {
+      var headerActions = document.getElementById('favHeaderActions');
+      headerActions.innerHTML = '<button class="btn btn-ghost" onclick="openModal()">' +
+        '<svg viewBox="0 0 24 24" style="width:16px;height:16px"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>' +
+        '新增配置' +
+      '</button>' +
+      '<button class="btn btn-ghost" onclick="lockFavs()" title="鎖定配置清單">' +
+        '<svg viewBox="0 0 24 24" style="width:16px;height:16px"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>' +
+        '鎖定' +
+      '</button>';
+
+      var grid = document.getElementById('favGrid');
+      if (!favs || favs.length === 0) {
+        grid.className = '';
+        grid.innerHTML = '<div class="empty-state">目前尚未儲存配置，請點擊上方按鈕新增</div>';
+        return;
+      }
+
+      grid.className = 'fav-grid';
+      var html = '';
+      for (var i = 0; i < favs.length; i++) {
+        var f = favs[i];
+        var includeBadge = f.include ? '<span class="badge" style="background: rgba(16, 185, 129, 0.14); color: #6ee7b7; border-color: rgba(16, 185, 129, 0.3); margin-right: 4px;">保: ' + escapeHtml(f.include) + '</span>' : '';
+        var excludeBadge = f.exclude ? '<span class="badge" style="background: rgba(239, 68, 68, 0.14); color: #fca5a5; border-color: rgba(239, 68, 68, 0.3); margin-right: 4px;">排: ' + escapeHtml(f.exclude) + '</span>' : '';
+        var renameBadge = f.rename ? '<span class="badge" style="background: rgba(59, 130, 246, 0.14); color: #93c5fd; border-color: rgba(96, 165, 250, 0.3); margin-right: 4px;">替: ' + escapeHtml(f.rename) + '</span>' : '';
+        var tokenBadge = f.token ? '<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fcd34d; border-color: rgba(245, 158, 11, 0.35);">🔒 Token 保護</span>' : '';
+
+        html += '<div class="fav-card" onclick="useFav(' + i + ')">' +
+          '<div class="fav-title">' +
+            '<svg viewBox="0 0 24 24" style="width:16px;height:16px;color:#60a5fa"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>' +
+            escapeHtml(f.name) +
+          '</div>' +
+          '<div class="fav-url">' + escapeHtml(f.url) + '</div>' +
+          '<div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;">' +
+            includeBadge + excludeBadge + renameBadge + tokenBadge +
+          '</div>' +
+          '<div class="fav-actions">' +
+            '<button class="btn btn-ghost" onclick="event.stopPropagation(); editFav(' + i + ')">編輯</button>' +
+            '<button class="btn btn-ghost btn-danger" onclick="event.stopPropagation(); deleteFav(' + i + ')">刪除</button>' +
+          '</div>' +
+        '</div>';
+      }
+      grid.innerHTML = html;
+    }
+
+    function useFav(index) {
+      if (!favs[index]) return;
+      var f = favs[index];
+      document.getElementById('urlInput').value = f.url || '';
+      document.getElementById('shortCode').value = f.name || '';
+      document.getElementById('shortToken').value = f.token || '';
+      document.getElementById('includeKeywords').value = f.include || '';
+      document.getElementById('excludeKeywords').value = f.exclude || '';
+      document.getElementById('renameKeywords').value = f.rename || '';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      showToast('已載入配置：' + f.name);
+      generate();
+    }
+
+    function editFav(index) {
+      if (!favs[index]) return;
+      var f = favs[index];
+      document.getElementById('modalTitle').textContent = '編輯配置';
+      document.getElementById('favName').value = f.name || '';
+      document.getElementById('favUrl').value = f.url || '';
+      document.getElementById('favInclude').value = f.include || '';
+      document.getElementById('favExclude').value = f.exclude || '';
+      document.getElementById('favRename').value = f.rename || '';
+      document.getElementById('favToken').value = f.token || '';
+      document.getElementById('modal').dataset.edit = index;
+      document.getElementById('modal').dataset.origName = f.name || '';
+      document.getElementById('modal').classList.add('show');
+    }
+
+    function deleteFav(index) {
+      if (!confirm('確定要刪除這筆配置嗎？')) return;
+      var pwd = getStoredPwd();
+      var origName = favs[index] ? (favs[index].name || '') : '';
+      fetch('/favs', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Password': pwd
+        },
+        body: JSON.stringify({ index: index, origName: origName })
+      }).then(function(resp) {
+        if (resp.ok) {
+          loadFavs(false);
+          showToast('已成功刪除配置');
+        } else {
+          return parseErrorResponse(resp, '刪除失敗').then(function(msg) {
+            showToast('刪除失敗 (HTTP ' + resp.status + ')：' + msg, false);
+          });
+        }
+      }).catch(function(e) {
+        showToast('刪除失敗: ' + e.message, false);
+      });
+    }
+
+    function saveFav() {
+      var name = document.getElementById('favName').value.trim();
+      var url = document.getElementById('favUrl').value.trim();
+      var include = document.getElementById('favInclude').value.trim();
+      var exclude = document.getElementById('favExclude').value.trim();
+      var rename = document.getElementById('favRename').value.trim();
+      var token = document.getElementById('favToken').value.trim();
+      if (!name || !url) return showToast('請完整填寫名稱與節點內容', false);
+
+      var modalEl = document.getElementById('modal');
+      var editIndex = modalEl.dataset.edit;
+      var origName = modalEl.dataset.origName || '';
+      var pwd = getStoredPwd();
+      var reqMethod = (editIndex !== '' && editIndex !== undefined) ? 'PUT' : 'POST';
+      var reqBody = {
+        name: name,
+        url: url,
+        include: include,
+        exclude: exclude,
+        rename: rename,
+        token: token
+      };
+      if (reqMethod === 'PUT') {
+        reqBody.index = parseInt(editIndex, 10);
+        reqBody.origName = origName;
+      }
+
+      fetch('/favs', {
+        method: reqMethod,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Password': pwd
+        },
+        body: JSON.stringify(reqBody)
+      }).then(function(resp) {
+        if (resp.ok) {
+          closeModal();
+          loadFavs(false);
+          showToast('配置儲存成功！');
+        } else if (resp.status === 401) {
+          showToast('儲存失敗：密碼錯誤或未授權，請先鎖定後重新登入', false);
+        } else {
+          return parseErrorResponse(resp, '伺服器處理錯誤').then(function(msg) {
+            showToast('儲存失敗 (HTTP ' + resp.status + ')：' + msg, false);
+          });
+        }
+      }).catch(function(e) {
+        showToast('儲存失敗，網路異常: ' + e.message, false);
+      });
+    }
+
+    function generate() {
+      var raw = document.getElementById('urlInput').value.trim();
+      if (!raw) return showToast('請先輸入節點連結或訂閱網址', false);
+
+      var host = window.location.origin;
+      var shortCode = document.getElementById('shortCode').value.trim();
+      var shortToken = document.getElementById('shortToken').value.trim();
+      var include = document.getElementById('includeKeywords').value.trim();
+      var exclude = document.getElementById('excludeKeywords').value.trim();
+      var rename = document.getElementById('renameKeywords').value.trim();
+
+      var proceed = function(baseUrl) {
+        var sep = baseUrl.indexOf('?') !== -1 ? '&' : '?';
+
+        var buildUrl = function(target) {
+          if (!target) return baseUrl;
+          return baseUrl + sep + 'target=' + target;
+        };
+
+        document.getElementById('adaptiveUrl').value = buildUrl('');
+        document.getElementById('clashUrl').value = buildUrl('clash');
+        document.getElementById('singboxUrl').value = buildUrl('singbox');
+        document.getElementById('surgeUrl').value = buildUrl('surge');
+        document.getElementById('quanxUrl').value = buildUrl('quanx');
+        document.getElementById('loonUrl').value = buildUrl('loon');
+        document.getElementById('base64Url').value = buildUrl('base64');
+        document.getElementById('honkUrl').value = buildUrl('honk');
+
+        document.getElementById('results').classList.add('show');
+        showToast('全客戶端連結生成完畢！');
+      };
+
+      if (shortCode) {
+        showToast('正在儲存短代碼配置...');
+        fetch('/save', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Password': getStoredPwd()
+          },
+          body: JSON.stringify({
+            path: shortCode,
+            content: raw,
+            include: include,
+            exclude: exclude,
+            rename: rename,
+            token: shortToken
+          })
+        }).then(function(resp) {
+          if (!resp.ok) {
+            return parseErrorResponse(resp, 'HTTP ' + resp.status).then(function(msg) {
+              throw new Error(msg);
+            });
+          }
+          var targetBase = host + '/' + encodeURIComponent(shortCode);
+          if (shortToken) {
+            targetBase += '?token=' + encodeURIComponent(shortToken);
+          }
+          proceed(targetBase);
+          if (!isFavLocked) {
+            loadFavs(false);
+          }
+        }).catch(function(err) {
+          showToast('短連結儲存失敗: ' + err.message, false);
+        });
+      } else {
+        var bUrl = host + '/?url=' + encodeURIComponent(raw);
+        if (include) bUrl += '&include=' + encodeURIComponent(include);
+        if (exclude) bUrl += '&exclude=' + encodeURIComponent(exclude);
+        if (rename) bUrl += '&rename=' + encodeURIComponent(rename);
+        proceed(bUrl);
+      }
+    }
+
+    function showQr(id, clientType) {
+      if (!clientType) clientType = 'auto';
+      var rawUrl = document.getElementById(id).value;
+      if (!rawUrl) return showToast('請先生成訂閱連結', false);
+
+      var profileName = document.getElementById('shortCode').value.trim();
+      if (!profileName) {
+        try {
+          var u = new URL(rawUrl);
+          profileName = decodeURIComponent(u.pathname.slice(1)) || 'SubConverter';
+        } catch {
+          profileName = 'SubConverter';
+        }
+      }
+
+      var cleanHttpUrl = rawUrl.split('#')[0];
+      var qrTargetText = cleanHttpUrl;
+      var deepLink = cleanHttpUrl;
+      var displayTitle = '掃碼導入配置';
+      var clientName = '客戶端';
+
+      if (clientType === 'singbox') {
+        deepLink = 'sing-box://import-remote-profile?url=' + encodeURIComponent(cleanHttpUrl) + '#' + encodeURIComponent(profileName);
+        qrTargetText = deepLink;
+        displayTitle = 'Sing-Box 專屬掃碼導入';
+        clientName = 'Sing-Box';
+      } else if (clientType === 'clash') {
+        deepLink = 'clash://install-config?url=' + encodeURIComponent(cleanHttpUrl) + '&name=' + encodeURIComponent(profileName);
+        qrTargetText = deepLink;
+        displayTitle = 'Clash / Mihomo 專屬導入';
+        clientName = 'Clash';
+      } else if (clientType === 'surge') {
+        deepLink = 'surge:///install-config?url=' + encodeURIComponent(cleanHttpUrl);
+        qrTargetText = cleanHttpUrl;
+        displayTitle = 'Surge 5 專屬導入';
+        clientName = 'Surge';
+      } else if (clientType === 'quanx') {
+        deepLink = 'quantumult-x:///add-resource?remote-resource=' + encodeURIComponent(JSON.stringify({ server_remote: [cleanHttpUrl + ', tag=' + profileName] }));
+        qrTargetText = cleanHttpUrl;
+        displayTitle = 'Quantumult X 專屬導入';
+        clientName = 'Quantumult X';
+      } else if (clientType === 'loon') {
+        deepLink = 'loon://import?type=config&url=' + encodeURIComponent(cleanHttpUrl);
+        qrTargetText = cleanHttpUrl;
+        displayTitle = 'Loon 專屬導入';
+        clientName = 'Loon';
+      } else if (clientType === 'shadowrocket') {
+        deepLink = 'shadowrocket://add/sub://' + utf8ToBase64Client(cleanHttpUrl) + '?remark=' + encodeURIComponent(profileName);
+        qrTargetText = cleanHttpUrl + '#' + encodeURIComponent(profileName);
+        displayTitle = 'Shadowrocket 專屬導入';
+        clientName = 'Shadowrocket';
+      }
+
+      var win = window.open('', '_blank', 'width=460,height=640');
+      if (!win) return showToast('請允許瀏覽器開啟彈出視窗', false);
+
+      var qrHtml = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + escapeHtml(displayTitle) + '</title>' +
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">' +
+        '<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\\/script>' +
+        '<style>' +
+          '* { box-sizing: border-box; margin: 0; padding: 0; }' +
+          'body { background: radial-gradient(ellipse at 50% 0%, #0d1633 0%, #040711 75%); color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; text-align: center; position: relative; overflow: hidden; }' +
+          'body::before, body::after { content: ""; position: fixed; border-radius: 50%; filter: blur(80px); pointer-events: none; z-index: -1; }' +
+          'body::before { width: 320px; height: 320px; top: -80px; left: -60px; background: rgba(59, 130, 246, 0.35); }' +
+          'body::after { width: 320px; height: 320px; bottom: -80px; right: -60px; background: rgba(6, 182, 212, 0.25); }' +
+          '.glass-card { background: linear-gradient(145deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.03) 100%); backdrop-filter: blur(24px) saturate(180%); -webkit-backdrop-filter: blur(24px) saturate(180%); border: 1px solid rgba(255,255,255,0.16); border-radius: 24px; padding: 28px 24px; width: 100%; max-width: 340px; box-shadow: 0 24px 48px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.24); display: flex; flex-direction: column; align-items: center; }' +
+          'h2 { font-size: 1.15rem; margin-bottom: 6px; font-weight: 700; }' +
+          'p { color: #94a3b8; font-size: 0.84rem; margin-bottom: 20px; }' +
+          '.qr-frame { background: #ffffff; padding: 14px; border-radius: 16px; box-shadow: 0 12px 30px rgba(0,0,0,0.38); margin-bottom: 22px; }' +
+          '#qrcode img { display: block; }' +
+          '.btn { display: inline-flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(59,130,246,0.92), rgba(37,99,235,0.88)); color: white; border: 1px solid rgba(255,255,255,0.25); padding: 12px 20px; border-radius: 14px; font-weight: 600; text-decoration: none; cursor: pointer; width: 100%; font-size: 0.95rem; margin-bottom: 10px; box-shadow: 0 8px 22px rgba(37,99,235,0.4), inset 0 1px 0 rgba(255,255,255,0.35); transition: transform 0.2s; }' +
+          '.btn:hover { transform: translateY(-1px); }' +
+          '.btn-ghost { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); color: #cbd5e1; box-shadow: inset 0 1px 0 rgba(255,255,255,0.14); margin-bottom: 0; }' +
+          '.btn-ghost:hover { background: rgba(255,255,255,0.14); color: #ffffff; }' +
+        '</style>' +
+        '</head><body>' +
+        '<div class="glass-card">' +
+          '<h2>' + escapeHtml(displayTitle) + '</h2>' +
+          '<p>使用手機相機或對應客戶端掃描二維碼</p>' +
+          '<div class="qr-frame"><div id="qrcode"></div></div>' +
+          '<a href="' + escapeHtml(deepLink) + '" class="btn">🚀 一鍵打開並導入 ' + escapeHtml(clientName) + '</a>' +
+          '<button onclick="window.close()" class="btn btn-ghost">關閉視窗</button>' +
+        '</div>' +
+        '<script>' +
+          'new QRCode(document.getElementById("qrcode"), {' +
+            'text: ' + JSON.stringify(qrTargetText) + ',' +
+            'width: 210,' +
+            'height: 210,' +
+            'correctLevel: QRCode.CorrectLevel.M' +
+          '});' +
+        '<\\/script>' +
+        '</body></html>';
+
+      win.document.open();
+      win.document.write(qrHtml);
+      win.document.close();
+    }
+
+    function parseVlessNodes() {
+      var raw = document.getElementById('urlInput').value.trim();
+      if (!raw) return showToast('請先在最上方輸入框貼入節點內容', false);
+
+      showToast('正在解析 VLESS / VMess 節點...');
+      fetch('/api/parse-argo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: raw })
+      }).then(function(res) {
+        if (!res.ok) throw new Error('解析請求失敗');
+        return res.json();
+      }).then(function(nodes) {
+        if (!nodes || nodes.length === 0) {
+          return showToast('未找到可轉換的 VLESS / VMess 節點', false);
+        }
+        parsedArgoNodesCache = nodes;
+        var listEl = document.getElementById('vlessCheckboxList');
+        var html = '';
+        for (var i = 0; i < nodes.length; i++) {
+          var n = nodes[i];
+          html += '<label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer;">' +
+            '<input type="checkbox" name="argoNodeIdx" value="' + n.index + '" data-port="' + escapeHtml(n.port) + '" ' + (i === 0 ? 'checked' : '') + ' onchange="updateArgoPort(this)">' +
+            '<span>' + escapeHtml(n.name) + ' (' + escapeHtml(n.server) + ':' + escapeHtml(n.port) + ', ' + escapeHtml(n.type) + ')</span>' +
+          '</label>';
+        }
+        listEl.innerHTML = html;
+        document.getElementById('argoLocalPort').value = nodes[0].port || '8080';
+        document.getElementById('vlessSelectorWrapper').style.display = 'block';
+        showToast('成功解析 ' + nodes.length + ' 個相容節點！');
+      }).catch(function(e) {
+        showToast('解析失敗: ' + e.message, false);
+      });
+    }
+
+    function updateArgoPort(checkbox) {
+      if (checkbox.checked && checkbox.dataset.port) {
+        document.getElementById('argoLocalPort').value = checkbox.dataset.port;
+      }
+    }
+
+    function generateArgo() {
+      var raw = document.getElementById('urlInput').value.trim();
+      var checkedBoxes = document.querySelectorAll('input[name="argoNodeIdx"]:checked');
+      var indices = [];
+      checkedBoxes.forEach(function(box) {
+        indices.push(parseInt(box.value, 10));
+      });
+
+      if (indices.length === 0) return showToast('請至少勾選一個欲轉換的節點', false);
+
+      var port = document.getElementById('argoLocalPort').value.trim() || '8080';
+      var cleanIp = document.getElementById('argoCleanIp').value.trim();
+      var token = document.getElementById('argoTunnelToken').value.trim();
+      var domain = document.getElementById('argoCustomDomain').value.trim();
+
+      if (token && !domain) {
+        return showToast('使用固定隧道模式時，必須填寫自訂綁定域名', false);
+      }
+
+      showToast('正在生成 Argo 腳本與配置...');
+      fetch('/api/argo-generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: raw,
+          indices: indices,
+          port: port,
+          cleanIp: cleanIp,
+          token: token,
+          domain: domain
+        })
+      }).then(function(res) {
+        if (!res.ok) throw new Error('生成失敗');
+        return res.json();
+      }).then(function(data) {
+        var host = window.location.origin;
+        var curlCmd = 'curl -sSL ' + host + '/argo/sh/' + data.scriptId + ' | bash';
+        document.getElementById('argoCurlCmd').value = curlCmd;
+
+        var links = (data.argoNodes || []).map(function(item) { return item.link; });
+        document.getElementById('argoBase64Sub').value = links.join('\\n');
+
+        document.getElementById('argoResults').classList.add('show');
+        showToast('Argo 腳本與節點已成功生成！');
+      }).catch(function(e) {
+        showToast('生成失敗: ' + e.message, false);
+      });
+    }
+
+    window.addEventListener('DOMContentLoaded', function() {
+      loadFavs(false);
+    });
+
+    document.addEventListener('visibilitychange', function() {
+      if (!document.hidden && !isFavLocked && !isLogsUnconfigured) {
+        if (Date.now() - lastLogsFetchAt > 60000) {
+          loadLogs();
+        }
+      }
+    });
+`;
+
+````
+
+## File: src/ui/index.ts
+````ts
+// src/ui/index.ts
+import { UI_STYLES } from './styles';
+import { UI_MARKUP } from './markup';
+import { UI_SCRIPT } from './script';
+
+export const HTML_PAGE = `<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SubConverter Pro | 全能訂閱轉換器</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  
+  <style>
+${UI_STYLES}
+  </style>
+</head>
+<body>
+${UI_MARKUP}
+  <script>
+${UI_SCRIPT}
+  </script>
+</body>
+</html>
 `;
 
 ````
@@ -4322,372 +3335,2089 @@ export const UI_MARKUP = `
 
 ````
 
-## File: src/ui/script.ts
+## File: src/types.ts
 ````ts
-// src/ui/script.ts
-export const UI_SCRIPT = `
-    var favs = [];
-    var operationLogs = [];
-    var tgConfigState = { enabled: false, hasToken: false, maskedToken: '', chatId: '' };
-    var isFavLocked = false;
-    var isLogsUnconfigured = false;
-    var isLogsCollapsed = false;
-    var isTgCollapsed = false;
-    var parsedArgoNodesCache = [];
-    var lastLogsFetchAt = 0;
+export interface Env {
+  SUB_CACHE: KVNamespace;
+  PAGE_PASSWORD?: string;
+}
 
-    function escapeHtml(str) {
-      if (str === null || str === undefined) return '';
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-    }
+export interface WireGuardConfig {
+  privateKey: string;
+  localAddress: string[];
+  publicKey?: string;
+  presharedKey?: string;
+  mtu?: number;
+  reserved?: number[];
+  dns?: string;
+}
 
-    function utf8ToBase64Client(str) {
-      try {
-        return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, function(_, p1) {
-          return String.fromCharCode(parseInt(p1, 16));
-        }));
-      } catch {
-        return btoa(str);
+export interface MasqueConfig {
+  privateKey: string;
+  publicKey: string;
+  localIpv4?: string;
+  localIpv6?: string;
+  mtu?: number;
+  uri?: string;
+  sni?: string;
+  congestion_controller?: string;
+  dns?: string[];
+}
+
+export interface RealityConfig {
+  publicKey: string;
+  shortId: string;
+  spiderX?: string;
+  supportX25519Mlkem768?: boolean;
+}
+
+export interface ProxyNode {
+  type: string;
+  name: string;
+  server: string;
+  port: number;
+  uuid?: string;
+  password?: string;
+  cipher?: string;
+  udp?: boolean;
+  tls?: boolean;
+  sni?: string;
+  alpn?: string[];
+  fingerprint?: string;
+  flow?: string;
+  network?: string;
+  wsPath?: string;
+  wsHeaders?: Record<string, string>;
+  grpcServiceName?: string;
+  reality?: RealityConfig;
+  obfs?: string;
+  obfsPassword?: string;
+  skipCertVerify?: boolean;
+  singboxObj?: Record<string, unknown>;
+  clashObj?: Record<string, unknown>;
+  congestion_control?: string;
+  udp_relay_mode?: string;
+  // VLESS SplitHTTP (xhttp)
+  xhttpPath?: string;
+  xhttpHost?: string;
+  xhttpMode?: string;
+  // WireGuard / WARP
+  wireguard?: WireGuardConfig;
+  // Cloudflare WARP MASQUE
+  masque?: MasqueConfig;
+  // ECH (Encrypted Client Hello)
+  ech?: boolean;
+  echQueryServerName?: string;
+  echDoh?: string;
+}
+
+export interface CachedTemplate {
+  content: string;
+  updatedAt: number;
+}
+
+export type OperationLogAction =
+  | '獲取訂閱'
+  | '登入後台'
+  | '登入失敗'
+  | '異常存取'
+  | '新增配置'
+  | '修改配置'
+  | '刪除配置'
+  | '儲存短連結';
+
+export interface OperationLogEntry {
+  time: string;
+  ip: string;
+  region: string;
+  asn: string;
+  action: OperationLogAction;
+  url: string;
+  ua: string;
+}
+
+export interface TgConfig {
+  enabled: boolean;
+  botToken: string;
+  chatId: string;
+}
+
+export interface TgConfigPublicView {
+  enabled: boolean;
+  hasToken: boolean;
+  maskedToken: string;
+  chatId: string;
+}
+
+````
+
+## File: src/generators/honk.ts
+````ts
+// src/generators/honk.ts
+import { ProxyNode } from '../types';
+import { REMOTE_CONFIG, FALLBACK_HONK_RULES } from '../config/rules';
+import { fetchTemplateDirect } from './common';
+
+const AI_DAE_URL = 'https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.dae';
+const FALLBACK_AI_DAE_RULE = 'domain(geosite:openai, geosite:anthropic) -> AI';
+
+export async function toHonk(
+  _nodes: ProxyNode[],
+  subUrl?: string,
+  profileName?: string,
+  forceRefresh = false
+): Promise<string> {
+  const [template, aiRawText] = await Promise.all([
+    fetchTemplateDirect(REMOTE_CONFIG.honk, FALLBACK_HONK_RULES, forceRefresh),
+    fetchTemplateDirect(AI_DAE_URL, '', forceRefresh)
+  ]);
+
+  let aiRulesBody = FALLBACK_AI_DAE_RULE;
+  if (aiRawText && aiRawText.includes('domain(')) {
+    aiRulesBody = aiRawText.replace(/->\s*proxy/g, '-> AI').trim();
+  }
+
+  const finalSubTag = (profileName || 'My_Sub').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const targetSubUrl = (subUrl || 'https://example.com/sub?target=base64').replace(/'/g, '%27');
+
+  return template
+    .replace(/{{SUB_TAG}}/g, finalSubTag)
+    .replace(/{{SUB_URL}}/g, targetSubUrl)
+    .replace(/{{AI_RULES}}/g, aiRulesBody);
+}
+
+````
+
+## File: src/generators/legacy.ts
+````ts
+// src/generators/legacy.ts
+import { ProxyNode } from '../types';
+
+export function toSurge(nodes: ProxyNode[]): string {
+  const lines: string[] = ['[Proxy]'];
+  const nodeNames: string[] = [];
+  const wgSections: string[] = [];
+
+  for (const node of nodes) {
+    let line = '';
+    const name = node.name.replace(/[,=]/g, '').trim();
+
+    if (node.type === 'shadowsocks') {
+      line = `${name} = ss, ${node.server}, ${node.port}, encrypt-method=${node.cipher}, password=${node.password}, udp-relay=true`;
+      if (node.sni) line += `, sni=${node.sni}`;
+    } else if (node.type === 'trojan') {
+      line = `${name} = trojan, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
+      if (node.network === 'ws') {
+        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
+        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
       }
+    } else if (node.type === 'vmess') {
+      line = `${name} = vmess, ${node.server}, ${node.port}, username=${node.uuid}, tls=${node.tls ? 'true' : 'false'}, udp-relay=true`;
+      if (node.sni) line += `, sni=${node.sni}`;
+      if (node.network === 'ws') {
+        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
+        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
+      }
+    } else if (node.type === 'vless') {
+      line = `${name} = vless, ${node.server}, ${node.port}, username=${node.uuid}, tls=${node.tls ? 'true' : 'false'}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
+      if (node.network === 'ws') {
+        line += `, ws=true, ws-path=${node.wsPath || '/'}`;
+        if (node.wsHeaders?.Host) line += `, ws-headers=Host:${node.wsHeaders.Host}`;
+      }
+    } else if (node.type === 'hysteria2') {
+      line = `${name} = hysteria2, ${node.server}, ${node.port}, password=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, udp-relay=true`;
+    } else if (node.type === 'tuic') {
+      line = `${name} = tuic, ${node.server}, ${node.port}, token=${node.password}, sni=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}`;
+    } else if (node.type === 'wireguard' && node.wireguard) {
+      const wg = node.wireguard;
+      const safeSecName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
+      line = `${name} = wireguard, section-name=${safeSecName}`;
+
+      let wgSec = `\n[WireGuard ${safeSecName}]\n`;
+      wgSec += `private-key = ${wg.privateKey}\n`;
+      wgSec += `self-ip = ${wg.localAddress[0]?.split('/')[0] || '10.2.0.2'}\n`;
+      if (wg.localAddress[1]) {
+        wgSec += `self-ip-v6 = ${wg.localAddress[1]?.split('/')[0]}\n`;
+      }
+      if (wg.dns) {
+        wgSec += `dns-server = ${wg.dns}\n`;
+      }
+      wgSec += `peer = (public-key = ${wg.publicKey || ''}, allowed-ips = "0.0.0.0/0, ::/0", endpoint = ${node.server}:${node.port}, keepalive = 25)\n`;
+      wgSections.push(wgSec);
     }
 
-    function getStoredPwd() {
-      return localStorage.getItem('sub_fav_pwd') || '';
+    if (line) {
+      lines.push(line);
+      nodeNames.push(name);
     }
+  }
 
-    function showToast(msg, isSuccess) {
-      if (isSuccess === undefined) isSuccess = true;
-      var t = document.getElementById('toast');
-      var m = document.getElementById('toastMsg');
-      m.textContent = msg;
-      t.className = 'toast show ' + (isSuccess ? 'success' : 'error');
-      setTimeout(function() {
-        t.className = 'toast';
-      }, 3000);
+  lines.push('\n[Proxy Group]');
+  if (nodeNames.length > 0) {
+    lines.push(`🚀 節點選擇 = select, ⚡ 自動選擇, DIRECT, ${nodeNames.join(', ')}`);
+    lines.push(`⚡ 自動選擇 = url-test, ${nodeNames.join(', ')}, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50`);
+  } else {
+    lines.push('🚀 節點選擇 = select, DIRECT');
+    lines.push('⚡ 自動選擇 = select, DIRECT');
+  }
+  lines.push('🐟 漏網之魚 = select, 🚀 節點選擇, DIRECT');
+
+  lines.push('\n[Rule]');
+  lines.push('GEOIP,CN,DIRECT');
+  lines.push('FINAL,🐟 漏網之魚\n');
+
+  if (wgSections.length > 0) {
+    lines.push(wgSections.join('\n'));
+  }
+
+  return lines.join('\n');
+}
+
+export function toQuantumultX(nodes: ProxyNode[]): string {
+  const lines: string[] = [];
+
+  for (const node of nodes) {
+    const name = node.name.replace(/[,=]/g, '').trim();
+
+    if (node.type === 'shadowsocks') {
+      lines.push(`shadowsocks=${node.server}:${node.port}, method=${node.cipher}, password=${node.password}, fast-open=false, udp-relay=true, tag=${name}`);
+    } else if (node.type === 'trojan') {
+      lines.push(`trojan=${node.server}:${node.port}, password=${node.password}, over-tls=true, tls-host=${node.sni || node.server}, fast-open=false, udp-relay=true, tag=${name}`);
+    } else if (node.type === 'vmess') {
+      let vmessLine = `vmess=${node.server}:${node.port}, method=none, password=${node.uuid}, fast-open=false, udp-relay=true, tag=${name}`;
+      if (node.tls) vmessLine += `, over-tls=true, tls-host=${node.sni || node.server}`;
+      if (node.network === 'ws') vmessLine += `, obfs=ws, obfs-uri=${node.wsPath || '/'}`;
+      lines.push(vmessLine);
+    } else if (node.type === 'vless') {
+      let vlessLine = `vless=${node.server}:${node.port}, method=none, password=${node.uuid}, fast-open=false, udp-relay=true, tag=${name}`;
+      if (node.tls) vlessLine += `, over-tls=true, tls-host=${node.sni || node.server}`;
+      if (node.network === 'ws') {
+        vlessLine += `, obfs=ws, obfs-uri=${node.wsPath || '/'}`;
+        if (node.wsHeaders?.Host) vlessLine += `, obfs-host=${node.wsHeaders.Host}`;
+      }
+      lines.push(vlessLine);
+    } else if (node.type === 'hysteria2') {
+      lines.push(`hysteria2=${node.server}:${node.port}, password=${node.password}, tls-host=${node.sni || node.server}, skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'}, tag=${name}`);
     }
+  }
 
-    function parseErrorResponse(resp, fallbackMsg) {
-      return resp.text().then(function(txt) {
-        var detail = txt;
+  if (lines.length === 0) {
+    return '# 未在該訂閱中找到相容的節點';
+  }
+
+  return lines.join('\n');
+}
+
+export function toLoon(nodes: ProxyNode[]): string {
+  const lines: string[] = ['[Proxy]'];
+
+  for (const node of nodes) {
+    const name = node.name.replace(/[,=]/g, '').trim();
+    if (node.type === 'shadowsocks') {
+      lines.push(`${name} = Shadowsocks,${node.server},${node.port},${node.cipher},"${node.password}",fast-open=false,udp=true`);
+    } else if (node.type === 'trojan') {
+      lines.push(`${name} = Trojan,${node.server},${node.port},"${node.password}",sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`);
+    } else if (node.type === 'vless') {
+      let l = `${name} = Vless,${node.server},${node.port},"${node.uuid}",tls=${node.tls ? 'true' : 'false'},sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`;
+      if (node.network === 'ws') l += `,transport=ws,path=${node.wsPath || '/'}`;
+      lines.push(l);
+    } else if (node.type === 'vmess') {
+      let v = `${name} = vmess,${node.server},${node.port},auto,"${node.uuid}",fast-open=false,udp=true`;
+      if (node.tls) v += `,over-tls=true,tls-name=${node.sni || node.server}`;
+      if (node.network === 'ws') v += `,transport=ws,path=${node.wsPath || '/'}`;
+      lines.push(v);
+    } else if (node.type === 'hysteria2') {
+      lines.push(`${name} = Hysteria2,${node.server},${node.port},password=${node.password},sni=${node.sni || node.server},skip-cert-verify=${node.skipCertVerify ? 'true' : 'false'},udp=true`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+````
+
+## File: src/generators/common.ts
+````ts
+// src/generators/common.ts
+export function isIpAddress(str: string): boolean {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(str) || str.includes(':');
+}
+
+// 防禦性濾網：安全過濾 JSON 字串中意外存在的單行與多行註解，防止 JSON.parse 報錯
+export function stripJsonComments(jsonStr: string): string {
+  return jsonStr.replace(/\\"|"(?:\\"|[^"])*"|(\/\/.*|\/\*[\s\S]*?\*\/)/g, (match, group) => {
+    return group ? '' : match;
+  });
+}
+
+export async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = 5000
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// 具備 Cloudflare 60 秒邊緣快取與 4 秒超時降級的遠端模板直讀（帶 ?force=1 可強制穿透刷新）
+export async function fetchTemplateDirect(
+  url: string,
+  fallbackStr: string,
+  forceRefresh = false
+): Promise<string> {
+  const edgeCache = typeof caches !== 'undefined' ? (caches as unknown as { default?: Cache }).default : undefined;
+  const cacheKey = new Request(url, { method: 'GET' });
+
+  if (!forceRefresh && edgeCache) {
+    try {
+      const cached = await edgeCache.match(cacheKey);
+      if (cached) {
+        return await cached.text();
+      }
+    } catch {}
+  }
+
+  try {
+    const sep = url.includes('?') ? '&' : '?';
+    const fetchUrl = forceRefresh ? `${url}${sep}t=${Date.now()}` : url;
+    const resp = await fetchWithTimeout(
+      fetchUrl,
+      { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },
+      4000
+    );
+    if (resp.ok) {
+      const text = await resp.text();
+      if (edgeCache && text.trim()) {
         try {
-          var parsed = JSON.parse(txt);
-          if (parsed && parsed.error) detail = parsed.error;
+          await edgeCache.put(
+            cacheKey,
+            new Response(text, {
+              headers: {
+                'Content-Type': 'text/plain; charset=utf-8',
+                'Cache-Control': 'public, max-age=60'
+              }
+            })
+          );
         } catch {}
-        return detail || fallbackMsg || ('HTTP ' + resp.status);
-      }).catch(function() {
-        return fallbackMsg || ('HTTP ' + resp.status);
-      });
-    }
-
-    function generateRandomToken(targetId) {
-      var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-      var bytes = new Uint8Array(24);
-      window.crypto.getRandomValues(bytes);
-      var token = '';
-      for (var i = 0; i < bytes.length; i++) {
-        token += chars.charAt(bytes[i] % chars.length);
       }
-      var el = document.getElementById(targetId);
-      if (el) {
-        el.value = token;
-        showToast('已生成 24 位高強度隨機 Token');
-      }
+      return text;
     }
+  } catch {}
 
-    function copyResult(id) {
-      var input = document.getElementById(id);
-      if (!input || !input.value) return;
-      input.select();
-      navigator.clipboard.writeText(input.value).then(function() {
-        showToast('已複製訂閱連結至剪貼簿！');
-      }).catch(function() {
-        document.execCommand('copy');
-        showToast('已複製訂閱連結至剪貼簿！');
-      });
-    }
+  return fallbackStr;
+}
 
-    function copyText(id) {
-      var el = document.getElementById(id);
-      if (!el) return;
-      var text = el.value || el.textContent;
-      navigator.clipboard.writeText(text).then(function() {
-        showToast('複製成功！');
-      }).catch(function() {
-        showToast('複製失敗，請手動複製', false);
-      });
-    }
+````
 
-    function openModal() {
-      document.getElementById('modalTitle').textContent = '新增配置';
-      document.getElementById('favName').value = '';
-      document.getElementById('favUrl').value = '';
-      document.getElementById('favInclude').value = '';
-      document.getElementById('favExclude').value = '';
-      document.getElementById('favRename').value = '';
-      document.getElementById('favToken').value = '';
-      document.getElementById('modal').dataset.edit = '';
-      document.getElementById('modal').dataset.origName = '';
-      document.getElementById('modal').classList.add('show');
-    }
+## File: src/generators/index.ts
+````ts
+// src/generators/index.ts
+export { toRawLinks, toBase64 } from './uri';
+export { toSingBoxWithTemplate } from './singbox';
+export { toClashWithTemplate } from './clash';
+export { toHonk } from './honk';
+export { toSurge, toQuantumultX, toLoon } from './legacy';
 
-    function closeModal() {
-      document.getElementById('modal').classList.remove('show');
-    }
+````
 
-    function openArgoHelpModal() {
-      document.getElementById('argoHelpModal').classList.add('show');
-    }
+## File: src/generators/uri.ts
+````ts
+// src/generators/uri.ts
+import { ProxyNode } from '../types';
+import { utf8ToBase64 } from '../utils';
 
-    function closeArgoHelpModal() {
-      document.getElementById('argoHelpModal').classList.remove('show');
-    }
+function formatHost(host: string): string {
+  return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+}
 
-    function loadFavs(isInitialLogin) {
-      var pwd = getStoredPwd();
-      var reqHeaders = { 'X-Password': pwd };
-      if (isInitialLogin && pwd) {
-        reqHeaders['X-Login-Attempt'] = '1';
-      }
+export function toRawLinks(nodes: ProxyNode[]): string {
+  const links = nodes
+    .map(node => {
+      try {
+        const host = formatHost(node.server);
 
-      fetch('/favs?t=' + Date.now(), {
-        headers: reqHeaders
-      }).then(function(resp) {
-        if (resp.status === 401) {
-          isFavLocked = true;
-          renderLockScreen();
-          hideLogsPanel();
-          hideTgPanel();
-          return;
-        }
-        if (resp.ok) {
-          resp.json().then(function(data) {
-            favs = data;
-            isFavLocked = false;
-            renderFavs();
-            loadLogs();
-            loadTgConfig();
-          });
-        } else {
-          renderErrorScreen('載入配置失敗 (HTTP ' + resp.status + ')');
-        }
-      }).catch(function() {
-        renderErrorScreen('網路連線失敗');
-      });
-    }
-
-    function hideLogsPanel() {
-      operationLogs = [];
-      var panel = document.getElementById('logsPanel');
-      if (panel) panel.style.display = 'none';
-      closeLogsModal();
-    }
-
-    function hideTgPanel() {
-      tgConfigState = { enabled: false, hasToken: false, maskedToken: '', chatId: '' };
-      var panel = document.getElementById('tgPanel');
-      if (panel) panel.style.display = 'none';
-      closeTgModal();
-      closeTgHelpModal();
-    }
-
-    function loadTgConfig() {
-      var pwd = getStoredPwd();
-      var panel = document.getElementById('tgPanel');
-
-      fetch('/tg-config?t=' + Date.now(), {
-        headers: { 'X-Password': pwd }
-      }).then(function(resp) {
-        if (resp.status === 403 || resp.status === 401) {
-          hideTgPanel();
-          return;
-        }
-        if (resp.ok) {
-          resp.json().then(function(data) {
-            tgConfigState = data || { enabled: false, hasToken: false, maskedToken: '', chatId: '' };
-            panel.style.display = 'block';
-            renderTgPanel();
-          });
-        }
-      }).catch(function() {
-        hideTgPanel();
-      });
-    }
-
-    function renderTgPanel() {
-      var cb = document.getElementById('tgEnabledCheckbox');
-      var badge = document.getElementById('tgStatusBadge');
-      if (cb) cb.checked = Boolean(tgConfigState.enabled);
-
-      if (badge) {
-        if (tgConfigState.hasToken && tgConfigState.chatId) {
-          badge.style.display = 'inline-block';
-          badge.textContent = tgConfigState.enabled ? '已配置 · 運行中' : '已配置 · 已暫停';
-          if (tgConfigState.enabled) {
-            badge.style.background = 'rgba(16, 185, 129, 0.14)';
-            badge.style.color = '#6ee7b7';
-            badge.style.borderColor = 'rgba(16, 185, 129, 0.35)';
-          } else {
-            badge.style.background = 'rgba(59, 130, 246, 0.14)';
-            badge.style.color = '#93c5fd';
-            badge.style.borderColor = 'rgba(96, 165, 250, 0.3)';
+        if (node.type === 'vless') {
+          const params = new URLSearchParams();
+          params.set('encryption', 'none');
+          params.set('security', node.reality ? 'reality' : node.tls ? 'tls' : 'none');
+          params.set('type', node.network || 'tcp');
+          if (node.flow) params.set('flow', node.flow);
+          if (node.sni) params.set('sni', node.sni);
+          if (node.fingerprint) params.set('fp', node.fingerprint);
+          if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
+          if (node.ech) {
+            if (node.echDoh && node.echQueryServerName) {
+              params.set('ech', `${node.echQueryServerName}+${node.echDoh}`);
+            } else if (node.echDoh) {
+              params.set('ech', node.echDoh);
+            } else if (node.echQueryServerName) {
+              params.set('ech', node.echQueryServerName);
+            } else {
+              params.set('ech', '1');
+            }
           }
-        } else {
-          badge.style.display = 'inline-block';
-          badge.textContent = '未配置';
-          badge.style.background = 'rgba(148, 163, 184, 0.12)';
-          badge.style.color = 'var(--text-muted)';
-          badge.style.borderColor = 'rgba(148, 163, 184, 0.24)';
+          if (node.reality) {
+            params.set('pbk', node.reality.publicKey);
+            params.set('sid', node.reality.shortId);
+            if (node.reality.spiderX) params.set('spx', node.reality.spiderX);
+          }
+          if (node.network === 'ws') {
+            if (node.wsPath) params.set('path', node.wsPath);
+            if (node.wsHeaders?.Host) params.set('host', node.wsHeaders.Host);
+          }
+          if (node.network === 'xhttp' || node.network === 'splithttp') {
+            if (node.xhttpPath) params.set('path', node.xhttpPath);
+            if (node.xhttpHost) params.set('host', node.xhttpHost);
+            if (node.xhttpMode) params.set('mode', node.xhttpMode);
+          }
+          if (node.network === 'grpc' && node.grpcServiceName) {
+            params.set('serviceName', node.grpcServiceName);
+          }
+          return `vless://${encodeURIComponent(node.uuid || '')}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
         }
+        if (node.type === 'hysteria2') {
+          const params = new URLSearchParams();
+          if (node.sni) params.set('sni', node.sni);
+          if (node.obfs) {
+            params.set('obfs', node.obfs);
+            if (node.obfsPassword) params.set('obfs-password', node.obfsPassword);
+          }
+          if (node.skipCertVerify) params.set('insecure', '1');
+          return `hysteria2://${encodeURIComponent(node.password || '')}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+        }
+        if (node.type === 'vmess') {
+          const vmessObj = {
+            v: '2',
+            ps: node.name,
+            add: node.server,
+            port: node.port,
+            id: node.uuid,
+            aid: (node.clashObj as Record<string, unknown>)?.alterId || 0,
+            scy: 'auto',
+            net: node.network,
+            type: 'none',
+            host: node.wsHeaders?.Host || '',
+            path: node.wsPath || '',
+            tls: node.tls ? 'tls' : '',
+            sni: node.sni || ''
+          };
+          return 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
+        }
+        if (node.type === 'shadowsocks') {
+          const method = encodeURIComponent(node.cipher || '');
+          const pass = encodeURIComponent(node.password || '');
+          const params = new URLSearchParams();
+          if (node.tls) {
+            params.set('security', 'tls');
+            if (node.sni) params.set('sni', node.sni);
+            if (node.alpn) params.set('alpn', node.alpn.join(','));
+            if (node.fingerprint) params.set('fp', node.fingerprint);
+            if (node.ech) {
+              if (node.echDoh && node.echQueryServerName) {
+                params.set('ech', `${node.echQueryServerName}+${node.echDoh}`);
+              } else if (node.echDoh) {
+                params.set('ech', node.echDoh);
+              } else if (node.echQueryServerName) {
+                params.set('ech', node.echQueryServerName);
+              } else {
+                params.set('ech', '1');
+              }
+            }
+            params.set('type', node.network || 'tcp');
+          }
+          const clashPlugin = (node.clashObj as Record<string, unknown>)?.plugin as string | undefined;
+          if (clashPlugin && !node.tls) {
+            const pluginOpts = (node.clashObj as Record<string, unknown>)?.['plugin-opts'] as Record<string, string> | undefined;
+            const optStr = pluginOpts ? ';' + new URLSearchParams(pluginOpts).toString().replace(/&/g, ';') : '';
+            params.set('plugin', clashPlugin + optStr);
+          }
+          const query = params.toString();
+          return `ss://${method}:${pass}@${host}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
+        }
+        if (node.type === 'tuic') {
+          const params = new URLSearchParams();
+          if (node.sni) params.set('sni', node.sni);
+          if (node.congestion_control) params.set('congestion_control', node.congestion_control);
+          if (node.udp_relay_mode) params.set('udp_relay_mode', node.udp_relay_mode);
+          if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
+          if (node.skipCertVerify) params.set('allow_insecure', '1');
+          return `tuic://${encodeURIComponent(node.uuid || '')}:${encodeURIComponent(node.password || '')}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+        }
+        if (node.type === 'anytls') {
+          const params = new URLSearchParams();
+          params.set('security', 'tls');
+          if (node.sni) params.set('sni', node.sni);
+          params.set('insecure', node.skipCertVerify ? '1' : '0');
+          if (node.fingerprint) params.set('fp', node.fingerprint);
+          if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
+          params.set('type', 'tcp');
+          return `anytls://${encodeURIComponent(node.password || '')}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+        }
+        if (node.type === 'trojan') {
+          const params = new URLSearchParams();
+          if (node.sni) params.set('sni', node.sni);
+          if (node.skipCertVerify) params.set('allowInsecure', '1');
+          if (node.ech) {
+            if (node.echDoh && node.echQueryServerName) {
+              params.set('ech', `${node.echQueryServerName}+${node.echDoh}`);
+            } else if (node.echDoh) {
+              params.set('ech', node.echDoh);
+            } else if (node.echQueryServerName) {
+              params.set('ech', node.echQueryServerName);
+            } else {
+              params.set('ech', '1');
+            }
+          }
+          return `trojan://${encodeURIComponent(node.password || '')}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+        }
+        if (node.type === 'wireguard' && node.wireguard) {
+          const wg = node.wireguard;
+          const cleanIp = wg.localAddress[0]?.split('/')[0] || '10.2.0.2';
+          const params = new URLSearchParams();
+          params.set('publickey', wg.publicKey || '');
+          params.set('privatekey', wg.privateKey || '');
+          params.set('ip', cleanIp);
+          params.set('address', cleanIp);
+          if (wg.dns) params.set('dns', wg.dns);
+          if (wg.presharedKey) params.set('presharedkey', wg.presharedKey);
+          params.set('mtu', String(wg.mtu || 1420));
+          params.set('keepalive', '25');
+          return `wireguard://${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+        }
+        if (node.type === 'masque' && node.masque) {
+          const m = node.masque;
+          const params = new URLSearchParams();
+          params.set('public_key', m.publicKey);
+          if (m.localIpv4) params.set('ip', m.localIpv4.split('/')[0]);
+          if (m.localIpv6) params.set('ipv6', m.localIpv6.split('/')[0]);
+          if (m.mtu) params.set('mtu', String(m.mtu));
+          if (m.uri) params.set('uri', m.uri);
+          if (m.sni) params.set('sni', m.sni);
+
+          const cc = m.congestion_controller || 'bbr';
+          params.set('cca', cc);
+          params.set('cc', cc);
+          params.set('congestion_control', cc);
+          params.set('congestion_controller', cc);
+          params.set('congestion-controller', cc);
+
+          if (m.dns && m.dns.length > 0) params.set('dns', m.dns.join(','));
+          return `masque://${encodeURIComponent(m.privateKey)}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+        }
+        return null;
+      } catch {
+        return null;
       }
+    })
+    .filter((l): l is string => Boolean(l));
+
+  return links.join('\n');
+}
+
+export function toBase64(nodes: ProxyNode[]): string {
+  const rawLinks = toRawLinks(nodes);
+  return utf8ToBase64(rawLinks);
+}
+
+````
+
+## File: src/generators/clash.ts
+````ts
+// src/generators/clash.ts
+import yaml from 'js-yaml';
+import { Env, ProxyNode } from '../types';
+import { REMOTE_CONFIG, FALLBACK_CLASH_RULES } from '../config/rules';
+import { isIpAddress, fetchTemplateDirect } from './common';
+
+const SKIP_NODE_INJECTION_GROUPS = new Set(['🏠 私有網絡', '🛑 廣告攔截']);
+const BUILTIN_ONLY_PROXIES = new Set(['DIRECT', 'REJECT']);
+
+export async function toClashWithTemplate(
+  nodes: ProxyNode[],
+  _env?: Env,
+  forceRefresh = false
+): Promise<string> {
+  const text = await fetchTemplateDirect(REMOTE_CONFIG.clash, FALLBACK_CLASH_RULES, forceRefresh);
+  const config = yaml.load(text) as Record<string, unknown>;
+
+  const proxies = nodes.map(n => {
+    const obj = JSON.parse(JSON.stringify(n.clashObj));
+
+    if (n.ech) {
+      const echOpts: Record<string, unknown> = { enable: true };
+      if (n.echQueryServerName && !isIpAddress(n.echQueryServerName)) {
+        echOpts['query-server-name'] = n.echQueryServerName;
+      }
+      obj['ech-opts'] = echOpts;
     }
 
-    function toggleTgCollapse() {
-      isTgCollapsed = !isTgCollapsed;
-      var header = document.getElementById('tgPanelHeader');
-      var body = document.getElementById('tgBody');
-      var icon = document.getElementById('toggleTgIcon');
-      var text = document.getElementById('toggleTgText');
-      if (isTgCollapsed) {
-        body.style.display = 'none';
-        header.style.marginBottom = '0';
-        icon.style.transform = 'rotate(-90deg)';
-        if (text) text.textContent = '展開';
-      } else {
-        body.style.display = 'block';
-        header.style.marginBottom = '1.25rem';
-        icon.style.transform = 'rotate(0deg)';
-        if (text) text.textContent = '收合';
-      }
-    }
+    return obj as Record<string, unknown>;
+  });
+  const proxyNames = proxies.map(p => p.name as string);
 
-    function toggleTgEnabled(checkbox) {
-      var targetEnabled = checkbox.checked;
-      if (targetEnabled && (!tgConfigState.hasToken || !tgConfigState.chatId)) {
-        checkbox.checked = false;
-        showToast('請先完成參數配置（Bot Token 與 Chat ID）', false);
-        openTgModal();
+  if (!Array.isArray(config.proxies)) config.proxies = [];
+  config.proxies.push(...proxies);
+
+  if (Array.isArray(config['proxy-groups'])) {
+    const groups = config['proxy-groups'] as Array<Record<string, unknown>>;
+
+    groups.forEach(group => {
+      const groupName = String(group.name || '');
+      if (SKIP_NODE_INJECTION_GROUPS.has(groupName)) return;
+
+      if (!Array.isArray(group.proxies)) group.proxies = [];
+      const arr = group.proxies as string[];
+      if (arr.length > 0 && arr.every(item => BUILTIN_ONLY_PROXIES.has(item))) {
         return;
       }
 
-      var pwd = getStoredPwd();
-      fetch('/tg-config', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Password': pwd
-        },
-        body: JSON.stringify({ enabled: targetEnabled })
-      }).then(function(resp) {
-        if (!resp.ok) {
-          return parseErrorResponse(resp, '更新失敗').then(function(msg) {
-            throw new Error(msg);
-          });
-        }
-        return resp.json();
-      }).then(function(data) {
-        tgConfigState = data;
-        renderTgPanel();
-        showToast(tgConfigState.enabled ? '已啟用 Telegram 通知' : '已暫停 Telegram 通知');
-      }).catch(function(e) {
-        checkbox.checked = !targetEnabled;
-        showToast(e.message, false);
+      proxyNames.forEach(name => {
+        if (!arr.includes(name)) arr.push(name);
+      });
+    });
+  }
+
+  const nodesWithCustomDoh = nodes.filter(n => n.ech && n.echDoh && /^https?:\/\//i.test(n.echDoh));
+  if (nodesWithCustomDoh.length > 0 && config.dns && typeof config.dns === 'object') {
+    const dnsObj = config.dns as Record<string, unknown>;
+    if (!dnsObj['nameserver-policy'] || typeof dnsObj['nameserver-policy'] !== 'object') {
+      dnsObj['nameserver-policy'] = {};
+    }
+    const policy = dnsObj['nameserver-policy'] as Record<string, string[]>;
+    for (const n of nodesWithCustomDoh) {
+      const domain = n.echQueryServerName || n.sni || n.server;
+      if (domain && !isIpAddress(domain)) {
+        policy[domain] = [n.echDoh!];
+      }
+    }
+  }
+
+  return yaml.dump(config, { indent: 2, noRefs: true });
+}
+
+````
+
+## File: src/generators/singbox.ts
+````ts
+// src/generators/singbox.ts
+import { Env, ProxyNode } from '../types';
+import { REMOTE_CONFIG, FALLBACK_SINGBOX_RULES } from '../config/rules';
+import { isIpAddress, stripJsonComments, fetchTemplateDirect } from './common';
+
+const SKIP_NODE_INJECTION_TAGS = new Set(['🏠 私有網絡', '🛑 廣告攔截']);
+const BUILTIN_ONLY_OUTBOUNDS = new Set(['direct', 'DIRECT', 'reject', 'REJECT', 'block']);
+
+export async function toSingBoxWithTemplate(
+  nodes: ProxyNode[],
+  _env?: Env,
+  forceRefresh = false
+): Promise<string> {
+  const text = await fetchTemplateDirect(REMOTE_CONFIG.singbox, FALLBACK_SINGBOX_RULES, forceRefresh);
+  const config = JSON.parse(stripJsonComments(text));
+
+  if (!config.http_clients || !Array.isArray(config.http_clients) || config.http_clients.length === 0) {
+    config.http_clients = [{ tag: 'default' }];
+  } else {
+    config.http_clients.forEach((hc: Record<string, unknown>) => {
+      if (hc.detour === 'direct' || hc.detour === 'DIRECT') {
+        delete hc.detour;
+      }
+    });
+  }
+
+  if (config.dns) {
+    config.dns.final = 'remote-dns';
+    if (Array.isArray(config.dns.servers)) {
+      config.dns.servers = config.dns.servers.filter((s: Record<string, unknown>) => s.type !== 'rcode');
+      config.dns.servers.forEach((s: Record<string, unknown>) => {
+        if (s.detour === 'direct' || s.detour === 'DIRECT') delete s.detour;
       });
     }
-
-    function openTgModal() {
-      var tokenInput = document.getElementById('tgBotTokenInput');
-      var chatIdInput = document.getElementById('tgChatIdInput');
-      var hint = document.getElementById('tgTokenHint');
-
-      tokenInput.value = '';
-      if (tgConfigState.hasToken) {
-        tokenInput.placeholder = '已設定 (' + tgConfigState.maskedToken + ')，留空保留原 Token';
-        hint.textContent = '目前已有儲存的 Bot Token (' + tgConfigState.maskedToken + ')，留空代表維持原密鑰不變。';
-      } else {
-        tokenInput.placeholder = '例如: 123456789:AAHxxxxxxxxxxxxxxxxxxxx';
-        hint.textContent = '請從 @BotFather 取得 Bot Token。';
-      }
-      chatIdInput.value = tgConfigState.chatId || '';
-      document.getElementById('tgModal').classList.add('show');
+    if (Array.isArray(config.dns.rules)) {
+      config.dns.rules = config.dns.rules.filter((r: Record<string, unknown>) => !('outbound' in r));
     }
 
-    function closeTgModal() {
-      document.getElementById('tgModal').classList.remove('show');
-    }
-
-    function openTgHelpModal() {
-      document.getElementById('tgHelpModal').classList.add('show');
-    }
-
-    function closeTgHelpModal() {
-      document.getElementById('tgHelpModal').classList.remove('show');
-    }
-
-    function saveTgConfig() {
-      var tokenVal = document.getElementById('tgBotTokenInput').value.trim();
-      var chatIdVal = document.getElementById('tgChatIdInput').value.trim();
-
-      if (!tgConfigState.hasToken && !tokenVal) {
-        return showToast('請輸入 Bot Token', false);
-      }
-      if (!chatIdVal) {
-        return showToast('請輸入 Chat ID', false);
+    const nodesWithCustomDoh = nodes.filter(n => n.ech && n.echDoh && /^https?:\/\//i.test(n.echDoh));
+    if (nodesWithCustomDoh.length > 0) {
+      const dohMap = new Map<string, string>();
+      for (const n of nodesWithCustomDoh) {
+        const domain = n.echQueryServerName || n.sni || n.server;
+        const dohUrl = n.echDoh!;
+        if (domain && !isIpAddress(domain) && !dohMap.has(domain)) {
+          dohMap.set(domain, dohUrl);
+        }
       }
 
-      var pwd = getStoredPwd();
-      var shouldEnable = tgConfigState.hasToken ? tgConfigState.enabled : true;
+      for (const [domain, dohUrl] of dohMap.entries()) {
+        let serverHost = dohUrl;
+        let serverPath = '/dns-query';
+        try {
+          const u = new URL(dohUrl);
+          serverHost = u.hostname;
+          serverPath = u.pathname || '/dns-query';
+        } catch {}
 
-      fetch('/tg-config', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Password': pwd
-        },
-        body: JSON.stringify({
-          enabled: shouldEnable,
-          botToken: tokenVal,
-          chatId: chatIdVal
-        })
-      }).then(function(resp) {
-        if (!resp.ok) {
-          return parseErrorResponse(resp, '儲存失敗').then(function(msg) {
-            throw new Error(msg);
+        const tag = `ech-doh-${domain.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+        if (!config.dns.servers.some((s: Record<string, unknown>) => s.tag === tag)) {
+          const dnsServerObj: Record<string, unknown> = {
+            tag,
+            type: 'https',
+            server: serverHost,
+            domain_resolver: 'system-dns'
+          };
+          if (serverPath && serverPath !== '/') {
+            dnsServerObj.path = serverPath;
+          }
+          config.dns.servers.push(dnsServerObj);
+        }
+
+        const alreadyExists = config.dns.rules.some((r: Record<string, unknown>) => {
+          const doms = r.domain as string[] | undefined;
+          return Array.isArray(doms) && doms.includes(domain);
+        });
+
+        if (!alreadyExists) {
+          config.dns.rules.unshift({
+            domain: [domain],
+            domain_suffix: [domain],
+            server: tag
           });
         }
-        return resp.json();
-      }).then(function(data) {
-        tgConfigState = data;
-        renderTgPanel();
-        closeTgModal();
-        showToast('Telegram 通知參數已儲存！');
-      }).catch(function(e) {
-        showToast('儲存失敗: ' + e.message, false);
-      });
+      }
     }
 
-    function testTgConfig() {
-      var tokenVal = document.getElementById('tgBotTokenInput').value.trim();
-      var chatIdVal = document.getElementById('tgChatIdInput').value.trim();
+    // 遍歷所有 DNS 伺服器，確保域名地址均帶有 domain_resolver (Sing-Box 1.14+ 強制規範)
+    if (Array.isArray(config.dns.servers)) {
+      config.dns.servers.forEach((s: Record<string, unknown>) => {
+        if (s.server && typeof s.server === 'string' && !isIpAddress(s.server)) {
+          if (!s.domain_resolver) {
+            s.domain_resolver = 'system-dns';
+          }
+        }
+      });
+    }
+  }
 
-      if (!tgConfigState.hasToken && !tokenVal) {
-        return showToast('請先輸入 Bot Token', false);
+  if (!config.route) config.route = {};
+  config.route.default_domain_resolver = 'system-dns';
+  config.route.default_http_client = 'default';
+
+  if (Array.isArray(config.route.rule_set)) {
+    config.route.rule_set.forEach((rs: Record<string, unknown>) => {
+      delete rs.download_detour;
+    });
+  }
+
+  if (Array.isArray(config.inbounds)) {
+    config.inbounds.forEach((ib: Record<string, unknown>) => {
+      delete ib.sniff;
+      delete ib.sniff_override_destination;
+      delete ib.domain_strategy;
+    });
+  }
+
+  const outbounds: Record<string, unknown>[] = [];
+  const endpoints: Record<string, unknown>[] = [];
+  const allNodeTags: string[] = [];
+
+  nodes.forEach(n => {
+    allNodeTags.push(n.name);
+
+    if (n.type === 'wireguard' && n.wireguard) {
+      const wg = n.wireguard;
+      const peerObj: Record<string, unknown> = {
+        address: n.server,
+        port: n.port,
+        public_key: wg.publicKey,
+        allowed_ips: ['0.0.0.0/0', '::/0']
+      };
+      if (wg.presharedKey) peerObj.pre_shared_key = wg.presharedKey;
+      if (wg.reserved && wg.reserved.length > 0) peerObj.reserved = wg.reserved;
+
+      endpoints.push({
+        type: 'wireguard',
+        tag: n.name,
+        address: wg.localAddress,
+        private_key: wg.privateKey,
+        peers: [peerObj],
+        mtu: wg.mtu || 1420
+      });
+    } else {
+      const obj = JSON.parse(JSON.stringify(n.singboxObj));
+      if (obj.transport?.type === 'ws' && obj.tls?.enabled === true && (!obj.tls.alpn || obj.tls.alpn.length === 0)) {
+        obj.tls.alpn = ['http/1.1'];
       }
-      if (!chatIdVal && !tgConfigState.chatId) {
-        return showToast('請先輸入 Chat ID', false);
+
+      if (n.ech && obj.tls) {
+        const echObj: Record<string, unknown> = { enabled: true };
+        if (n.echQueryServerName && !isIpAddress(n.echQueryServerName)) {
+          echObj.query_server_name = n.echQueryServerName;
+        }
+        obj.tls.ech = echObj;
       }
 
-      var btn = document.getElementById('tgTestBtn');
-      var oldHtml = btn.innerHTML;
-      btn.disabled = true;
-      btn.textContent = '發送中...';
+      outbounds.push(obj);
+    }
+  });
 
-      var pwd = getStoredPwd();
-      fetch('/tg-test', {
+  if (endpoints.length > 0) {
+    if (!config.endpoints || !Array.isArray(config.endpoints)) {
+      config.endpoints = [];
+    }
+    config.endpoints.push(...endpoints);
+  }
+
+  if (!Array.isArray(config.outbounds)) config.outbounds = [];
+  config.outbounds.push(...outbounds);
+
+  config.outbounds.forEach((out: Record<string, unknown>) => {
+    if (out.type === 'selector' || out.type === 'urltest') {
+      const groupTag = String(out.tag || '');
+      if (SKIP_NODE_INJECTION_TAGS.has(groupTag)) return;
+
+      if (!Array.isArray(out.outbounds)) out.outbounds = [];
+      const arr = out.outbounds as string[];
+      if (arr.length > 0 && arr.every(item => BUILTIN_ONLY_OUTBOUNDS.has(item))) {
+        return;
+      }
+
+      allNodeTags.forEach(tag => {
+        if (!arr.includes(tag)) arr.push(tag);
+      });
+    }
+  });
+
+  return JSON.stringify(config, null, 2);
+}
+
+````
+
+## File: src/parsers/masque.ts
+````ts
+// src/parsers/masque.ts
+import { ProxyNode, MasqueConfig } from '../types';
+import { parseProxyUri } from './common';
+
+export interface RawMasqueConfig {
+  private_key?: string;
+  'private-key'?: string;
+  endpoint_v4?: string;
+  endpoint_v6?: string;
+  endpoint_pub_key?: string;
+  'public-key'?: string;
+  public_key?: string;
+  server?: string;
+  port?: number | string;
+  ipv4?: string;
+  ipv6?: string;
+  ip?: string;
+  name?: string;
+  uri?: string;
+  sni?: string;
+  servername?: string;
+  server_name?: string;
+  congestion_controller?: string;
+  'congestion-controller'?: string;
+  congestion_control?: string;
+  cca?: string;
+  cc?: string;
+  dns?: string[] | string;
+  mtu?: number | string;
+  udp?: boolean;
+  'remote-dns-resolve'?: boolean;
+  [key: string]: unknown;
+}
+
+export function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode {
+  const privateKey = (config.private_key || config['private-key'] || '').trim();
+  const rawPubKey = (config.endpoint_pub_key || config.public_key || config['public-key'] || '').trim();
+  const publicKey = rawPubKey.replace(/-----BEGIN[^-]+-----|-----END[^-]+-----|[\r\n\s]/g, '');
+  const server = (config.server || config.endpoint_v4 || '').trim();
+  const port = parseInt(String(config.port || 443), 10) || 443;
+  const rawIpv4 = (config.ip || config.ipv4 || '').trim();
+
+  if (!privateKey) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: private_key (私鑰)`);
+  if (!publicKey) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: public_key / endpoint_pub_key (公鑰)`);
+  if (!server) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: server / endpoint_v4 (伺服器端點)`);
+  if (!rawIpv4) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: ip / ipv4 (客戶端內網 IP)`);
+
+  const localIpv4 = rawIpv4.includes('/') ? rawIpv4 : `${rawIpv4}/32`;
+
+  let localIpv6: string | undefined = undefined;
+  if (config.ipv6) {
+    const rawIpv6 = String(config.ipv6).trim();
+    localIpv6 = rawIpv6.includes('/') ? rawIpv6 : `${rawIpv6}/128`;
+  }
+
+  const name = config.name || (index > 0 ? `WARP-MASQUE-${index + 1}` : 'WARP-MASQUE');
+  const uri = config.uri && String(config.uri).trim() ? String(config.uri).trim() : 'https://cloudflareaccess.com';
+  const customSni = config.sni || config.servername || config.server_name;
+  const sni = customSni && String(customSni).trim() ? String(customSni).trim() : 'www.microsoft.com';
+
+  const rawCc =
+    config.cca ||
+    config.cc ||
+    config.congestion_control ||
+    config.congestion_controller ||
+    config['congestion-controller'];
+  const congestionController = rawCc && String(rawCc).trim() ? String(rawCc).trim() : 'bbr';
+  const mtu = config.mtu ? parseInt(String(config.mtu), 10) || 1280 : 1280;
+
+  let dnsList: string[] = [];
+  if (Array.isArray(config.dns) && config.dns.length > 0) {
+    dnsList = config.dns.map(d => String(d).trim()).filter(Boolean);
+  } else if (typeof config.dns === 'string' && config.dns.trim()) {
+    dnsList = config.dns.split(',').map(d => d.trim()).filter(Boolean);
+  } else {
+    dnsList = ['1.1.1.1', '8.8.8.8'];
+  }
+
+  const remoteDnsResolve =
+    config['remote-dns-resolve'] !== undefined ? Boolean(config['remote-dns-resolve']) : true;
+
+  const masqueConfig: MasqueConfig = {
+    privateKey,
+    publicKey,
+    localIpv4,
+    localIpv6,
+    mtu,
+    uri,
+    sni,
+    congestion_controller: congestionController,
+    dns: dnsList
+  };
+
+  const node: ProxyNode = {
+    type: 'masque',
+    name,
+    server,
+    port,
+    udp: true,
+    sni,
+    masque: masqueConfig
+  };
+
+  node.singboxObj = {
+    type: 'masque',
+    tag: name,
+    server,
+    server_port: port,
+    private_key: privateKey,
+    public_key: publicKey,
+    ip: localIpv4,
+    ...(localIpv6 ? { ipv6: localIpv6 } : {}),
+    uri,
+    congestion_control: congestionController,
+    mtu,
+    tls: {
+      enabled: true,
+      server_name: sni
+    }
+  };
+
+  const originalClashProps = { ...config };
+  const cleanKeys = [
+    'private_key', 'private-key', 'public_key', 'public-key', 'endpoint_pub_key',
+    'endpoint_v4', 'endpoint_v6', 'endpoint_h2_v4', 'endpoint_h2_v6',
+    'ipv4', 'license', 'id', 'access_token', 'MASQUE导航'
+  ];
+  for (const k of cleanKeys) {
+    delete originalClashProps[k];
+  }
+
+  node.clashObj = {
+    ...originalClashProps,
+    name,
+    type: 'masque',
+    server,
+    port,
+    'private-key': privateKey,
+    'public-key': publicKey,
+    ip: localIpv4.split('/')[0],
+    ...(localIpv6 ? { ipv6: localIpv6.split('/')[0] } : {}),
+    uri,
+    mtu,
+    udp: config.udp !== undefined ? Boolean(config.udp) : true,
+    'remote-dns-resolve': remoteDnsResolve,
+    'congestion-controller': congestionController,
+    dns: dnsList,
+    sni
+  };
+
+  return node;
+}
+
+export function parseMasqueConfigs(text: string): ProxyNode[] {
+  const nodes: ProxyNode[] = [];
+  const trimmed = text.trim();
+
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      parsed.forEach((item, idx) => {
+        const n = buildMasqueNode(item as RawMasqueConfig, idx);
+        if (n) nodes.push(n);
+      });
+      if (nodes.length > 0) return nodes;
+    } else if (typeof parsed === 'object' && parsed !== null) {
+      const n = buildMasqueNode(parsed as RawMasqueConfig, 0);
+      if (n) return [n];
+    }
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message.startsWith('[MASQUE]')) {
+      throw err;
+    }
+  }
+
+  const objectMatches = trimmed.match(/\{[^{}]*["']private_key["'][^{}]*\}/g);
+  if (objectMatches) {
+    objectMatches.forEach((rawObj, idx) => {
+      const obj = JSON.parse(rawObj) as RawMasqueConfig;
+      const n = buildMasqueNode(obj, idx);
+      if (n) nodes.push(n);
+    });
+  }
+
+  return nodes;
+}
+
+export function parseMasqueUri(urlStr: string): ProxyNode {
+  const parsed = parseProxyUri(urlStr, 443);
+  if (!parsed) throw new Error('[MASQUE] URI 格式無效，無法解析');
+
+  const privateKey = parsed.username;
+  const params = parsed.params;
+  const publicKey = params.get('public_key') || params.get('pk') || '';
+  const ipv4 = params.get('ip') || '';
+  const ipv6 = params.get('ipv6') || undefined;
+  const mtu = parseInt(params.get('mtu') || '1280', 10);
+  const name = parsed.hash || 'WARP-MASQUE';
+
+  if (!privateKey) throw new Error('[MASQUE] 缺少必要欄位: private_key (私鑰)');
+  if (!publicKey) throw new Error('[MASQUE] 缺少必要欄位: public_key (公鑰)');
+  if (!parsed.hostname) throw new Error('[MASQUE] 缺少必要欄位: server (伺服器地址)');
+  if (!ipv4) throw new Error('[MASQUE] 缺少必要欄位: ip (客戶端內網 IP)');
+
+  const uri = params.get('uri') && params.get('uri')!.trim() ? params.get('uri')!.trim() : 'https://cloudflareaccess.com';
+  const sni = params.get('sni') && params.get('sni')!.trim() ? params.get('sni')!.trim() : 'www.microsoft.com';
+
+  const rawCc =
+    params.get('cca') ||
+    params.get('cc') ||
+    params.get('congestion_control') ||
+    params.get('congestion_controller') ||
+    params.get('congestion-controller');
+  const congestionController = rawCc && rawCc.trim() ? rawCc.trim() : 'bbr';
+
+  const dnsParam = params.get('dns');
+  const dnsList = dnsParam ? dnsParam.split(',').map(d => d.trim()).filter(Boolean) : ['1.1.1.1', '8.8.8.8'];
+
+  const masqueConfig: MasqueConfig = {
+    privateKey,
+    publicKey,
+    localIpv4: ipv4.includes('/') ? ipv4 : `${ipv4}/32`,
+    localIpv6: ipv6 ? (ipv6.includes('/') ? ipv6 : `${ipv6}/128`) : undefined,
+    mtu,
+    uri,
+    sni,
+    congestion_controller: congestionController,
+    dns: dnsList
+  };
+
+  const node: ProxyNode = {
+    type: 'masque',
+    name,
+    server: parsed.hostname,
+    port: parsed.port,
+    udp: true,
+    sni,
+    masque: masqueConfig
+  };
+
+  node.singboxObj = {
+    type: 'masque',
+    tag: name,
+    server: parsed.hostname,
+    server_port: parsed.port,
+    private_key: privateKey,
+    public_key: publicKey,
+    ip: masqueConfig.localIpv4,
+    ...(masqueConfig.localIpv6 ? { ipv6: masqueConfig.localIpv6 } : {}),
+    uri,
+    congestion_control: congestionController,
+    mtu,
+    tls: {
+      enabled: true,
+      server_name: sni
+    }
+  };
+
+  node.clashObj = {
+    name,
+    type: 'masque',
+    server: parsed.hostname,
+    port: parsed.port,
+    'private-key': privateKey,
+    'public-key': publicKey,
+    ip: ipv4.split('/')[0],
+    ...(ipv6 ? { ipv6: ipv6.split('/')[0] } : {}),
+    uri,
+    mtu,
+    udp: true,
+    'remote-dns-resolve': true,
+    'congestion-controller': congestionController,
+    dns: dnsList,
+    sni
+  };
+
+  return node;
+}
+
+````
+
+## File: src/parsers/clash-yaml.ts
+````ts
+// src/parsers/clash-yaml.ts
+import yaml from 'js-yaml';
+import { ProxyNode, WireGuardConfig } from '../types';
+import { parseEchInfo } from './common';
+import { RawMasqueConfig, buildMasqueNode } from './masque';
+
+export function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNode {
+  const type = String(p.type || '').toLowerCase();
+  const name = String(p.name || `Node-${index + 1}`).trim();
+  const server = String(p.server || '').trim();
+  const port = parseInt(String(p.port || 443), 10) || 443;
+
+  if (type === 'masque') {
+    return buildMasqueNode(p as RawMasqueConfig, index);
+  }
+
+  if (!server) throw new Error(`[Clash YAML] 第 ${index + 1} 個節點缺少 server (伺服器地址)`);
+
+  // 1. VLESS
+  if (type === 'vless') {
+    const uuid = String(p.uuid || '').trim();
+    if (!uuid) throw new Error(`[Clash YAML] VLESS 節點 [${name}] 缺少 uuid`);
+
+    const tls = Boolean(p.tls);
+    const sni = p.servername ? String(p.servername).trim() : p.sni ? String(p.sni) : server;
+    const flow = p.flow ? String(p.flow).trim() : undefined;
+    const network = p.network
+      ? String(p.network).toLowerCase()
+      : p['ws-opts']
+        ? 'ws'
+        : p['xhttp-opts']
+          ? 'xhttp'
+          : p['grpc-opts']
+            ? 'grpc'
+            : 'tcp';
+
+    const wsOpts = p['ws-opts'] as Record<string, unknown> | undefined;
+    const wsPath = wsOpts?.path ? String(wsOpts.path) : undefined;
+    const wsHeaders = wsOpts?.headers as Record<string, string> | undefined;
+
+    const xhttpOpts = (p['xhttp-opts'] || p['splithttp-opts']) as Record<string, unknown> | undefined;
+    const xhttpPath = xhttpOpts?.path ? String(xhttpOpts.path) : undefined;
+    const xhttpHost = xhttpOpts?.host ? String(xhttpOpts.host) : undefined;
+    const xhttpMode = xhttpOpts?.mode ? String(xhttpOpts.mode) : undefined;
+
+    const grpcOpts = p['grpc-opts'] as Record<string, unknown> | undefined;
+    const grpcServiceName = grpcOpts?.['grpc-service-name'] ? String(grpcOpts['grpc-service-name']) : undefined;
+
+    const isXhttp = network === 'xhttp' || network === 'splithttp';
+    const isGrpc = network === 'grpc';
+
+    const realityOpts = p['reality-opts'] as Record<string, unknown> | undefined;
+    const reality =
+      p.reality || realityOpts
+        ? {
+            publicKey: String(realityOpts?.['public-key'] || ''),
+            shortId: String(realityOpts?.['short-id'] || ''),
+            spiderX: realityOpts?.['spider-x'] ? String(realityOpts['spider-x']) : undefined,
+            supportX25519Mlkem768:
+              realityOpts?.['support-x25519mlkem768'] !== undefined
+                ? Boolean(realityOpts['support-x25519mlkem768'])
+                : true
+          }
+        : undefined;
+
+    const echOpts = p['ech-opts'] as Record<string, unknown> | undefined;
+    let echEnabled = false;
+    let echDomain: string | undefined = undefined;
+    let echDoh: string | undefined = undefined;
+
+    if (p.ech) {
+      const info = parseEchInfo(String(p.ech));
+      echEnabled = info.enabled;
+      echDomain = info.domain;
+      echDoh = info.doh;
+    } else if (echOpts && echOpts.enable === true) {
+      echEnabled = true;
+      if (echOpts['query-server-name']) echDomain = String(echOpts['query-server-name']);
+      const rawDoh = echOpts['doh-server'] || echOpts.doh;
+      if (rawDoh && /^https?:\/\//i.test(String(rawDoh))) {
+        echDoh = String(rawDoh);
+      }
+    }
+
+    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
+    const fingerprint = p['client-fingerprint'] ? String(p['client-fingerprint']).trim() : 'chrome';
+    const alpn = Array.isArray(p.alpn) ? p.alpn.map(String) : undefined;
+
+    let earlyDataLength: number | undefined = undefined;
+    if (wsOpts?.['max-early-data']) {
+      earlyDataLength = parseInt(String(wsOpts['max-early-data']), 10);
+    } else if (wsPath) {
+      const edMatch = wsPath.match(/[?&]ed=([0-9]+)/);
+      if (edMatch && edMatch[1]) {
+        earlyDataLength = parseInt(edMatch[1], 10);
+      }
+    }
+
+    const clashObjCopy: Record<string, unknown> = { ...p };
+    clashObjCopy.network = network;
+    if (!alpn) {
+      delete clashObjCopy.alpn;
+    }
+
+    if (reality) {
+      const ro = { ...((clashObjCopy['reality-opts'] as Record<string, unknown>) || {}) };
+      ro['public-key'] = reality.publicKey;
+      ro['short-id'] = reality.shortId;
+      if (reality.spiderX) ro['spider-x'] = reality.spiderX;
+      if (ro['support-x25519mlkem768'] === undefined) {
+        ro['support-x25519mlkem768'] = true;
+      }
+      clashObjCopy['reality-opts'] = ro;
+      clashObjCopy.reality = true;
+    }
+
+    const node: ProxyNode = {
+      type: 'vless',
+      name,
+      server,
+      port,
+      uuid,
+      tls,
+      sni,
+      network,
+      grpcServiceName,
+      flow,
+      wsPath,
+      wsHeaders,
+      reality,
+      xhttpPath,
+      xhttpHost,
+      xhttpMode,
+      udp: p.udp !== undefined ? Boolean(p.udp) : true,
+      skipCertVerify,
+      fingerprint,
+      alpn,
+      ech: echEnabled,
+      echQueryServerName: echDomain,
+      echDoh,
+      clashObj: clashObjCopy
+    };
+
+    const sb: Record<string, unknown> = {
+      tag: name,
+      type: 'vless',
+      server,
+      server_port: port,
+      uuid,
+      packet_encoding: 'xudp'
+    };
+    if (tls) {
+      const tlsObj: Record<string, unknown> = {
+        enabled: true,
+        server_name: sni,
+        insecure: skipCertVerify,
+        utls: { enabled: true, fingerprint }
+      };
+      if (alpn) tlsObj.alpn = alpn;
+      if (echEnabled) {
+        const echObj: Record<string, unknown> = { enabled: true };
+        if (echDomain) echObj.query_server_name = echDomain;
+        tlsObj.ech = echObj;
+      }
+      if (reality) {
+        tlsObj.reality = { enabled: true, public_key: reality.publicKey, short_id: reality.shortId };
+      }
+      sb.tls = tlsObj;
+    }
+    if (flow) sb.flow = flow;
+    if (network === 'ws') {
+      const wsTransport: Record<string, unknown> = {
+        type: 'ws',
+        path: wsPath || '/',
+        headers: wsHeaders
+      };
+      if (earlyDataLength) {
+        wsTransport.max_early_data = earlyDataLength;
+        wsTransport.early_data_header_name = 'Sec-WebSocket-Protocol';
+      }
+      sb.transport = wsTransport;
+    } else if (isXhttp) {
+      sb.transport = {
+        type: 'splithttp',
+        path: xhttpPath || '/',
+        headers: xhttpHost ? { Host: xhttpHost } : undefined,
+        mode: xhttpMode || 'auto'
+      };
+    } else if (isGrpc) {
+      sb.transport = {
+        type: 'grpc',
+        service_name: grpcServiceName || ''
+      };
+    }
+    node.singboxObj = sb;
+    return node;
+  }
+
+  // 2. Shadowsocks
+  if (type === 'ss' || type === 'shadowsocks') {
+    const cipher = String(p.cipher || '');
+    const password = String(p.password || '');
+    if (!cipher) throw new Error(`[Clash YAML] Shadowsocks 節點 [${name}] 缺少 cipher (加密方法)`);
+    if (!password) throw new Error(`[Clash YAML] Shadowsocks 節點 [${name}] 缺少 password (密碼)`);
+    const udp = p.udp !== false;
+
+    const node: ProxyNode = {
+      type: 'shadowsocks',
+      name,
+      server,
+      port,
+      cipher,
+      password,
+      udp,
+      clashObj: { ...p }
+    };
+    node.singboxObj = {
+      tag: name,
+      type: 'shadowsocks',
+      server,
+      server_port: port,
+      method: cipher,
+      password
+    };
+    return node;
+  }
+
+  // 3. VMess
+  if (type === 'vmess') {
+    const uuid = String(p.uuid || '');
+    if (!uuid) throw new Error(`[Clash YAML] VMess 節點 [${name}] 缺少 uuid`);
+    const tls = Boolean(p.tls);
+    const sni = p.servername ? String(p.servername) : p.sni ? String(p.sni) : server;
+    const network = p.network ? String(p.network).toLowerCase() : p['ws-opts'] ? 'ws' : 'tcp';
+    const wsOpts = p['ws-opts'] as Record<string, unknown> | undefined;
+    const wsPath = wsOpts?.path ? String(wsOpts.path) : undefined;
+    const wsHeaders = wsOpts?.headers as Record<string, string> | undefined;
+
+    const node: ProxyNode = {
+      type: 'vmess',
+      name,
+      server,
+      port,
+      uuid,
+      tls,
+      sni,
+      network,
+      wsPath,
+      wsHeaders,
+      udp: p.udp !== undefined ? Boolean(p.udp) : true,
+      clashObj: { ...p, network }
+    };
+    const sb: Record<string, unknown> = {
+      tag: name,
+      type: 'vmess',
+      server,
+      server_port: port,
+      uuid,
+      security: 'auto',
+      packet_encoding: 'xudp'
+    };
+    if (tls) {
+      sb.tls = { enabled: true, server_name: sni, insecure: p['skip-cert-verify'] ? Boolean(p['skip-cert-verify']) : false };
+    }
+    if (network === 'ws') {
+      sb.transport = { type: 'ws', path: wsPath || '/', headers: wsHeaders };
+    }
+    node.singboxObj = sb;
+    return node;
+  }
+
+  // 4. Trojan
+  if (type === 'trojan') {
+    const password = String(p.password || '');
+    if (!password) throw new Error(`[Clash YAML] Trojan 節點 [${name}] 缺少 password (密碼)`);
+    const sni = p.sni ? String(p.sni) : p.servername ? String(p.servername) : server;
+    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
+
+    const node: ProxyNode = {
+      type: 'trojan',
+      name,
+      server,
+      port,
+      password,
+      tls: true,
+      sni,
+      skipCertVerify,
+      udp: p.udp !== undefined ? Boolean(p.udp) : true,
+      clashObj: { ...p }
+    };
+    node.singboxObj = {
+      tag: name,
+      type: 'trojan',
+      server,
+      server_port: port,
+      password,
+      tls: { enabled: true, server_name: sni, insecure: skipCertVerify }
+    };
+    return node;
+  }
+
+  // 5. Hysteria 2
+  if (type === 'hysteria2' || type === 'hy2') {
+    const password = String(p.password || p.auth || '');
+    if (!password) throw new Error(`[Clash YAML] Hysteria2 節點 [${name}] 缺少 password / auth`);
+    const sni = p.sni ? String(p.sni) : p.servername ? String(p.servername) : server;
+    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
+
+    const node: ProxyNode = {
+      type: 'hysteria2',
+      name,
+      server,
+      port,
+      password,
+      tls: true,
+      sni,
+      skipCertVerify,
+      udp: p.udp !== undefined ? Boolean(p.udp) : true,
+      obfs: p.obfs ? String(p.obfs) : undefined,
+      obfsPassword: p['obfs-password'] ? String(p['obfs-password']) : undefined,
+      clashObj: { ...p }
+    };
+    const sb: Record<string, unknown> = {
+      tag: name,
+      type: 'hysteria2',
+      server,
+      server_port: port,
+      password,
+      tls: { enabled: true, server_name: sni, insecure: skipCertVerify }
+    };
+    if (node.obfs) {
+      sb.obfs = { type: node.obfs, password: node.obfsPassword };
+    }
+    node.singboxObj = sb;
+    return node;
+  }
+
+  // 6. TUIC
+  if (type === 'tuic') {
+    const uuid = String(p.uuid || '');
+    const password = String(p.password || '');
+    if (!uuid) throw new Error(`[Clash YAML] TUIC 節點 [${name}] 缺少 uuid`);
+    const sni = p.sni ? String(p.sni) : p.servername ? String(p.servername) : server;
+    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
+    const congestion_control = p['congestion-controller'] ? String(p['congestion-controller']) : 'bbr';
+    const udp_relay_mode = p['udp-relay-mode'] ? String(p['udp-relay-mode']) : 'native';
+    const alpn = Array.isArray(p.alpn) ? p.alpn.map(String) : ['h3'];
+
+    const node: ProxyNode = {
+      type: 'tuic',
+      name,
+      server,
+      port,
+      uuid,
+      password,
+      tls: true,
+      sni,
+      skipCertVerify,
+      congestion_control,
+      udp_relay_mode,
+      alpn,
+      udp: p.udp !== undefined ? Boolean(p.udp) : true,
+      clashObj: { ...p }
+    };
+    node.singboxObj = {
+      tag: name,
+      type: 'tuic',
+      server,
+      server_port: port,
+      uuid,
+      password,
+      congestion_control,
+      udp_relay_mode,
+      tls: { enabled: true, server_name: sni, alpn, insecure: skipCertVerify }
+    };
+    return node;
+  }
+
+  // 7. AnyTLS
+  if (type === 'anytls') {
+    const password = String(p.password || '');
+    if (!password) throw new Error(`[Clash YAML] AnyTLS 節點 [${name}] 缺少 password`);
+    const sni = p.sni ? String(p.sni) : p.servername ? String(p.servername) : server;
+    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
+    const fingerprint = p['client-fingerprint'] ? String(p['client-fingerprint']).trim() : 'chrome';
+    const alpn = Array.isArray(p.alpn) ? p.alpn.map(String) : undefined;
+
+    const node: ProxyNode = {
+      type: 'anytls',
+      name,
+      server,
+      port,
+      uuid: password,
+      password,
+      tls: true,
+      sni,
+      fingerprint,
+      skipCertVerify,
+      alpn,
+      udp: p.udp !== undefined ? Boolean(p.udp) : true,
+      clashObj: { ...p }
+    };
+    const sbTls: Record<string, unknown> = {
+      enabled: true,
+      server_name: sni,
+      insecure: skipCertVerify,
+      utls: { enabled: true, fingerprint }
+    };
+    if (alpn) sbTls.alpn = alpn;
+    node.singboxObj = {
+      tag: name,
+      type: 'anytls',
+      server,
+      server_port: port,
+      password,
+      tls: sbTls
+    };
+    return node;
+  }
+
+  // 8. WireGuard
+  if (type === 'wireguard') {
+    const privateKey = String(p['private-key'] || '');
+    const publicKey = String(p['public-key'] || '');
+    if (!privateKey) throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 private-key (私鑰)`);
+    if (!publicKey) throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 public-key (公鑰)`);
+    if (!p.ip) throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 ip (內網 IP)`);
+
+    const ip = String(p.ip);
+    const ipv6 = p.ipv6 ? String(p.ipv6) : undefined;
+    const localAddress = [ip.includes('/') ? ip : `${ip}/32`];
+    if (ipv6) localAddress.push(ipv6.includes('/') ? ipv6 : `${ipv6}/128`);
+    const presharedKey = p['preshared-key'] ? String(p['preshared-key']) : undefined;
+    const mtu = parseInt(String(p.mtu || 1420), 10) || 1420;
+    const reserved = Array.isArray(p.reserved) ? p.reserved.map(Number) : undefined;
+
+    const dnsList: string[] = p.dns
+      ? Array.isArray(p.dns)
+        ? p.dns.map(String).filter(Boolean)
+        : [String(p.dns)].filter(Boolean)
+      : [];
+
+    const wgConfig: WireGuardConfig = {
+      privateKey,
+      localAddress,
+      publicKey,
+      presharedKey,
+      mtu,
+      reserved,
+      dns: dnsList[0]
+    };
+
+    const clashCopy: Record<string, unknown> = { ...p };
+    if (dnsList.length > 0) {
+      clashCopy.dns = dnsList;
+    } else {
+      delete clashCopy.dns;
+    }
+
+    const node: ProxyNode = {
+      type: 'wireguard',
+      name,
+      server,
+      port,
+      udp: true,
+      wireguard: wgConfig,
+      clashObj: clashCopy
+    };
+    node.singboxObj = {
+      type: 'wireguard',
+      tag: name,
+      address: localAddress,
+      private_key: privateKey,
+      peers: [{ address: server, port, public_key: publicKey, allowed_ips: ['0.0.0.0/0', '::/0'] }],
+      mtu
+    };
+    return node;
+  }
+
+  // 9. 兜底通用節點
+  return {
+    type,
+    name,
+    server,
+    port,
+    udp: true,
+    clashObj: { ...p }
+  };
+}
+
+export function parseClashYaml(content: string): ProxyNode[] {
+  const nodes: ProxyNode[] = [];
+  if (!/(^|\n)\s*proxies\s*:/i.test(content)) {
+    return [];
+  }
+  const parsed = yaml.load(content);
+  if (!parsed || typeof parsed !== 'object') return [];
+
+  const rawProxies = (parsed as Record<string, unknown>).proxies;
+  if (!Array.isArray(rawProxies)) return [];
+
+  for (let i = 0; i < rawProxies.length; i++) {
+    const p = rawProxies[i];
+    if (!p || typeof p !== 'object') continue;
+    try {
+      const node = parseClashProxyItem(p as Record<string, unknown>, i);
+      if (node) nodes.push(node);
+    } catch {}
+  }
+  return nodes;
+}
+
+````
+
+## File: src/parsers/wireguard.ts
+````ts
+// src/parsers/wireguard.ts
+import { ProxyNode, WireGuardConfig } from '../types';
+import { parseProxyUri } from './common';
+
+export function parseShadowrocketWireGuard(line: string): ProxyNode {
+  const eqIdx = line.indexOf('=');
+  if (eqIdx === -1) throw new Error('[WireGuard] Shadowrocket 行格式錯誤');
+
+  const name = line.substring(0, eqIdx).trim();
+  const rightPart = line.substring(eqIdx + 1).trim();
+  const parts = rightPart.split(',').map(s => s.trim());
+
+  if (parts[0]?.toLowerCase() !== 'wireguard') throw new Error('[WireGuard] 非 WireGuard 行格式');
+
+  const server = parts[1];
+  const port = parseInt(parts[2], 10) || 51820;
+
+  let privateKey = '';
+  let publicKey = '';
+  let presharedKey: string | undefined = undefined;
+  let ip = '';
+  let dns = '';
+  let mtu = 1420;
+  let reserved: number[] | undefined = undefined;
+
+  for (let i = 3; i < parts.length; i++) {
+    const p = parts[i];
+    const kvIdx = p.indexOf('=');
+    if (kvIdx === -1) continue;
+    const k = p.substring(0, kvIdx).trim().toLowerCase();
+    const v = p.substring(kvIdx + 1).trim().replace(/^["']|["']$/g, '');
+
+    if (k === 'private-key' || k === 'privatekey') privateKey = v;
+    else if (k === 'public-key' || k === 'publickey') publicKey = v;
+    else if (k === 'preshared-key' || k === 'presharedkey') presharedKey = v;
+    else if (k === 'ip') ip = v;
+    else if (k === 'dns') dns = v;
+    else if (k === 'mtu') mtu = parseInt(v, 10) || 1420;
+    else if (k === 'reserved') reserved = v.split(',').map(n => parseInt(n.trim(), 10));
+  }
+
+  if (!server) throw new Error(`[WireGuard] 節點 [${name}] 缺少伺服器地址`);
+  if (!privateKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 private-key (私鑰)`);
+  if (!publicKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 public-key (公鑰)`);
+  if (!ip) throw new Error(`[WireGuard] 節點 [${name}] 缺少 ip (內網 IP)`);
+
+  const localAddress = ip.includes('/') ? [ip] : [`${ip}/32`];
+  const dnsList = dns ? dns.split(',').map(d => d.trim()).filter(Boolean) : [];
+
+  const wgConfig: WireGuardConfig = {
+    privateKey,
+    localAddress,
+    publicKey,
+    presharedKey,
+    mtu,
+    dns: dns || undefined,
+    reserved
+  };
+
+  const node: ProxyNode = {
+    type: 'wireguard',
+    name,
+    server,
+    port,
+    udp: true,
+    wireguard: wgConfig
+  };
+
+  node.singboxObj = {
+    type: 'wireguard',
+    tag: name,
+    address: localAddress,
+    private_key: privateKey,
+    peers: [
+      {
+        address: server,
+        port,
+        public_key: publicKey,
+        allowed_ips: ['0.0.0.0/0', '::/0']
+      }
+    ],
+    mtu
+  };
+
+  const clashObj: Record<string, unknown> = {
+    name,
+    type: 'wireguard',
+    server: node.server,
+    port: node.port,
+    ip: localAddress[0]?.split('/')[0],
+    ipv6: localAddress[1]?.split('/')[0],
+    'public-key': publicKey,
+    'private-key': privateKey,
+    'preshared-key': presharedKey,
+    mtu,
+    udp: true,
+    'remote-dns-resolve': true
+  };
+  if (dnsList.length > 0) clashObj.dns = dnsList;
+  node.clashObj = clashObj;
+
+  return node;
+}
+
+export function parseWireGuardConf(text: string): ProxyNode[] {
+  const nodes: ProxyNode[] = [];
+  const sections = text.split(/(?=\[Interface\])/i).filter(s => s.trim().length > 0);
+
+  for (let idx = 0; idx < sections.length; idx++) {
+    const sec = sections[idx];
+    if (!/\[Interface\]/i.test(sec)) continue;
+
+    const getVal = (key: string): string => {
+      const match = sec.match(new RegExp(`^[ \\t]*${key}[ \\t]*=[ \\t]*(.*?)[ \\t]*(?:#.*)?$`, 'mi'));
+      return match ? match[1].trim() : '';
+    };
+
+    let name = '';
+    const peerPart = sec.split(/\[Peer\]/i)[1] || '';
+    const peerComments = peerPart.match(/^[ \t]*#[ \t]*(.*?)$/gm);
+    if (peerComments) {
+      for (const c of peerComments) {
+        const clean = c.replace(/^[ \t]*#[ \t]*/, '').trim();
+        if (clean && !clean.includes('=') && !clean.toLowerCase().startsWith('key for')) {
+          name = clean;
+          break;
+        }
+      }
+    }
+
+    if (!name) {
+      const comments = sec.match(/^[ \t]*#[ \t]*(.*?)$/gm);
+      if (comments) {
+        for (const c of comments) {
+          const clean = c.replace(/^[ \t]*#[ \t]*/, '').trim();
+          if (clean && !clean.includes('=') && !clean.toLowerCase().startsWith('key for')) {
+            name = clean;
+            break;
+          }
+        }
+      }
+    }
+
+    const privateKey = getVal('PrivateKey');
+    const addressStr = getVal('Address');
+    const rawDns = getVal('DNS');
+    const publicKey = getVal('PublicKey');
+    const presharedKey = getVal('PresharedKey') || undefined;
+    const endpoint = getVal('Endpoint');
+    const mtuStr = getVal('MTU');
+    const mtu = mtuStr ? parseInt(mtuStr, 10) : 1420;
+
+    if (!privateKey) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: PrivateKey (私鑰)`);
+    if (!addressStr) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: Address (客戶端內網 IP)`);
+    if (!/\[Peer\]/i.test(sec)) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少 [Peer] 節點區塊`);
+    if (!publicKey) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: PublicKey (節點公鑰)`);
+    if (!endpoint) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: Endpoint (伺服器端點 IP:Port)`);
+
+    let server = endpoint;
+    let port = 51820;
+    const lastColon = endpoint.lastIndexOf(':');
+    if (lastColon !== -1) {
+      server = endpoint.slice(0, lastColon).trim();
+      if (server.startsWith('[') && server.endsWith(']')) {
+        server = server.slice(1, -1);
+      }
+      port = parseInt(endpoint.slice(lastColon + 1).trim(), 10) || 51820;
+    }
+
+    if (!name) name = `WireGuard-${server}`;
+
+    const localAddress = addressStr.split(',').map(s => s.trim()).filter(Boolean);
+    const dnsList = rawDns ? rawDns.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+    const wgConfig: WireGuardConfig = {
+      privateKey,
+      localAddress,
+      publicKey,
+      presharedKey,
+      mtu,
+      dns: rawDns || undefined
+    };
+
+    const node: ProxyNode = {
+      type: 'wireguard',
+      name,
+      server,
+      port,
+      udp: true,
+      wireguard: wgConfig
+    };
+
+    node.singboxObj = {
+      type: 'wireguard',
+      tag: name,
+      address: localAddress,
+      private_key: privateKey,
+      peers: [
+        {
+          address: server,
+          port,
+          public_key: publicKey,
+          allowed_ips: ['0.0.0.0/0', '::/0']
+        }
+      ],
+      mtu
+    };
+
+    const clashObj: Record<string, unknown> = {
+      name,
+      type: 'wireguard',
+      server: node.server,
+      port: node.port,
+      ip: localAddress[0]?.split('/')[0],
+      ipv6: localAddress[1]?.split('/')[0],
+      'public-key': publicKey,
+      'private-key': privateKey,
+      'preshared-key': presharedKey,
+      mtu,
+      udp: true,
+      'remote-dns-resolve': true
+    };
+    if (dnsList.length > 0) clashObj.dns = dnsList;
+    node.clashObj = clashObj;
+
+    nodes.push(node);
+  }
+
+  return nodes;
+}
+
+export function parseWireGuard(urlStr: string): ProxyNode {
+  const parsed = parseProxyUri(urlStr, 51820);
+  if (!parsed) throw new Error('[WireGuard] URI 格式無效');
+
+  const params = parsed.params;
+  const name = parsed.hash || 'WireGuard';
+  const privateKey = parsed.username;
+  const rawIp = params.get('address') || params.get('ip') || '';
+  const publicKey = params.get('publickey') || params.get('public_key') || params.get('pk') || '';
+  const presharedKey = params.get('presharedkey') || params.get('preshared_key') || params.get('psk') || undefined;
+  const mtu = parseInt(params.get('mtu') || '1420', 10);
+  const rawDns = params.get('dns') || '';
+  const reserved = params.get('reserved') ? params.get('reserved')!.split(',').map(n => parseInt(n.trim(), 10)) : undefined;
+
+  if (!privateKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 privatekey (私鑰)`);
+  if (!publicKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 publickey (公鑰)`);
+  if (!parsed.hostname) throw new Error(`[WireGuard] 節點 [${name}] 缺少伺服器地址`);
+  if (!rawIp) throw new Error(`[WireGuard] 節點 [${name}] 缺少 address / ip (內網 IP)`);
+
+  const localIps = rawIp.split(',').map(s => (s.trim().includes('/') ? s.trim() : `${s.trim()}/32`));
+  const dnsList = rawDns ? rawDns.split(',').map(d => d.trim()).filter(Boolean) : [];
+
+  const wgConfig: WireGuardConfig = {
+    privateKey,
+    localAddress: localIps,
+    publicKey,
+    presharedKey,
+    mtu,
+    reserved,
+    dns: rawDns || undefined
+  };
+
+  const node: ProxyNode = {
+    type: 'wireguard',
+    name,
+    server: parsed.hostname,
+    port: parsed.port,
+    udp: true,
+    wireguard: wgConfig
+  };
+
+  node.singboxObj = {
+    type: 'wireguard',
+    tag: name,
+    address: localIps,
+    private_key: privateKey,
+    peers: [
+      {
+        address: parsed.hostname,
+        port: parsed.port,
+        public_key: publicKey,
+        allowed_ips: ['0.0.0.0/0', '::/0']
+      }
+    ],
+    mtu
+  };
+
+  const clashObj: Record<string, unknown> = {
+    name,
+    type: 'wireguard',
+    server: node.server,
+    port: node.port,
+    ip: localIps[0]?.split('/')[0],
+    ipv6: localIps[1]?.split('/')[0],
+    'public-key': publicKey,
+    'private-key': privateKey,
+    'preshared-key': presharedKey,
+    mtu,
+    udp: true,
+    'remote-dns-resolve': true
+  };
+  if (dnsList.length > 0) clashObj.dns = dnsList;
+  node.clashObj = clashObj;
+
+  return node;
+}
+
+````
+
+## File: src/parsers/common.ts
+````ts
+// src/parsers/common.ts
+import { tryDecodeURIComponent } from '../utils';
+
+export interface ParsedUri {
+  protocol: string;
+  username: string;
+  password?: string;
+  hostname: string;
+  port: number;
+  params: URLSearchParams;
+  hash: string;
+}
+
+export interface EchInfo {
+  enabled: boolean;
+  domain?: string;
+  doh?: string;
+}
+
+export function parseProxyUri(urlStr: string, defaultPort = 443): ParsedUri | null {
+  try {
+    const trimmed = urlStr.trim();
+    const match = trimmed.match(
+      /^([a-zA-Z0-9_-]+):\/\/(?:([^:@/?#]+)(?::([^@/?#]*))?@)?(\[[a-fA-F0-9:]+\]|[^:/?#]+)(?::([0-9]+))?\/?(?:\?([^#]*))?(?:#(.*))?$/
+    );
+    if (!match) return null;
+
+    const protocol = match[1].toLowerCase();
+    const username = match[2] ? tryDecodeURIComponent(match[2]) : '';
+    const password = match[3] ? tryDecodeURIComponent(match[3]) : undefined;
+    let hostname = match[4];
+    if (hostname.startsWith('[') && hostname.endsWith(']')) {
+      hostname = hostname.slice(1, -1);
+    }
+    const port = match[5] ? parseInt(match[5], 10) : defaultPort;
+    const query = match[6] || '';
+    const hash = match[7] ? tryDecodeURIComponent(match[7]) : '';
+
+    const params = new URLSearchParams(query);
+    return { protocol, username, password, hostname, port, params, hash };
+  } catch {
+    return null;
+  }
+}
+
+export function parsePluginParams(str: string): Record<string, string> {
+  const params: Record<string, string> = {};
+  str.split(';').forEach(p => {
+    const eqIdx = p.indexOf('=');
+    if (eqIdx !== -1) {
+      const k = p.slice(0, eqIdx).trim();
+      const v = p.slice(eqIdx + 1).trim();
+      if (k && v) params[k] = v;
+    }
+  });
+  return params;
+}
+
+export function isIpAddress(str: string): boolean {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(str) || str.includes(':');
+}
+
+// 嚴格依據輸入解析 ECH，不腦補任何預設網域
+export function parseEchInfo(val: string | null | undefined): EchInfo {
+  if (!val) return { enabled: false };
+  const raw = val.trim();
+  const clean = raw.toLowerCase();
+  if (['0', 'false', 'off', 'none', 'no', ''].includes(clean)) {
+    return { enabled: false };
+  }
+
+  // 1. 純開關 (例如: ech=1 或 ech=true)，網域與 DoH 均為 undefined
+  if (clean === '1' || clean === 'true') {
+    return { enabled: true };
+  }
+
+  // 2. 格式: domain+doh (例如: custom-domain.com+https://1.1.1.1/dns-query)
+  if (raw.includes('+')) {
+    const parts = raw.split('+');
+    const domainPart = parts[0]?.trim();
+    const dohPart = parts.slice(1).join('+').trim();
+    const validDoh = /^https?:\/\//i.test(dohPart) ? dohPart : undefined;
+    const validDomain = domainPart && !isIpAddress(domainPart) ? domainPart : undefined;
+    return {
+      enabled: true,
+      domain: validDomain,
+      doh: validDoh
+    };
+  }
+
+  // 3. 只有以 https:// 或 http:// 開頭，才認定為 DoH
+  if (/^https?:\/\//i.test(raw)) {
+    return {
+      enabled: true,
+      doh: raw
+    };
+  }
+
+  // 4. 其餘普通字串且非 IP，視為使用者明確輸入的自訂 ECH 查詢網域名稱
+  if (!isIpAddress(raw)) {
+    return {
+      enabled: true,
+      domain: raw
+    };
+  }
+
+  return { enabled: true };
+}
 
 ````
 
@@ -5557,1343 +6287,54 @@ export function parseTrojan(urlStr: string): ProxyNode {
 
 ````
 
-## File: src/parsers/common.ts
+## File: src/index.ts
 ````ts
-// src/parsers/common.ts
-import { tryDecodeURIComponent } from '../utils';
-
-export interface ParsedUri {
-  protocol: string;
-  username: string;
-  password?: string;
-  hostname: string;
-  port: number;
-  params: URLSearchParams;
-  hash: string;
-}
-
-export interface EchInfo {
-  enabled: boolean;
-  domain?: string;
-  doh?: string;
-}
-
-export function parseProxyUri(urlStr: string, defaultPort = 443): ParsedUri | null {
-  try {
-    const trimmed = urlStr.trim();
-    const match = trimmed.match(
-      /^([a-zA-Z0-9_-]+):\/\/(?:([^:@/?#]+)(?::([^@/?#]*))?@)?(\[[a-fA-F0-9:]+\]|[^:/?#]+)(?::([0-9]+))?\/?(?:\?([^#]*))?(?:#(.*))?$/
-    );
-    if (!match) return null;
-
-    const protocol = match[1].toLowerCase();
-    const username = match[2] ? tryDecodeURIComponent(match[2]) : '';
-    const password = match[3] ? tryDecodeURIComponent(match[3]) : undefined;
-    let hostname = match[4];
-    if (hostname.startsWith('[') && hostname.endsWith(']')) {
-      hostname = hostname.slice(1, -1);
-    }
-    const port = match[5] ? parseInt(match[5], 10) : defaultPort;
-    const query = match[6] || '';
-    const hash = match[7] ? tryDecodeURIComponent(match[7]) : '';
-
-    const params = new URLSearchParams(query);
-    return { protocol, username, password, hostname, port, params, hash };
-  } catch {
-    return null;
-  }
-}
-
-export function parsePluginParams(str: string): Record<string, string> {
-  const params: Record<string, string> = {};
-  str.split(';').forEach(p => {
-    const eqIdx = p.indexOf('=');
-    if (eqIdx !== -1) {
-      const k = p.slice(0, eqIdx).trim();
-      const v = p.slice(eqIdx + 1).trim();
-      if (k && v) params[k] = v;
-    }
-  });
-  return params;
-}
-
-export function isIpAddress(str: string): boolean {
-  return /^(\d{1,3}\.){3}\d{1,3}$/.test(str) || str.includes(':');
-}
-
-// 嚴格依據輸入解析 ECH，不腦補任何預設網域
-export function parseEchInfo(val: string | null | undefined): EchInfo {
-  if (!val) return { enabled: false };
-  const raw = val.trim();
-  const clean = raw.toLowerCase();
-  if (['0', 'false', 'off', 'none', 'no', ''].includes(clean)) {
-    return { enabled: false };
-  }
-
-  // 1. 純開關 (例如: ech=1 或 ech=true)，網域與 DoH 均為 undefined
-  if (clean === '1' || clean === 'true') {
-    return { enabled: true };
-  }
-
-  // 2. 格式: domain+doh (例如: custom-domain.com+https://1.1.1.1/dns-query)
-  if (raw.includes('+')) {
-    const parts = raw.split('+');
-    const domainPart = parts[0]?.trim();
-    const dohPart = parts.slice(1).join('+').trim();
-    const validDoh = /^https?:\/\//i.test(dohPart) ? dohPart : undefined;
-    const validDomain = domainPart && !isIpAddress(domainPart) ? domainPart : undefined;
-    return {
-      enabled: true,
-      domain: validDomain,
-      doh: validDoh
-    };
-  }
-
-  // 3. 只有以 https:// 或 http:// 開頭，才認定為 DoH
-  if (/^https?:\/\//i.test(raw)) {
-    return {
-      enabled: true,
-      doh: raw
-    };
-  }
-
-  // 4. 其餘普通字串且非 IP，視為使用者明確輸入的自訂 ECH 查詢網域名稱
-  if (!isIpAddress(raw)) {
-    return {
-      enabled: true,
-      domain: raw
-    };
-  }
-
-  return { enabled: true };
-}
-
-````
-
-## File: src/parsers/clash-yaml.ts
-````ts
-// src/parsers/clash-yaml.ts
-import yaml from 'js-yaml';
-import { ProxyNode, WireGuardConfig } from '../types';
-import { parseEchInfo } from './common';
-import { RawMasqueConfig, buildMasqueNode } from './masque';
-
-export function parseClashProxyItem(p: Record<string, unknown>, index: number): ProxyNode {
-  const type = String(p.type || '').toLowerCase();
-  const name = String(p.name || `Node-${index + 1}`).trim();
-  const server = String(p.server || '').trim();
-  const port = parseInt(String(p.port || 443), 10) || 443;
-
-  if (type === 'masque') {
-    return buildMasqueNode(p as RawMasqueConfig, index);
-  }
-
-  if (!server) throw new Error(`[Clash YAML] 第 ${index + 1} 個節點缺少 server (伺服器地址)`);
-
-  // 1. VLESS
-  if (type === 'vless') {
-    const uuid = String(p.uuid || '').trim();
-    if (!uuid) throw new Error(`[Clash YAML] VLESS 節點 [${name}] 缺少 uuid`);
-
-    const tls = Boolean(p.tls);
-    const sni = p.servername ? String(p.servername).trim() : p.sni ? String(p.sni) : server;
-    const flow = p.flow ? String(p.flow).trim() : undefined;
-    const network = p.network
-      ? String(p.network).toLowerCase()
-      : p['ws-opts']
-        ? 'ws'
-        : p['xhttp-opts']
-          ? 'xhttp'
-          : p['grpc-opts']
-            ? 'grpc'
-            : 'tcp';
-
-    const wsOpts = p['ws-opts'] as Record<string, unknown> | undefined;
-    const wsPath = wsOpts?.path ? String(wsOpts.path) : undefined;
-    const wsHeaders = wsOpts?.headers as Record<string, string> | undefined;
-
-    const xhttpOpts = (p['xhttp-opts'] || p['splithttp-opts']) as Record<string, unknown> | undefined;
-    const xhttpPath = xhttpOpts?.path ? String(xhttpOpts.path) : undefined;
-    const xhttpHost = xhttpOpts?.host ? String(xhttpOpts.host) : undefined;
-    const xhttpMode = xhttpOpts?.mode ? String(xhttpOpts.mode) : undefined;
-
-    const grpcOpts = p['grpc-opts'] as Record<string, unknown> | undefined;
-    const grpcServiceName = grpcOpts?.['grpc-service-name'] ? String(grpcOpts['grpc-service-name']) : undefined;
-
-    const isXhttp = network === 'xhttp' || network === 'splithttp';
-    const isGrpc = network === 'grpc';
-
-    const realityOpts = p['reality-opts'] as Record<string, unknown> | undefined;
-    const reality =
-      p.reality || realityOpts
-        ? {
-            publicKey: String(realityOpts?.['public-key'] || ''),
-            shortId: String(realityOpts?.['short-id'] || ''),
-            spiderX: realityOpts?.['spider-x'] ? String(realityOpts['spider-x']) : undefined,
-            supportX25519Mlkem768:
-              realityOpts?.['support-x25519mlkem768'] !== undefined
-                ? Boolean(realityOpts['support-x25519mlkem768'])
-                : true
-          }
-        : undefined;
-
-    const echOpts = p['ech-opts'] as Record<string, unknown> | undefined;
-    let echEnabled = false;
-    let echDomain: string | undefined = undefined;
-    let echDoh: string | undefined = undefined;
-
-    if (p.ech) {
-      const info = parseEchInfo(String(p.ech));
-      echEnabled = info.enabled;
-      echDomain = info.domain;
-      echDoh = info.doh;
-    } else if (echOpts && echOpts.enable === true) {
-      echEnabled = true;
-      if (echOpts['query-server-name']) echDomain = String(echOpts['query-server-name']);
-      const rawDoh = echOpts['doh-server'] || echOpts.doh;
-      if (rawDoh && /^https?:\/\//i.test(String(rawDoh))) {
-        echDoh = String(rawDoh);
-      }
-    }
-
-    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
-    const fingerprint = p['client-fingerprint'] ? String(p['client-fingerprint']).trim() : 'chrome';
-    const alpn = Array.isArray(p.alpn) ? p.alpn.map(String) : undefined;
-
-    let earlyDataLength: number | undefined = undefined;
-    if (wsOpts?.['max-early-data']) {
-      earlyDataLength = parseInt(String(wsOpts['max-early-data']), 10);
-    } else if (wsPath) {
-      const edMatch = wsPath.match(/[?&]ed=([0-9]+)/);
-      if (edMatch && edMatch[1]) {
-        earlyDataLength = parseInt(edMatch[1], 10);
-      }
-    }
-
-    const clashObjCopy: Record<string, unknown> = { ...p };
-    clashObjCopy.network = network;
-    if (!alpn) {
-      delete clashObjCopy.alpn;
-    }
-
-    if (reality) {
-      const ro = { ...((clashObjCopy['reality-opts'] as Record<string, unknown>) || {}) };
-      ro['public-key'] = reality.publicKey;
-      ro['short-id'] = reality.shortId;
-      if (reality.spiderX) ro['spider-x'] = reality.spiderX;
-      if (ro['support-x25519mlkem768'] === undefined) {
-        ro['support-x25519mlkem768'] = true;
-      }
-      clashObjCopy['reality-opts'] = ro;
-      clashObjCopy.reality = true;
-    }
-
-    const node: ProxyNode = {
-      type: 'vless',
-      name,
-      server,
-      port,
-      uuid,
-      tls,
-      sni,
-      network,
-      grpcServiceName,
-      flow,
-      wsPath,
-      wsHeaders,
-      reality,
-      xhttpPath,
-      xhttpHost,
-      xhttpMode,
-      udp: p.udp !== undefined ? Boolean(p.udp) : true,
-      skipCertVerify,
-      fingerprint,
-      alpn,
-      ech: echEnabled,
-      echQueryServerName: echDomain,
-      echDoh,
-      clashObj: clashObjCopy
-    };
-
-    const sb: Record<string, unknown> = {
-      tag: name,
-      type: 'vless',
-      server,
-      server_port: port,
-      uuid,
-      packet_encoding: 'xudp'
-    };
-    if (tls) {
-      const tlsObj: Record<string, unknown> = {
-        enabled: true,
-        server_name: sni,
-        insecure: skipCertVerify,
-        utls: { enabled: true, fingerprint }
-      };
-      if (alpn) tlsObj.alpn = alpn;
-      if (echEnabled) {
-        const echObj: Record<string, unknown> = { enabled: true };
-        if (echDomain) echObj.query_server_name = echDomain;
-        tlsObj.ech = echObj;
-      }
-      if (reality) {
-        tlsObj.reality = { enabled: true, public_key: reality.publicKey, short_id: reality.shortId };
-      }
-      sb.tls = tlsObj;
-    }
-    if (flow) sb.flow = flow;
-    if (network === 'ws') {
-      const wsTransport: Record<string, unknown> = {
-        type: 'ws',
-        path: wsPath || '/',
-        headers: wsHeaders
-      };
-      if (earlyDataLength) {
-        wsTransport.max_early_data = earlyDataLength;
-        wsTransport.early_data_header_name = 'Sec-WebSocket-Protocol';
-      }
-      sb.transport = wsTransport;
-    } else if (isXhttp) {
-      sb.transport = {
-        type: 'splithttp',
-        path: xhttpPath || '/',
-        headers: xhttpHost ? { Host: xhttpHost } : undefined,
-        mode: xhttpMode || 'auto'
-      };
-    } else if (isGrpc) {
-      sb.transport = {
-        type: 'grpc',
-        service_name: grpcServiceName || ''
-      };
-    }
-    node.singboxObj = sb;
-    return node;
-  }
-
-  // 2. Shadowsocks
-  if (type === 'ss' || type === 'shadowsocks') {
-    const cipher = String(p.cipher || '');
-    const password = String(p.password || '');
-    if (!cipher) throw new Error(`[Clash YAML] Shadowsocks 節點 [${name}] 缺少 cipher (加密方法)`);
-    if (!password) throw new Error(`[Clash YAML] Shadowsocks 節點 [${name}] 缺少 password (密碼)`);
-    const udp = p.udp !== false;
-
-    const node: ProxyNode = {
-      type: 'shadowsocks',
-      name,
-      server,
-      port,
-      cipher,
-      password,
-      udp,
-      clashObj: { ...p }
-    };
-    node.singboxObj = {
-      tag: name,
-      type: 'shadowsocks',
-      server,
-      server_port: port,
-      method: cipher,
-      password
-    };
-    return node;
-  }
-
-  // 3. VMess
-  if (type === 'vmess') {
-    const uuid = String(p.uuid || '');
-    if (!uuid) throw new Error(`[Clash YAML] VMess 節點 [${name}] 缺少 uuid`);
-    const tls = Boolean(p.tls);
-    const sni = p.servername ? String(p.servername) : p.sni ? String(p.sni) : server;
-    const network = p.network ? String(p.network).toLowerCase() : p['ws-opts'] ? 'ws' : 'tcp';
-    const wsOpts = p['ws-opts'] as Record<string, unknown> | undefined;
-    const wsPath = wsOpts?.path ? String(wsOpts.path) : undefined;
-    const wsHeaders = wsOpts?.headers as Record<string, string> | undefined;
-
-    const node: ProxyNode = {
-      type: 'vmess',
-      name,
-      server,
-      port,
-      uuid,
-      tls,
-      sni,
-      network,
-      wsPath,
-      wsHeaders,
-      udp: p.udp !== undefined ? Boolean(p.udp) : true,
-      clashObj: { ...p, network }
-    };
-    const sb: Record<string, unknown> = {
-      tag: name,
-      type: 'vmess',
-      server,
-      server_port: port,
-      uuid,
-      security: 'auto',
-      packet_encoding: 'xudp'
-    };
-    if (tls) {
-      sb.tls = { enabled: true, server_name: sni, insecure: p['skip-cert-verify'] ? Boolean(p['skip-cert-verify']) : false };
-    }
-    if (network === 'ws') {
-      sb.transport = { type: 'ws', path: wsPath || '/', headers: wsHeaders };
-    }
-    node.singboxObj = sb;
-    return node;
-  }
-
-  // 4. Trojan
-  if (type === 'trojan') {
-    const password = String(p.password || '');
-    if (!password) throw new Error(`[Clash YAML] Trojan 節點 [${name}] 缺少 password (密碼)`);
-    const sni = p.sni ? String(p.sni) : p.servername ? String(p.servername) : server;
-    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
-
-    const node: ProxyNode = {
-      type: 'trojan',
-      name,
-      server,
-      port,
-      password,
-      tls: true,
-      sni,
-      skipCertVerify,
-      udp: p.udp !== undefined ? Boolean(p.udp) : true,
-      clashObj: { ...p }
-    };
-    node.singboxObj = {
-      tag: name,
-      type: 'trojan',
-      server,
-      server_port: port,
-      password,
-      tls: { enabled: true, server_name: sni, insecure: skipCertVerify }
-    };
-    return node;
-  }
-
-  // 5. Hysteria 2
-  if (type === 'hysteria2' || type === 'hy2') {
-    const password = String(p.password || p.auth || '');
-    if (!password) throw new Error(`[Clash YAML] Hysteria2 節點 [${name}] 缺少 password / auth`);
-    const sni = p.sni ? String(p.sni) : p.servername ? String(p.servername) : server;
-    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
-
-    const node: ProxyNode = {
-      type: 'hysteria2',
-      name,
-      server,
-      port,
-      password,
-      tls: true,
-      sni,
-      skipCertVerify,
-      udp: p.udp !== undefined ? Boolean(p.udp) : true,
-      obfs: p.obfs ? String(p.obfs) : undefined,
-      obfsPassword: p['obfs-password'] ? String(p['obfs-password']) : undefined,
-      clashObj: { ...p }
-    };
-    const sb: Record<string, unknown> = {
-      tag: name,
-      type: 'hysteria2',
-      server,
-      server_port: port,
-      password,
-      tls: { enabled: true, server_name: sni, insecure: skipCertVerify }
-    };
-    if (node.obfs) {
-      sb.obfs = { type: node.obfs, password: node.obfsPassword };
-    }
-    node.singboxObj = sb;
-    return node;
-  }
-
-  // 6. TUIC
-  if (type === 'tuic') {
-    const uuid = String(p.uuid || '');
-    const password = String(p.password || '');
-    if (!uuid) throw new Error(`[Clash YAML] TUIC 節點 [${name}] 缺少 uuid`);
-    const sni = p.sni ? String(p.sni) : p.servername ? String(p.servername) : server;
-    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
-    const congestion_control = p['congestion-controller'] ? String(p['congestion-controller']) : 'bbr';
-    const udp_relay_mode = p['udp-relay-mode'] ? String(p['udp-relay-mode']) : 'native';
-    const alpn = Array.isArray(p.alpn) ? p.alpn.map(String) : ['h3'];
-
-    const node: ProxyNode = {
-      type: 'tuic',
-      name,
-      server,
-      port,
-      uuid,
-      password,
-      tls: true,
-      sni,
-      skipCertVerify,
-      congestion_control,
-      udp_relay_mode,
-      alpn,
-      udp: p.udp !== undefined ? Boolean(p.udp) : true,
-      clashObj: { ...p }
-    };
-    node.singboxObj = {
-      tag: name,
-      type: 'tuic',
-      server,
-      server_port: port,
-      uuid,
-      password,
-      congestion_control,
-      udp_relay_mode,
-      tls: { enabled: true, server_name: sni, alpn, insecure: skipCertVerify }
-    };
-    return node;
-  }
-
-  // 7. AnyTLS
-  if (type === 'anytls') {
-    const password = String(p.password || '');
-    if (!password) throw new Error(`[Clash YAML] AnyTLS 節點 [${name}] 缺少 password`);
-    const sni = p.sni ? String(p.sni) : p.servername ? String(p.servername) : server;
-    const skipCertVerify = p['skip-cert-verify'] !== undefined ? Boolean(p['skip-cert-verify']) : false;
-    const fingerprint = p['client-fingerprint'] ? String(p['client-fingerprint']).trim() : 'chrome';
-    const alpn = Array.isArray(p.alpn) ? p.alpn.map(String) : undefined;
-
-    const node: ProxyNode = {
-      type: 'anytls',
-      name,
-      server,
-      port,
-      uuid: password,
-      password,
-      tls: true,
-      sni,
-      fingerprint,
-      skipCertVerify,
-      alpn,
-      udp: p.udp !== undefined ? Boolean(p.udp) : true,
-      clashObj: { ...p }
-    };
-    const sbTls: Record<string, unknown> = {
-      enabled: true,
-      server_name: sni,
-      insecure: skipCertVerify,
-      utls: { enabled: true, fingerprint }
-    };
-    if (alpn) sbTls.alpn = alpn;
-    node.singboxObj = {
-      tag: name,
-      type: 'anytls',
-      server,
-      server_port: port,
-      password,
-      tls: sbTls
-    };
-    return node;
-  }
-
-  // 8. WireGuard
-  if (type === 'wireguard') {
-    const privateKey = String(p['private-key'] || '');
-    const publicKey = String(p['public-key'] || '');
-    if (!privateKey) throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 private-key (私鑰)`);
-    if (!publicKey) throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 public-key (公鑰)`);
-    if (!p.ip) throw new Error(`[Clash YAML] WireGuard 節點 [${name}] 缺少 ip (內網 IP)`);
-
-    const ip = String(p.ip);
-    const ipv6 = p.ipv6 ? String(p.ipv6) : undefined;
-    const localAddress = [ip.includes('/') ? ip : `${ip}/32`];
-    if (ipv6) localAddress.push(ipv6.includes('/') ? ipv6 : `${ipv6}/128`);
-    const presharedKey = p['preshared-key'] ? String(p['preshared-key']) : undefined;
-    const mtu = parseInt(String(p.mtu || 1420), 10) || 1420;
-    const reserved = Array.isArray(p.reserved) ? p.reserved.map(Number) : undefined;
-
-    const dnsList: string[] = p.dns
-      ? Array.isArray(p.dns)
-        ? p.dns.map(String).filter(Boolean)
-        : [String(p.dns)].filter(Boolean)
-      : [];
-
-    const wgConfig: WireGuardConfig = {
-      privateKey,
-      localAddress,
-      publicKey,
-      presharedKey,
-      mtu,
-      reserved,
-      dns: dnsList[0]
-    };
-
-    const clashCopy: Record<string, unknown> = { ...p };
-    if (dnsList.length > 0) {
-      clashCopy.dns = dnsList;
-    } else {
-      delete clashCopy.dns;
-    }
-
-    const node: ProxyNode = {
-      type: 'wireguard',
-      name,
-      server,
-      port,
-      udp: true,
-      wireguard: wgConfig,
-      clashObj: clashCopy
-    };
-    node.singboxObj = {
-      type: 'wireguard',
-      tag: name,
-      address: localAddress,
-      private_key: privateKey,
-      peers: [{ address: server, port, public_key: publicKey, allowed_ips: ['0.0.0.0/0', '::/0'] }],
-      mtu
-    };
-    return node;
-  }
-
-  // 9. 兜底通用節點
-  return {
-    type,
-    name,
-    server,
-    port,
-    udp: true,
-    clashObj: { ...p }
-  };
-}
-
-export function parseClashYaml(content: string): ProxyNode[] {
-  const nodes: ProxyNode[] = [];
-  if (!/(^|\n)\s*proxies\s*:/i.test(content)) {
-    return [];
-  }
-  const parsed = yaml.load(content);
-  if (!parsed || typeof parsed !== 'object') return [];
-
-  const rawProxies = (parsed as Record<string, unknown>).proxies;
-  if (!Array.isArray(rawProxies)) return [];
-
-  for (let i = 0; i < rawProxies.length; i++) {
-    const p = rawProxies[i];
-    if (!p || typeof p !== 'object') continue;
-    try {
-      const node = parseClashProxyItem(p as Record<string, unknown>, i);
-      if (node) nodes.push(node);
-    } catch {}
-  }
-  return nodes;
-}
-
-````
-
-## File: src/parsers/wireguard.ts
-````ts
-// src/parsers/wireguard.ts
-import { ProxyNode, WireGuardConfig } from '../types';
-import { parseProxyUri } from './common';
-
-export function parseShadowrocketWireGuard(line: string): ProxyNode {
-  const eqIdx = line.indexOf('=');
-  if (eqIdx === -1) throw new Error('[WireGuard] Shadowrocket 行格式錯誤');
-
-  const name = line.substring(0, eqIdx).trim();
-  const rightPart = line.substring(eqIdx + 1).trim();
-  const parts = rightPart.split(',').map(s => s.trim());
-
-  if (parts[0]?.toLowerCase() !== 'wireguard') throw new Error('[WireGuard] 非 WireGuard 行格式');
-
-  const server = parts[1];
-  const port = parseInt(parts[2], 10) || 51820;
-
-  let privateKey = '';
-  let publicKey = '';
-  let presharedKey: string | undefined = undefined;
-  let ip = '';
-  let dns = '';
-  let mtu = 1420;
-  let reserved: number[] | undefined = undefined;
-
-  for (let i = 3; i < parts.length; i++) {
-    const p = parts[i];
-    const kvIdx = p.indexOf('=');
-    if (kvIdx === -1) continue;
-    const k = p.substring(0, kvIdx).trim().toLowerCase();
-    const v = p.substring(kvIdx + 1).trim().replace(/^["']|["']$/g, '');
-
-    if (k === 'private-key' || k === 'privatekey') privateKey = v;
-    else if (k === 'public-key' || k === 'publickey') publicKey = v;
-    else if (k === 'preshared-key' || k === 'presharedkey') presharedKey = v;
-    else if (k === 'ip') ip = v;
-    else if (k === 'dns') dns = v;
-    else if (k === 'mtu') mtu = parseInt(v, 10) || 1420;
-    else if (k === 'reserved') reserved = v.split(',').map(n => parseInt(n.trim(), 10));
-  }
-
-  if (!server) throw new Error(`[WireGuard] 節點 [${name}] 缺少伺服器地址`);
-  if (!privateKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 private-key (私鑰)`);
-  if (!publicKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 public-key (公鑰)`);
-  if (!ip) throw new Error(`[WireGuard] 節點 [${name}] 缺少 ip (內網 IP)`);
-
-  const localAddress = ip.includes('/') ? [ip] : [`${ip}/32`];
-  const dnsList = dns ? dns.split(',').map(d => d.trim()).filter(Boolean) : [];
-
-  const wgConfig: WireGuardConfig = {
-    privateKey,
-    localAddress,
-    publicKey,
-    presharedKey,
-    mtu,
-    dns: dns || undefined,
-    reserved
-  };
-
-  const node: ProxyNode = {
-    type: 'wireguard',
-    name,
-    server,
-    port,
-    udp: true,
-    wireguard: wgConfig
-  };
-
-  node.singboxObj = {
-    type: 'wireguard',
-    tag: name,
-    address: localAddress,
-    private_key: privateKey,
-    peers: [
-      {
-        address: server,
-        port,
-        public_key: publicKey,
-        allowed_ips: ['0.0.0.0/0', '::/0']
-      }
-    ],
-    mtu
-  };
-
-  const clashObj: Record<string, unknown> = {
-    name,
-    type: 'wireguard',
-    server: node.server,
-    port: node.port,
-    ip: localAddress[0]?.split('/')[0],
-    ipv6: localAddress[1]?.split('/')[0],
-    'public-key': publicKey,
-    'private-key': privateKey,
-    'preshared-key': presharedKey,
-    mtu,
-    udp: true,
-    'remote-dns-resolve': true
-  };
-  if (dnsList.length > 0) clashObj.dns = dnsList;
-  node.clashObj = clashObj;
-
-  return node;
-}
-
-export function parseWireGuardConf(text: string): ProxyNode[] {
-  const nodes: ProxyNode[] = [];
-  const sections = text.split(/(?=\[Interface\])/i).filter(s => s.trim().length > 0);
-
-  for (let idx = 0; idx < sections.length; idx++) {
-    const sec = sections[idx];
-    if (!/\[Interface\]/i.test(sec)) continue;
-
-    const getVal = (key: string): string => {
-      const match = sec.match(new RegExp(`^[ \\t]*${key}[ \\t]*=[ \\t]*(.*?)[ \\t]*(?:#.*)?$`, 'mi'));
-      return match ? match[1].trim() : '';
-    };
-
-    let name = '';
-    const peerPart = sec.split(/\[Peer\]/i)[1] || '';
-    const peerComments = peerPart.match(/^[ \t]*#[ \t]*(.*?)$/gm);
-    if (peerComments) {
-      for (const c of peerComments) {
-        const clean = c.replace(/^[ \t]*#[ \t]*/, '').trim();
-        if (clean && !clean.includes('=') && !clean.toLowerCase().startsWith('key for')) {
-          name = clean;
-          break;
+// src/index.ts
+// @ts-ignore
+import packageJson from '../package.json';
+import { Env } from './types';
+import { handleArgoRoutes } from './routes/argo';
+import { handleAdminRoutes } from './routes/admin';
+import { handleFavsRoutes } from './routes/favs';
+import { handleSubRoute } from './routes/sub';
+
+const version = packageJson.version;
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, X-Password, X-Login-Attempt'
         }
-      }
-    }
-
-    if (!name) {
-      const comments = sec.match(/^[ \t]*#[ \t]*(.*?)$/gm);
-      if (comments) {
-        for (const c of comments) {
-          const clean = c.replace(/^[ \t]*#[ \t]*/, '').trim();
-          if (clean && !clean.includes('=') && !clean.toLowerCase().startsWith('key for')) {
-            name = clean;
-            break;
-          }
-        }
-      }
-    }
-
-    const privateKey = getVal('PrivateKey');
-    const addressStr = getVal('Address');
-    const rawDns = getVal('DNS');
-    const publicKey = getVal('PublicKey');
-    const presharedKey = getVal('PresharedKey') || undefined;
-    const endpoint = getVal('Endpoint');
-    const mtuStr = getVal('MTU');
-    const mtu = mtuStr ? parseInt(mtuStr, 10) : 1420;
-
-    if (!privateKey) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: PrivateKey (私鑰)`);
-    if (!addressStr) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: Address (客戶端內網 IP)`);
-    if (!/\[Peer\]/i.test(sec)) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少 [Peer] 節點區塊`);
-    if (!publicKey) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: PublicKey (節點公鑰)`);
-    if (!endpoint) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: Endpoint (伺服器端點 IP:Port)`);
-
-    let server = endpoint;
-    let port = 51820;
-    const lastColon = endpoint.lastIndexOf(':');
-    if (lastColon !== -1) {
-      server = endpoint.slice(0, lastColon).trim();
-      if (server.startsWith('[') && server.endsWith(']')) {
-        server = server.slice(1, -1);
-      }
-      port = parseInt(endpoint.slice(lastColon + 1).trim(), 10) || 51820;
-    }
-
-    if (!name) name = `WireGuard-${server}`;
-
-    const localAddress = addressStr.split(',').map(s => s.trim()).filter(Boolean);
-    const dnsList = rawDns ? rawDns.split(',').map(s => s.trim()).filter(Boolean) : [];
-
-    const wgConfig: WireGuardConfig = {
-      privateKey,
-      localAddress,
-      publicKey,
-      presharedKey,
-      mtu,
-      dns: rawDns || undefined
-    };
-
-    const node: ProxyNode = {
-      type: 'wireguard',
-      name,
-      server,
-      port,
-      udp: true,
-      wireguard: wgConfig
-    };
-
-    node.singboxObj = {
-      type: 'wireguard',
-      tag: name,
-      address: localAddress,
-      private_key: privateKey,
-      peers: [
-        {
-          address: server,
-          port,
-          public_key: publicKey,
-          allowed_ips: ['0.0.0.0/0', '::/0']
-        }
-      ],
-      mtu
-    };
-
-    const clashObj: Record<string, unknown> = {
-      name,
-      type: 'wireguard',
-      server: node.server,
-      port: node.port,
-      ip: localAddress[0]?.split('/')[0],
-      ipv6: localAddress[1]?.split('/')[0],
-      'public-key': publicKey,
-      'private-key': privateKey,
-      'preshared-key': presharedKey,
-      mtu,
-      udp: true,
-      'remote-dns-resolve': true
-    };
-    if (dnsList.length > 0) clashObj.dns = dnsList;
-    node.clashObj = clashObj;
-
-    nodes.push(node);
-  }
-
-  return nodes;
-}
-
-export function parseWireGuard(urlStr: string): ProxyNode {
-  const parsed = parseProxyUri(urlStr, 51820);
-  if (!parsed) throw new Error('[WireGuard] URI 格式無效');
-
-  const params = parsed.params;
-  const name = parsed.hash || 'WireGuard';
-  const privateKey = parsed.username;
-  const rawIp = params.get('address') || params.get('ip') || '';
-  const publicKey = params.get('publickey') || params.get('public_key') || params.get('pk') || '';
-  const presharedKey = params.get('presharedkey') || params.get('preshared_key') || params.get('psk') || undefined;
-  const mtu = parseInt(params.get('mtu') || '1420', 10);
-  const rawDns = params.get('dns') || '';
-  const reserved = params.get('reserved') ? params.get('reserved')!.split(',').map(n => parseInt(n.trim(), 10)) : undefined;
-
-  if (!privateKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 privatekey (私鑰)`);
-  if (!publicKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 publickey (公鑰)`);
-  if (!parsed.hostname) throw new Error(`[WireGuard] 節點 [${name}] 缺少伺服器地址`);
-  if (!rawIp) throw new Error(`[WireGuard] 節點 [${name}] 缺少 address / ip (內網 IP)`);
-
-  const localIps = rawIp.split(',').map(s => (s.trim().includes('/') ? s.trim() : `${s.trim()}/32`));
-  const dnsList = rawDns ? rawDns.split(',').map(d => d.trim()).filter(Boolean) : [];
-
-  const wgConfig: WireGuardConfig = {
-    privateKey,
-    localAddress: localIps,
-    publicKey,
-    presharedKey,
-    mtu,
-    reserved,
-    dns: rawDns || undefined
-  };
-
-  const node: ProxyNode = {
-    type: 'wireguard',
-    name,
-    server: parsed.hostname,
-    port: parsed.port,
-    udp: true,
-    wireguard: wgConfig
-  };
-
-  node.singboxObj = {
-    type: 'wireguard',
-    tag: name,
-    address: localIps,
-    private_key: privateKey,
-    peers: [
-      {
-        address: parsed.hostname,
-        port: parsed.port,
-        public_key: publicKey,
-        allowed_ips: ['0.0.0.0/0', '::/0']
-      }
-    ],
-    mtu
-  };
-
-  const clashObj: Record<string, unknown> = {
-    name,
-    type: 'wireguard',
-    server: node.server,
-    port: node.port,
-    ip: localIps[0]?.split('/')[0],
-    ipv6: localIps[1]?.split('/')[0],
-    'public-key': publicKey,
-    'private-key': privateKey,
-    'preshared-key': presharedKey,
-    mtu,
-    udp: true,
-    'remote-dns-resolve': true
-  };
-  if (dnsList.length > 0) clashObj.dns = dnsList;
-  node.clashObj = clashObj;
-
-  return node;
-}
-
-````
-
-## File: src/parsers/masque.ts
-````ts
-// src/parsers/masque.ts
-import { ProxyNode, MasqueConfig } from '../types';
-import { parseProxyUri } from './common';
-
-export interface RawMasqueConfig {
-  private_key?: string;
-  'private-key'?: string;
-  endpoint_v4?: string;
-  endpoint_v6?: string;
-  endpoint_pub_key?: string;
-  'public-key'?: string;
-  public_key?: string;
-  server?: string;
-  port?: number | string;
-  ipv4?: string;
-  ipv6?: string;
-  ip?: string;
-  name?: string;
-  uri?: string;
-  sni?: string;
-  servername?: string;
-  server_name?: string;
-  congestion_controller?: string;
-  'congestion-controller'?: string;
-  congestion_control?: string;
-  cca?: string;
-  cc?: string;
-  dns?: string[] | string;
-  mtu?: number | string;
-  udp?: boolean;
-  'remote-dns-resolve'?: boolean;
-  [key: string]: unknown;
-}
-
-export function buildMasqueNode(config: RawMasqueConfig, index = 0): ProxyNode {
-  const privateKey = (config.private_key || config['private-key'] || '').trim();
-  const rawPubKey = (config.endpoint_pub_key || config.public_key || config['public-key'] || '').trim();
-  const publicKey = rawPubKey.replace(/-----BEGIN[^-]+-----|-----END[^-]+-----|[\r\n\s]/g, '');
-  const server = (config.server || config.endpoint_v4 || '').trim();
-  const port = parseInt(String(config.port || 443), 10) || 443;
-  const rawIpv4 = (config.ip || config.ipv4 || '').trim();
-
-  if (!privateKey) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: private_key (私鑰)`);
-  if (!publicKey) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: public_key / endpoint_pub_key (公鑰)`);
-  if (!server) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: server / endpoint_v4 (伺服器端點)`);
-  if (!rawIpv4) throw new Error(`[MASQUE] 第 ${index + 1} 個節點缺少必要欄位: ip / ipv4 (客戶端內網 IP)`);
-
-  const localIpv4 = rawIpv4.includes('/') ? rawIpv4 : `${rawIpv4}/32`;
-
-  let localIpv6: string | undefined = undefined;
-  if (config.ipv6) {
-    const rawIpv6 = String(config.ipv6).trim();
-    localIpv6 = rawIpv6.includes('/') ? rawIpv6 : `${rawIpv6}/128`;
-  }
-
-  const name = config.name || (index > 0 ? `WARP-MASQUE-${index + 1}` : 'WARP-MASQUE');
-  const uri = config.uri && String(config.uri).trim() ? String(config.uri).trim() : 'https://cloudflareaccess.com';
-  const customSni = config.sni || config.servername || config.server_name;
-  const sni = customSni && String(customSni).trim() ? String(customSni).trim() : 'www.microsoft.com';
-
-  const rawCc =
-    config.cca ||
-    config.cc ||
-    config.congestion_control ||
-    config.congestion_controller ||
-    config['congestion-controller'];
-  const congestionController = rawCc && String(rawCc).trim() ? String(rawCc).trim() : 'bbr';
-  const mtu = config.mtu ? parseInt(String(config.mtu), 10) || 1280 : 1280;
-
-  let dnsList: string[] = [];
-  if (Array.isArray(config.dns) && config.dns.length > 0) {
-    dnsList = config.dns.map(d => String(d).trim()).filter(Boolean);
-  } else if (typeof config.dns === 'string' && config.dns.trim()) {
-    dnsList = config.dns.split(',').map(d => d.trim()).filter(Boolean);
-  } else {
-    dnsList = ['1.1.1.1', '8.8.8.8'];
-  }
-
-  const remoteDnsResolve =
-    config['remote-dns-resolve'] !== undefined ? Boolean(config['remote-dns-resolve']) : true;
-
-  const masqueConfig: MasqueConfig = {
-    privateKey,
-    publicKey,
-    localIpv4,
-    localIpv6,
-    mtu,
-    uri,
-    sni,
-    congestion_controller: congestionController,
-    dns: dnsList
-  };
-
-  const node: ProxyNode = {
-    type: 'masque',
-    name,
-    server,
-    port,
-    udp: true,
-    sni,
-    masque: masqueConfig
-  };
-
-  node.singboxObj = {
-    type: 'masque',
-    tag: name,
-    server,
-    server_port: port,
-    private_key: privateKey,
-    public_key: publicKey,
-    ip: localIpv4,
-    ...(localIpv6 ? { ipv6: localIpv6 } : {}),
-    uri,
-    congestion_control: congestionController,
-    mtu,
-    tls: {
-      enabled: true,
-      server_name: sni
-    }
-  };
-
-  const originalClashProps = { ...config };
-  const cleanKeys = [
-    'private_key', 'private-key', 'public_key', 'public-key', 'endpoint_pub_key',
-    'endpoint_v4', 'endpoint_v6', 'endpoint_h2_v4', 'endpoint_h2_v6',
-    'ipv4', 'license', 'id', 'access_token', 'MASQUE导航'
-  ];
-  for (const k of cleanKeys) {
-    delete originalClashProps[k];
-  }
-
-  node.clashObj = {
-    ...originalClashProps,
-    name,
-    type: 'masque',
-    server,
-    port,
-    'private-key': privateKey,
-    'public-key': publicKey,
-    ip: localIpv4.split('/')[0],
-    ...(localIpv6 ? { ipv6: localIpv6.split('/')[0] } : {}),
-    uri,
-    mtu,
-    udp: config.udp !== undefined ? Boolean(config.udp) : true,
-    'remote-dns-resolve': remoteDnsResolve,
-    'congestion-controller': congestionController,
-    dns: dnsList,
-    sni
-  };
-
-  return node;
-}
-
-export function parseMasqueConfigs(text: string): ProxyNode[] {
-  const nodes: ProxyNode[] = [];
-  const trimmed = text.trim();
-
-  try {
-    const parsed: unknown = JSON.parse(trimmed);
-    if (Array.isArray(parsed)) {
-      parsed.forEach((item, idx) => {
-        const n = buildMasqueNode(item as RawMasqueConfig, idx);
-        if (n) nodes.push(n);
       });
-      if (nodes.length > 0) return nodes;
-    } else if (typeof parsed === 'object' && parsed !== null) {
-      const n = buildMasqueNode(parsed as RawMasqueConfig, 0);
-      if (n) return [n];
     }
-  } catch (err: unknown) {
-    if (err instanceof Error && err.message.startsWith('[MASQUE]')) {
-      throw err;
+
+    if (request.method === 'GET' && url.pathname === '/version') {
+      return new Response(`subconverter v${version} ${url.host} backend\n`, {
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
     }
+
+    const argoResp = await handleArgoRoutes(request, env, url);
+    if (argoResp) return argoResp;
+
+    const adminResp = await handleAdminRoutes(request, env, ctx, url);
+    if (adminResp) return adminResp;
+
+    const favsResp = await handleFavsRoutes(request, env, ctx, url);
+    if (favsResp) return favsResp;
+
+    return handleSubRoute(request, env, ctx, url, version);
   }
-
-  const objectMatches = trimmed.match(/\{[^{}]*["']private_key["'][^{}]*\}/g);
-  if (objectMatches) {
-    objectMatches.forEach((rawObj, idx) => {
-      const obj = JSON.parse(rawObj) as RawMasqueConfig;
-      const n = buildMasqueNode(obj, idx);
-      if (n) nodes.push(n);
-    });
-  }
-
-  return nodes;
-}
-
-export function parseMasqueUri(urlStr: string): ProxyNode {
-  const parsed = parseProxyUri(urlStr, 443);
-  if (!parsed) throw new Error('[MASQUE] URI 格式無效，無法解析');
-
-  const privateKey = parsed.username;
-  const params = parsed.params;
-  const publicKey = params.get('public_key') || params.get('pk') || '';
-  const ipv4 = params.get('ip') || '';
-  const ipv6 = params.get('ipv6') || undefined;
-  const mtu = parseInt(params.get('mtu') || '1280', 10);
-  const name = parsed.hash || 'WARP-MASQUE';
-
-  if (!privateKey) throw new Error('[MASQUE] 缺少必要欄位: private_key (私鑰)');
-  if (!publicKey) throw new Error('[MASQUE] 缺少必要欄位: public_key (公鑰)');
-  if (!parsed.hostname) throw new Error('[MASQUE] 缺少必要欄位: server (伺服器地址)');
-  if (!ipv4) throw new Error('[MASQUE] 缺少必要欄位: ip (客戶端內網 IP)');
-
-  const uri = params.get('uri') && params.get('uri')!.trim() ? params.get('uri')!.trim() : 'https://cloudflareaccess.com';
-  const sni = params.get('sni') && params.get('sni')!.trim() ? params.get('sni')!.trim() : 'www.microsoft.com';
-
-  const rawCc =
-    params.get('cca') ||
-    params.get('cc') ||
-    params.get('congestion_control') ||
-    params.get('congestion_controller') ||
-    params.get('congestion-controller');
-  const congestionController = rawCc && rawCc.trim() ? rawCc.trim() : 'bbr';
-
-  const dnsParam = params.get('dns');
-  const dnsList = dnsParam ? dnsParam.split(',').map(d => d.trim()).filter(Boolean) : ['1.1.1.1', '8.8.8.8'];
-
-  const masqueConfig: MasqueConfig = {
-    privateKey,
-    publicKey,
-    localIpv4: ipv4.includes('/') ? ipv4 : `${ipv4}/32`,
-    localIpv6: ipv6 ? (ipv6.includes('/') ? ipv6 : `${ipv6}/128`) : undefined,
-    mtu,
-    uri,
-    sni,
-    congestion_controller: congestionController,
-    dns: dnsList
-  };
-
-  const node: ProxyNode = {
-    type: 'masque',
-    name,
-    server: parsed.hostname,
-    port: parsed.port,
-    udp: true,
-    sni,
-    masque: masqueConfig
-  };
-
-  node.singboxObj = {
-    type: 'masque',
-    tag: name,
-    server: parsed.hostname,
-    server_port: parsed.port,
-    private_key: privateKey,
-    public_key: publicKey,
-    ip: masqueConfig.localIpv4,
-    ...(masqueConfig.localIpv6 ? { ipv6: masqueConfig.localIpv6 } : {}),
-    uri,
-    congestion_control: congestionController,
-    mtu,
-    tls: {
-      enabled: true,
-      server_name: sni
-    }
-  };
-
-  node.clashObj = {
-    name,
-    type: 'masque',
-    server: parsed.hostname,
-    port: parsed.port,
-    'private-key': privateKey,
-    'public-key': publicKey,
-    ip: ipv4.split('/')[0],
-    ...(ipv6 ? { ipv6: ipv6.split('/')[0] } : {}),
-    uri,
-    mtu,
-    udp: true,
-    'remote-dns-resolve': true,
-    'congestion-controller': congestionController,
-    dns: dnsList,
-    sni
-  };
-
-  return node;
-}
-
-````
-
-## File: src/types.ts
-````ts
-export interface Env {
-  SUB_CACHE: KVNamespace;
-  PAGE_PASSWORD?: string;
-}
-
-export interface WireGuardConfig {
-  privateKey: string;
-  localAddress: string[];
-  publicKey?: string;
-  presharedKey?: string;
-  mtu?: number;
-  reserved?: number[];
-  dns?: string;
-}
-
-export interface MasqueConfig {
-  privateKey: string;
-  publicKey: string;
-  localIpv4?: string;
-  localIpv6?: string;
-  mtu?: number;
-  uri?: string;
-  sni?: string;
-  congestion_controller?: string;
-  dns?: string[];
-}
-
-export interface RealityConfig {
-  publicKey: string;
-  shortId: string;
-  spiderX?: string;
-  supportX25519Mlkem768?: boolean;
-}
-
-export interface ProxyNode {
-  type: string;
-  name: string;
-  server: string;
-  port: number;
-  uuid?: string;
-  password?: string;
-  cipher?: string;
-  udp?: boolean;
-  tls?: boolean;
-  sni?: string;
-  alpn?: string[];
-  fingerprint?: string;
-  flow?: string;
-  network?: string;
-  wsPath?: string;
-  wsHeaders?: Record<string, string>;
-  grpcServiceName?: string;
-  reality?: RealityConfig;
-  obfs?: string;
-  obfsPassword?: string;
-  skipCertVerify?: boolean;
-  singboxObj?: Record<string, unknown>;
-  clashObj?: Record<string, unknown>;
-  congestion_control?: string;
-  udp_relay_mode?: string;
-  // VLESS SplitHTTP (xhttp)
-  xhttpPath?: string;
-  xhttpHost?: string;
-  xhttpMode?: string;
-  // WireGuard / WARP
-  wireguard?: WireGuardConfig;
-  // Cloudflare WARP MASQUE
-  masque?: MasqueConfig;
-  // ECH (Encrypted Client Hello)
-  ech?: boolean;
-  echQueryServerName?: string;
-  echDoh?: string;
-}
-
-export interface CachedTemplate {
-  content: string;
-  updatedAt: number;
-}
-
-export type OperationLogAction =
-  | '獲取訂閱'
-  | '登入後台'
-  | '登入失敗'
-  | '異常存取'
-  | '新增配置'
-  | '修改配置'
-  | '刪除配置'
-  | '儲存短連結';
-
-export interface OperationLogEntry {
-  time: string;
-  ip: string;
-  region: string;
-  asn: string;
-  action: OperationLogAction;
-  url: string;
-  ua: string;
-}
-
-export interface TgConfig {
-  enabled: boolean;
-  botToken: string;
-  chatId: string;
-}
-
-export interface TgConfigPublicView {
-  enabled: boolean;
-  hasToken: boolean;
-  maskedToken: string;
-  chatId: string;
-}
+};
 
 ````
 
@@ -7012,140 +6453,6 @@ export function scheduleLog(
   } else {
     void task;
   }
-}
-
-````
-
-## File: src/services/auth.ts
-````ts
-// src/services/auth.ts
-import { Env } from '../types';
-import { timingSafeEqualStr } from '../utils';
-
-export function hasPasswordConfigured(env: Env): boolean {
-  return Boolean(env.PAGE_PASSWORD && env.PAGE_PASSWORD.trim() !== '');
-}
-
-export function checkAuth(request: Request, env: Env): boolean {
-  if (!hasPasswordConfigured(env)) {
-    return true;
-  }
-  const clientPwd = request.headers.get('X-Password') || '';
-  return timingSafeEqualStr(clientPwd, env.PAGE_PASSWORD!.trim());
-}
-
-````
-
-## File: src/services/telegram.ts
-````ts
-// src/services/telegram.ts
-import {
-  Env,
-  OperationLogAction,
-  OperationLogEntry,
-  TgConfig,
-  TgConfigPublicView
-} from '../types';
-
-export const TG_CONFIG_KEY = 'tg_config';
-
-export function maskBotToken(token: string): string {
-  const t = token.trim();
-  if (!t) return '';
-  if (t.length <= 12) return '***';
-  return `${t.slice(0, 6)}***${t.slice(-4)}`;
-}
-
-export function escapeHtmlForTg(str: string): string {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
-function getActionEmoji(action: OperationLogAction): string {
-  if (action === '獲取訂閱') return '🟢';
-  if (action === '登入後台') return '🟠';
-  if (action === '登入失敗' || action === '異常存取') return '🔴';
-  return '🔵';
-}
-
-export async function getStoredTgConfig(env: Env): Promise<TgConfig> {
-  if (!env.SUB_CACHE) {
-    return { enabled: false, botToken: '', chatId: '' };
-  }
-  try {
-    const raw = await env.SUB_CACHE.get(TG_CONFIG_KEY);
-    if (!raw) return { enabled: false, botToken: '', chatId: '' };
-    const parsed = JSON.parse(raw) as Partial<TgConfig>;
-    return {
-      enabled: Boolean(parsed.enabled),
-      botToken: typeof parsed.botToken === 'string' ? parsed.botToken : '',
-      chatId: typeof parsed.chatId === 'string' ? parsed.chatId : ''
-    };
-  } catch {
-    return { enabled: false, botToken: '', chatId: '' };
-  }
-}
-
-export function toPublicTgView(cfg: TgConfig): TgConfigPublicView {
-  return {
-    enabled: cfg.enabled,
-    hasToken: Boolean(cfg.botToken),
-    maskedToken: maskBotToken(cfg.botToken),
-    chatId: cfg.chatId
-  };
-}
-
-export async function postTelegramMessage(
-  botToken: string,
-  chatId: string,
-  text: string
-): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const cleanToken = botToken.trim().replace(/[^a-zA-Z0-9:_-]/g, '');
-    if (!cleanToken) return { ok: false, error: 'Bot Token 格式無效' };
-    const resp = await fetch(`https://api.telegram.org/bot${cleanToken}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId.trim(),
-        text,
-        parse_mode: 'HTML',
-        disable_web_page_preview: true
-      })
-    });
-    const data = (await resp.json().catch(() => null)) as { ok?: boolean; description?: string } | null;
-    if (!resp.ok || !data?.ok) {
-      return { ok: false, error: data?.description || `HTTP ${resp.status}` };
-    }
-    return { ok: true };
-  } catch (err: unknown) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-export async function sendTgNotification(env: Env, entry: OperationLogEntry): Promise<void> {
-  if (!env.SUB_CACHE) return;
-  try {
-    const cfg = await getStoredTgConfig(env);
-    if (!cfg.enabled || !cfg.botToken || !cfg.chatId) return;
-
-    const emoji = getActionEmoji(entry.action);
-    const msg = [
-      `🔔 <b>SubConverter Pro 操作通知</b>`,
-      ``,
-      `📌 <b>操作類型：</b>${emoji} ${escapeHtmlForTg(entry.action)}`,
-      `🕒 <b>時間 (UTC+8)：</b><code>${escapeHtmlForTg(entry.time)}</code>`,
-      `🌐 <b>IP：</b><code>${escapeHtmlForTg(entry.ip)}</code>`,
-      `📍 <b>地區：</b>${escapeHtmlForTg(entry.region)}`,
-      `🏢 <b>ASN：</b>${escapeHtmlForTg(entry.asn)}`,
-      `🔗 <b>URL：</b><code>${escapeHtmlForTg(entry.url)}</code>`,
-      `📱 <b>UA：</b><code>${escapeHtmlForTg(entry.ua)}</code>`
-    ].join('\n');
-
-    await postTelegramMessage(cfg.botToken, cfg.chatId, msg);
-  } catch {}
 }
 
 ````
@@ -7453,6 +6760,1712 @@ export function filterAndRenameNodes(
 
   const sortedNodes = groupNodesByFlag(filteredNodes);
   return deduplicateNodeNames(sortedNodes);
+}
+
+````
+
+## File: src/services/telegram.ts
+````ts
+// src/services/telegram.ts
+import {
+  Env,
+  OperationLogAction,
+  OperationLogEntry,
+  TgConfig,
+  TgConfigPublicView
+} from '../types';
+
+export const TG_CONFIG_KEY = 'tg_config';
+
+export function maskBotToken(token: string): string {
+  const t = token.trim();
+  if (!t) return '';
+  if (t.length <= 12) return '***';
+  return `${t.slice(0, 6)}***${t.slice(-4)}`;
+}
+
+export function escapeHtmlForTg(str: string): string {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function getActionEmoji(action: OperationLogAction): string {
+  if (action === '獲取訂閱') return '🟢';
+  if (action === '登入後台') return '🟠';
+  if (action === '登入失敗' || action === '異常存取') return '🔴';
+  return '🔵';
+}
+
+export async function getStoredTgConfig(env: Env): Promise<TgConfig> {
+  if (!env.SUB_CACHE) {
+    return { enabled: false, botToken: '', chatId: '' };
+  }
+  try {
+    const raw = await env.SUB_CACHE.get(TG_CONFIG_KEY);
+    if (!raw) return { enabled: false, botToken: '', chatId: '' };
+    const parsed = JSON.parse(raw) as Partial<TgConfig>;
+    return {
+      enabled: Boolean(parsed.enabled),
+      botToken: typeof parsed.botToken === 'string' ? parsed.botToken : '',
+      chatId: typeof parsed.chatId === 'string' ? parsed.chatId : ''
+    };
+  } catch {
+    return { enabled: false, botToken: '', chatId: '' };
+  }
+}
+
+export function toPublicTgView(cfg: TgConfig): TgConfigPublicView {
+  return {
+    enabled: cfg.enabled,
+    hasToken: Boolean(cfg.botToken),
+    maskedToken: maskBotToken(cfg.botToken),
+    chatId: cfg.chatId
+  };
+}
+
+export async function postTelegramMessage(
+  botToken: string,
+  chatId: string,
+  text: string
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const cleanToken = botToken.trim().replace(/[^a-zA-Z0-9:_-]/g, '');
+    if (!cleanToken) return { ok: false, error: 'Bot Token 格式無效' };
+    const resp = await fetch(`https://api.telegram.org/bot${cleanToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId.trim(),
+        text,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true
+      })
+    });
+    const data = (await resp.json().catch(() => null)) as { ok?: boolean; description?: string } | null;
+    if (!resp.ok || !data?.ok) {
+      return { ok: false, error: data?.description || `HTTP ${resp.status}` };
+    }
+    return { ok: true };
+  } catch (err: unknown) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function sendTgNotification(env: Env, entry: OperationLogEntry): Promise<void> {
+  if (!env.SUB_CACHE) return;
+  try {
+    const cfg = await getStoredTgConfig(env);
+    if (!cfg.enabled || !cfg.botToken || !cfg.chatId) return;
+
+    const emoji = getActionEmoji(entry.action);
+    const msg = [
+      `🔔 <b>SubConverter Pro 操作通知</b>`,
+      ``,
+      `📌 <b>操作類型：</b>${emoji} ${escapeHtmlForTg(entry.action)}`,
+      `🕒 <b>時間 (UTC+8)：</b><code>${escapeHtmlForTg(entry.time)}</code>`,
+      `🌐 <b>IP：</b><code>${escapeHtmlForTg(entry.ip)}</code>`,
+      `📍 <b>地區：</b>${escapeHtmlForTg(entry.region)}`,
+      `🏢 <b>ASN：</b>${escapeHtmlForTg(entry.asn)}`,
+      `🔗 <b>URL：</b><code>${escapeHtmlForTg(entry.url)}</code>`,
+      `📱 <b>UA：</b><code>${escapeHtmlForTg(entry.ua)}</code>`
+    ].join('\n');
+
+    await postTelegramMessage(cfg.botToken, cfg.chatId, msg);
+  } catch {}
+}
+
+````
+
+## File: src/services/auth.ts
+````ts
+// src/services/auth.ts
+import { Env } from '../types';
+import { timingSafeEqualStr } from '../utils';
+
+export function hasPasswordConfigured(env: Env): boolean {
+  return Boolean(env.PAGE_PASSWORD && env.PAGE_PASSWORD.trim() !== '');
+}
+
+export function checkAuth(request: Request, env: Env): boolean {
+  if (!hasPasswordConfigured(env)) {
+    return true;
+  }
+  const clientPwd = request.headers.get('X-Password') || '';
+  return timingSafeEqualStr(clientPwd, env.PAGE_PASSWORD!.trim());
+}
+
+````
+
+## File: src/utils.ts
+````ts
+// src/utils.ts
+import { ProxyNode } from './types';
+
+// --- Constant-Time 字串比對（防時序側信道） ---
+export function timingSafeEqualStr(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const bufA = enc.encode(a);
+  const bufB = enc.encode(b);
+  const maxLen = Math.max(bufA.length, bufB.length);
+  let diff = bufA.length ^ bufB.length;
+  for (let i = 0; i < maxLen; i++) {
+    diff |= (bufA[i] ?? 0) ^ (bufB[i] ?? 0);
+  }
+  return diff === 0;
+}
+
+// --- 安全 Base64 解碼 ---
+export function safeBase64Decode(str: string): string {
+  try {
+    let b64 = str.replace(/-/g, '+').replace(/_/g, '/').replace(/[^A-Za-z0-9+/=]/g, '');
+    while (b64.length % 4) b64 += '=';
+
+    const binaryStr = atob(b64);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    return new TextDecoder('utf-8').decode(bytes);
+  } catch {
+    return '';
+  }
+}
+
+export function utf8ToBase64(str: string): string {
+  try {
+    return btoa(
+      encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => {
+        return String.fromCharCode(parseInt(p1, 16));
+      })
+    );
+  } catch {
+    return btoa(str);
+  }
+}
+
+export function tryDecodeURIComponent(str: string): string {
+  try {
+    return decodeURIComponent(str);
+  } catch {
+    return str;
+  }
+}
+
+// --- 自動加入國旗 Emoji 的智慧辨識系統 ---
+export function addFlag(name: string): string {
+  if (/[\uD83C][\uDDE6-\uDDFF][\uD83C][\uDDE6-\uDDFF]/.test(name)) {
+    return name;
+  }
+
+  const upper = name.toUpperCase();
+
+  const isMatch = (codes: string, keywords: string): boolean => {
+    const codeRegex = new RegExp(`(?:^|[^A-Z])(${codes})(?![A-Z])`);
+    const keywordRegex = new RegExp(`(${keywords})`);
+    return codeRegex.test(upper) || keywordRegex.test(upper);
+  };
+
+  if (isMatch('HK|HKG', '香港|深港|HONGKONG|HONG KONG')) return '🇭🇰 ' + name;
+  if (isMatch('TW|TWN|TPE', '台灣|台湾|台北|新北|彰化')) return '🇹🇼 ' + name;
+  if (isMatch('JP|JPN|TYO|OSA|NRT|HND|KIX', '日本|东京|大阪|埼玉|慢日|川日|JAPAN')) return '🇯🇵 ' + name;
+  if (isMatch('SG|SGP|SIN', '新加坡|狮城|SINGAPORE')) return '🇸🇬 ' + name;
+  if (isMatch('US|USA|LAX|SFO|SJC|SEA|NYC|JFK|EWR', '美国|美利堅|洛杉矶|圣何塞|硅谷|波特兰|西雅图|AMERICA|UNITED STATES')) return '🇺🇸 ' + name;
+  if (isMatch('KR|KOR|ICN|SEL', '韩国|首尔|KOREA')) return '🇰🇷 ' + name;
+  if (isMatch('UK|GB|GBR|LHR|LON', '英国|英國|伦敦|BRITAIN|ENGLAND')) return '🇬🇧 ' + name;
+  if (isMatch('NL|NLD|AMS', '荷兰|荷蘭|阿姆斯特丹|NETHERLANDS')) return '🇳🇱 ' + name;
+  if (isMatch('BR|BRA|SAO', '巴西|圣保罗|聖保羅|BRAZIL')) return '🇧🇷 ' + name;
+  if (isMatch('EG|EGY|CAI', '埃及|开罗|開羅|EGYPT')) return '🇪🇬 ' + name;
+  if (isMatch('VN|VNM|HAN|SGN', '越南|河内|河內|西贡|VIETNAM')) return '🇻🇳 ' + name;
+  if (isMatch('MO|MAC|MFM', '澳門|澳门')) return '🇲🇴 ' + name;
+  if (isMatch('KH|KHM|PNH', '柬埔寨|金边|金邊|CAMBODIA')) return '🇰🇭 ' + name;
+  if (isMatch('GR|GRC|ATH', '希腊|希臘|雅典|GREECE')) return '🇬🇷 ' + name;
+  if (isMatch('PL|POL|WAW', '波兰|波蘭|华沙|華沙|POLAND')) return '🇵🇱 ' + name;
+  if (isMatch('IT|ITA|MIL', '意大利|義大利|米兰|羅馬|ITALY')) return '🇮🇹 ' + name;
+  if (isMatch('ES|ESP|MAD', '西班牙|马德里|巴塞隆納|SPAIN')) return '🇪🇸 ' + name;
+  // 先匹配法國明確標識（避免 "France FRA" 被 FRA 當成法蘭克福）
+  if (isMatch('FR|CDG|PAR', '法国|法國|巴黎|FRANCE')) return '🇫🇷 ' + name;
+  if (isMatch('DE|DEU|FRA', '德国|德國|法兰克福|法蘭克福|GERMANY|FRANKFURT')) return '🇩🇪 ' + name;
+  if (isMatch('RU|RUS', '俄罗斯|俄羅斯|莫斯科|RUSSIA')) return '🇷🇺 ' + name;
+  if (isMatch('CH|CHE|ZRH', '瑞士|苏黎世|日内瓦|SWITZERLAND')) return '🇨🇭 ' + name;
+  if (isMatch('SE|SWE|ARN', '瑞典|斯德哥尔摩|SWEDEN')) return '🇸🇪 ' + name;
+  if (isMatch('NO|NOR|OSL', '挪威|奥斯陆|NORWAY')) return '🇳🇴 ' + name;
+  if (isMatch('FI|FIN|HEL', '芬兰|芬蘭|赫尔辛基|FINLAND')) return '🇫🇮 ' + name;
+  if (isMatch('DK|DNK|CPH', '丹麦|丹麥|哥本哈根|DENMARK')) return '🇩🇰 ' + name;
+  if (isMatch('IE|IRL|DUB', '爱尔兰|愛爾蘭|都柏林|IRELAND')) return '🇮🇪 ' + name;
+  if (isMatch('PT|PRT|LIS', '葡萄牙|里斯本|PORTUGAL')) return '🇵🇹 ' + name;
+  if (isMatch('TH|THA|BKK', '泰国|泰國|曼谷|THAILAND')) return '🇹🇭 ' + name;
+  if (isMatch('MY|MYS|KUL', '马来西亚|馬來西亞|吉隆坡|MALAYSIA')) return '🇲🇾 ' + name;
+  if (isMatch('PH|PHL|MNL', '菲律宾|菲律賓|马尼拉|PHILIPPINES')) return '🇵🇭 ' + name;
+  if (isMatch('ID|IDN|CGK', '印度尼西亚|印尼|雅加达|INDONESIA')) return '🇮🇩 ' + name;
+  if (isMatch('TR|TUR|IST', '土耳其|伊斯坦堡|TURKEY')) return '🇹🇷 ' + name;
+  if (isMatch('IN|IND|BOM', '印度|孟买|INDIA')) return '🇮🇳 ' + name;
+  if (isMatch('CA|CAN|YVR|YYZ', '加拿大|多伦多|温哥华|CANADA')) return '🇨🇦 ' + name;
+  if (isMatch('AU|AUS|SYD|MEL', '澳大利亚|澳洲|悉尼|墨本|AUSTRALIA')) return '🇦🇺 ' + name;
+  if (isMatch('CN|CHN', '中国|回国|国内|北京|上海|廣州|深圳|CHINA')) return '🇨🇳 ' + name;
+  if (isMatch('NZ|NZL|AKL', '新西兰|紐西蘭|奥克兰|NEW ZEALAND')) return '🇳🇿 ' + name;
+  if (isMatch('AE|ARE|DXB', '阿联酋|迪拜|杜拜|UAE')) return '🇦🇪 ' + name;
+  if (isMatch('SA|SAU|RUH', '沙特|沙烏地阿拉伯|利雅德|SAUDI')) return '🇸🇦 ' + name;
+  if (isMatch('IL|ISR|TLV', '以色列|特拉维夫|ISRAEL')) return '🇮🇱 ' + name;
+  if (isMatch('KZ|KAZ', '哈萨克斯坦|哈薩克|KAZAKHSTAN')) return '🇰🇿 ' + name;
+  if (isMatch('PK|PAK', '巴基斯坦|PAKISTAN')) return '🇵🇰 ' + name;
+  if (isMatch('ZA|ZAF|CPT', '南非|开普敦|SOUTH AFRICA')) return '🇿🇦 ' + name;
+
+  return '🇺🇳 ' + name;
+}
+
+// 按國旗進行歸類排序（🇺🇳 置於頂部）
+export function groupNodesByFlag(nodes: ProxyNode[]): ProxyNode[] {
+  const groups = new Map<string, ProxyNode[]>();
+  const flagOrder: string[] = [];
+
+  for (const node of nodes) {
+    const flaggedName = addFlag(node.name || 'node');
+
+    let flag = '🇺🇳';
+    const match = flaggedName.match(/^([\uD83C][\uDDE6-\uDDFF][\uD83C][\uDDE6-\uDDFF])/);
+    if (match) {
+      flag = match[1];
+    }
+
+    if (!groups.has(flag)) {
+      groups.set(flag, []);
+      flagOrder.push(flag);
+    }
+    groups.get(flag)!.push(node);
+  }
+
+  const standardOrder = [
+    '🇭🇰', '🇹🇼', '🇯🇵', '🇸🇬', '🇰🇷',
+    '🇺🇸', '🇬🇧', '🇨🇦', '🇦🇺',
+    '🇲🇴', '🇨🇳', '🇹🇭', '🇻🇳', '🇲🇾', '🇵🇭', '🇮🇩',
+    '🇩🇪', '🇫🇷', '🇳🇱', '🇷🇺', '🇮🇳', '🇹🇷'
+  ];
+
+  flagOrder.sort((a, b) => {
+    if (a === '🇺🇳' && b !== '🇺🇳') return -1;
+    if (b === '🇺🇳' && a !== '🇺🇳') return 1;
+
+    const idxA = standardOrder.indexOf(a);
+    const idxB = standardOrder.indexOf(b);
+
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+
+    return a.localeCompare(b);
+  });
+
+  const result: ProxyNode[] = [];
+  for (const flag of flagOrder) {
+    result.push(...groups.get(flag)!);
+  }
+  return result;
+}
+
+// 去重複命名與標籤對齊
+export function deduplicateNodeNames(nodes: ProxyNode[]): ProxyNode[] {
+  const seenKey = new Set<string>();
+  const nameCount = new Map<string, number>();
+
+  return nodes.filter(node => {
+    const credKey =
+      node.type === 'wireguard'
+        ? `${node.wireguard?.privateKey || ''}:${node.wireguard?.publicKey || ''}:${node.wireguard?.localAddress.join(',') || ''}`
+        : node.type === 'masque'
+          ? `${node.masque?.privateKey || ''}:${node.masque?.publicKey || ''}:${node.masque?.localIpv4 || ''}`
+          : `${node.uuid || ''}:${node.password || ''}:${node.cipher || ''}`;
+    const transportKey = `${node.network || ''}:${node.wsPath || node.xhttpPath || node.grpcServiceName || ''}:${node.sni || ''}:${node.wsHeaders?.Host || ''}`;
+    const key = `${node.type}:${node.server}:${node.port}:${credKey}:${transportKey}`;
+
+    if (seenKey.has(key)) return false;
+    seenKey.add(key);
+
+    let baseName = node.name || 'node';
+    baseName = addFlag(baseName);
+
+    if (!nameCount.has(baseName)) {
+      nameCount.set(baseName, 1);
+      node.name = baseName;
+    } else {
+      const count = nameCount.get(baseName)! + 1;
+      nameCount.set(baseName, count);
+      node.name = `${baseName}_${count}`;
+    }
+
+    if (node.singboxObj) {
+      node.singboxObj.tag = node.name;
+    }
+    if (node.clashObj) {
+      node.clashObj.name = node.name;
+    }
+
+    return true;
+  });
+}
+
+````
+
+## File: src/routes/admin.ts
+````ts
+// src/routes/admin.ts
+import { Env, OperationLogEntry, TgConfig } from '../types';
+import { hasPasswordConfigured, checkAuth } from '../services/auth';
+import { LOGS_KEY, getClientMeta, formatUtc8Time, appendOperationLog } from '../services/audit';
+import {
+  TG_CONFIG_KEY,
+  getStoredTgConfig,
+  toPublicTgView,
+  postTelegramMessage,
+  escapeHtmlForTg
+} from '../services/telegram';
+
+export async function handleAdminRoutes(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  url: URL
+): Promise<Response | null> {
+  // --- Telegram 通知設定 API ---
+  if (url.pathname === '/tg-config') {
+    if (!hasPasswordConfigured(env)) {
+      return new Response(
+        JSON.stringify({ error: '未設定管理密碼 (PAGE_PASSWORD)，禁止存取通知設定', unconfigured: true }),
+        {
+          status: 403,
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+            'Access-Control-Allow-Origin': '*'
+          }
+        }
+      );
+    }
+    if (!checkAuth(request, env)) {
+      if ((request.headers.get('X-Password') || '').trim() !== '') {
+        await appendOperationLog(request, env, '登入失敗', ctx);
+      }
+      return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
+        status: 401,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    }
+
+    if (request.method === 'GET') {
+      const cfg = await getStoredTgConfig(env);
+      return new Response(JSON.stringify(toPublicTgView(cfg)), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    }
+
+    if (request.method === 'POST') {
+      try {
+        const body = (await request.json()) as { enabled?: boolean; botToken?: string; chatId?: string };
+        const existing = await getStoredTgConfig(env);
+
+        const rawToken = typeof body.botToken === 'string' ? body.botToken.trim() : '';
+        const nextToken = rawToken && !rawToken.includes('***') ? rawToken : existing.botToken;
+        const nextChatId = typeof body.chatId === 'string' ? body.chatId.trim() : existing.chatId;
+        const nextEnabled = typeof body.enabled === 'boolean' ? body.enabled : existing.enabled;
+
+        if (nextEnabled && (!nextToken || !nextChatId)) {
+          return new Response(JSON.stringify({ error: '請先填寫有效的 Bot Token 與 Chat ID 後再啟用通知' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+          });
+        }
+
+        const updated: TgConfig = {
+          enabled: nextEnabled,
+          botToken: nextToken,
+          chatId: nextChatId
+        };
+
+        if (env.SUB_CACHE) {
+          await env.SUB_CACHE.put(TG_CONFIG_KEY, JSON.stringify(updated));
+        }
+
+        return new Response(JSON.stringify(toPublicTgView(updated)), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      } catch {
+        return new Response(JSON.stringify({ error: '儲存 Telegram 設定失敗' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+    }
+
+    if (request.method === 'DELETE') {
+      if (env.SUB_CACHE) {
+        await env.SUB_CACHE.delete(TG_CONFIG_KEY);
+      }
+      return new Response(JSON.stringify(toPublicTgView({ enabled: false, botToken: '', chatId: '' })), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    }
+  }
+
+  // --- Telegram 測試訊息發送 API ---
+  if (request.method === 'POST' && url.pathname === '/tg-test') {
+    if (!hasPasswordConfigured(env)) {
+      return new Response(JSON.stringify({ ok: false, error: '未設定管理密碼 (PAGE_PASSWORD)' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+    if (!checkAuth(request, env)) {
+      if ((request.headers.get('X-Password') || '').trim() !== '') {
+        await appendOperationLog(request, env, '登入失敗', ctx);
+      }
+      return new Response(JSON.stringify({ ok: false, error: '密碼錯誤或未授權' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+
+    try {
+      const body = (await request.json()) as { botToken?: string; chatId?: string };
+      const existing = await getStoredTgConfig(env);
+      const rawToken = typeof body.botToken === 'string' ? body.botToken.trim() : '';
+      const tokenToUse = rawToken && !rawToken.includes('***') ? rawToken : existing.botToken;
+      const chatIdToUse =
+        typeof body.chatId === 'string' && body.chatId.trim() ? body.chatId.trim() : existing.chatId;
+
+      if (!tokenToUse || !chatIdToUse) {
+        return new Response(JSON.stringify({ ok: false, error: '請先輸入 Bot Token 與 Chat ID' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+
+      const meta = getClientMeta(request);
+      const testMsg = [
+        `✅ <b>SubConverter Pro Telegram 測試通知</b>`,
+        ``,
+        `🎉 恭喜！您的機器人連線正常，已準備好接收即時操作通知。`,
+        `🕒 <b>時間 (UTC+8)：</b><code>${escapeHtmlForTg(formatUtc8Time())}</code>`,
+        `🌐 <b>測試來源 IP：</b><code>${escapeHtmlForTg(meta.ip)}</code>`,
+        `📍 <b>地區：</b>${escapeHtmlForTg(meta.region)}`
+      ].join('\n');
+
+      const sendRes = await postTelegramMessage(tokenToUse, chatIdToUse, testMsg);
+      if (!sendRes.ok) {
+        return new Response(JSON.stringify({ ok: false, error: sendRes.error || 'Telegram API 回傳失敗' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return new Response(JSON.stringify({ ok: false, error: msg }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+  }
+
+  // --- 操作日誌 API ---
+  if (request.method === 'GET' && url.pathname === '/logs') {
+    if (!hasPasswordConfigured(env)) {
+      return new Response(
+        JSON.stringify({ error: '未設定管理密碼 (PAGE_PASSWORD)，日誌 API 預設禁止公開讀取', unconfigured: true }),
+        {
+          status: 403,
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+            'Access-Control-Allow-Origin': '*'
+          }
+        }
+      );
+    }
+    if (!checkAuth(request, env)) {
+      if ((request.headers.get('X-Password') || '').trim() !== '') {
+        await appendOperationLog(request, env, '登入失敗', ctx);
+      }
+      return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
+        status: 401,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    }
+    const raw = env.SUB_CACHE ? await env.SUB_CACHE.get(LOGS_KEY) : null;
+    let logs: OperationLogEntry[] = [];
+    if (raw) {
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          logs = parsed as OperationLogEntry[];
+        }
+      } catch {}
+    }
+    return new Response(JSON.stringify(logs), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        'Access-Control-Allow-Origin': '*'
+      }
+    });
+  }
+
+  if (request.method === 'DELETE' && url.pathname === '/logs') {
+    if (!hasPasswordConfigured(env)) {
+      return new Response(JSON.stringify({ error: '未設定 PAGE_PASSWORD，禁止操作', unconfigured: true }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+    if (!checkAuth(request, env)) {
+      if ((request.headers.get('X-Password') || '').trim() !== '') {
+        await appendOperationLog(request, env, '登入失敗', ctx);
+      }
+      return new Response(JSON.stringify({ error: '未授權' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+    if (env.SUB_CACHE) {
+      await env.SUB_CACHE.put(LOGS_KEY, '[]');
+    }
+    return new Response('OK', {
+      status: 200,
+      headers: { 'Access-Control-Allow-Origin': '*' }
+    });
+  }
+
+  return null;
+}
+
+````
+
+## File: src/routes/argo.ts
+````ts
+// src/routes/argo.ts
+import { Env, ProxyNode } from '../types';
+import { utf8ToBase64 } from '../utils';
+import { loadNodes } from '../services/node-loader';
+
+function escapeBashDoubleQuoted(val: string): string {
+  return val
+    .replace(/[\r\n\0]/g, '')
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\$/g, '\\$')
+    .replace(/`/g, '\\`');
+}
+
+function replaceAllTokens(template: string, token: string, value: string): string {
+  return template.split(token).join(escapeBashDoubleQuoted(value));
+}
+
+function formatHost(host: string): string {
+  return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+}
+
+async function getArgoScriptFromGithub(
+  node: ProxyNode,
+  port: string,
+  token: string,
+  domain: string
+): Promise<string> {
+  const GITHUB_TEMPLATE_URL = `https://raw.githubusercontent.com/sammy0101/cf-sub-converter/main/argo.sh?t=${Date.now()}`;
+  let template = '';
+
+  try {
+    const res = await fetch(GITHUB_TEMPLATE_URL, { headers: { 'User-Agent': 'v2rayNG/1.8.5' } });
+    if (res.ok) {
+      template = await res.text();
+    } else {
+      throw new Error('GitHub Fetch Failed');
+    }
+  } catch {
+    template = `#!/bin/bash
+if ! command -v cloudflared &> /dev/null; then
+  curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
+  chmod +x /usr/local/bin/cloudflared
+fi
+cloudflared tunnel --url http://127.0.0.1:{{VLESS_PORT}}
+`;
+  }
+
+  const vlessType = node.network || 'ws';
+  const vlessPath = node.wsPath || '/';
+  const argoNodeName = `${node.name}_Argo`;
+  const isTls = node.tls ? 'true' : 'false';
+  const realHost = node.wsHeaders?.Host || node.sni || node.server;
+  const safePort = String(parseInt(port, 10) || 8080);
+
+  let rendered = template;
+  rendered = replaceAllTokens(rendered, '{{NODE_TYPE}}', node.type);
+  rendered = replaceAllTokens(rendered, '{{VLESS_UUID}}', node.uuid || '');
+  rendered = replaceAllTokens(rendered, '{{VLESS_PATH}}', vlessPath);
+  rendered = replaceAllTokens(rendered, '{{VLESS_TYPE}}', vlessType);
+  rendered = replaceAllTokens(rendered, '{{VLESS_PORT}}', safePort);
+  rendered = replaceAllTokens(rendered, '{{NODE_NAME}}', argoNodeName);
+  rendered = replaceAllTokens(rendered, '{{TUNNEL_TOKEN}}', token.trim());
+  rendered = replaceAllTokens(rendered, '{{CUSTOM_DOMAIN}}', domain.trim());
+  rendered = replaceAllTokens(rendered, '{{VLESS_TLS}}', isTls);
+  rendered = replaceAllTokens(rendered, '{{ORIGIN_HOST}}', realHost);
+  return rendered;
+}
+
+export async function handleArgoRoutes(
+  request: Request,
+  env: Env,
+  url: URL
+): Promise<Response | null> {
+  if (request.method === 'GET' && url.pathname.startsWith('/argo/sh/')) {
+    const scriptId = url.pathname.split('/').pop();
+    if (env.SUB_CACHE && scriptId) {
+      const script = await env.SUB_CACHE.get(`script:${scriptId}`);
+      if (script) {
+        return new Response(script, {
+          headers: {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      }
+    }
+    return new Response('# 錯誤: 該腳本不存在或已過期，請重新在網頁上生成。\nexit 1\n', {
+      status: 404,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
+    });
+  }
+
+  if (request.method === 'POST' && (url.pathname === '/api/parse-vless' || url.pathname === '/api/parse-argo')) {
+    try {
+      const body = (await request.json()) as { url?: string };
+      const rawUrl = body.url || '';
+      if (!rawUrl.trim()) {
+        return new Response(JSON.stringify({ error: '請輸入有效的節點內容' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+
+      const allNodes = await loadNodes(rawUrl);
+      const argoCompatibleNodes = allNodes
+        .filter(n => n.type === 'vless' || n.type === 'vmess')
+        .map((n, idx) => ({
+          index: idx,
+          name: n.name,
+          server: n.server,
+          port: n.port,
+          type: n.type,
+          host: n.wsHeaders?.Host || n.sni || n.server
+        }));
+
+      return new Response(JSON.stringify(argoCompatibleNodes), {
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return new Response(JSON.stringify({ error: msg }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/argo-generate') {
+    try {
+      const body = (await request.json()) as {
+        url?: string;
+        indices?: number[];
+        port?: string;
+        cleanIp?: string;
+        token?: string;
+        domain?: string;
+      };
+
+      const rawUrl = body.url || '';
+      const selectedIndices = body.indices || [];
+      const port = body.port || '8080';
+      const cleanIp = (body.cleanIp || '').trim();
+      const token = body.token || '';
+      const domain = body.domain || '';
+
+      if (!rawUrl.trim() || selectedIndices.length === 0) {
+        return new Response(JSON.stringify({ error: '無效的參數或未選擇節點' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+
+      const allNodes = await loadNodes(rawUrl);
+      const compatibleNodes = allNodes.filter(n => n.type === 'vless' || n.type === 'vmess');
+      const selectedPairs = selectedIndices
+        .map(idx => ({ originalIndex: idx, node: compatibleNodes[idx] }))
+        .filter((item): item is { originalIndex: number; node: ProxyNode } => Boolean(item.node));
+
+      if (selectedPairs.length === 0) {
+        return new Response(JSON.stringify({ error: '找不到對應的節點索引' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+
+      const scriptParts: string[] = [];
+      const generatedNodesData: Array<{ originalIndex: number; link: string }> = [];
+      const isFixedTunnel = Boolean(token.trim() && domain.trim());
+
+      for (let i = 0; i < selectedPairs.length; i++) {
+        const { originalIndex, node } = selectedPairs[i];
+
+        // 固定隧道僅有一個全域 cloudflared 服務實例，避免重複卸載與安裝
+        if (!isFixedTunnel || i === 0) {
+          scriptParts.push(await getArgoScriptFromGithub(node, port, token, domain));
+        }
+
+        const targetDomain = isFixedTunnel
+          ? domain.trim()
+          : '請在VPS執行一鍵安裝腳本獲取臨時域名.trycloudflare.com';
+        const connectionServer = formatHost(cleanIp || targetDomain);
+        const argoNodeName = `${node.name}_Argo${cleanIp ? '_優選' : ''}`;
+
+        let argoLink = '';
+        if (node.type === 'vless') {
+          const params = new URLSearchParams({
+            encryption: 'none',
+            security: 'tls',
+            type: node.network || 'ws',
+            host: targetDomain,
+            sni: targetDomain,
+            path: node.wsPath || '/'
+          });
+          argoLink = `vless://${encodeURIComponent(node.uuid || '')}@${connectionServer}:443?${params.toString()}#${encodeURIComponent(argoNodeName)}`;
+        } else {
+          const vmessObj = {
+            v: '2',
+            ps: argoNodeName,
+            add: cleanIp || targetDomain,
+            port: 443,
+            id: node.uuid,
+            aid: 0,
+            scy: 'auto',
+            net: node.network || 'ws',
+            type: 'none',
+            host: targetDomain,
+            path: node.wsPath || '/',
+            tls: 'tls',
+            sni: targetDomain
+          };
+          argoLink = 'vmess://' + utf8ToBase64(JSON.stringify(vmessObj));
+        }
+
+        generatedNodesData.push({ originalIndex, link: argoLink });
+      }
+
+      const scripts = scriptParts.join('\n\n');
+      let scriptId = '';
+      if (env.SUB_CACHE) {
+        scriptId = crypto.randomUUID();
+        await env.SUB_CACHE.put('script:' + scriptId, scripts, { expirationTtl: 3600 });
+      }
+
+      return new Response(
+        JSON.stringify({
+          scriptId,
+          argoNodes: generatedNodesData
+        }),
+        {
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        }
+      );
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return new Response(JSON.stringify({ error: msg }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+  }
+
+  return null;
+}
+
+````
+
+## File: src/routes/sub.ts
+````ts
+// src/routes/sub.ts
+import { Env } from '../types';
+import { HTML_PAGE } from '../ui';
+import {
+  toSingBoxWithTemplate,
+  toClashWithTemplate,
+  toBase64,
+  toSurge,
+  toQuantumultX,
+  toLoon,
+  toHonk
+} from '../generators';
+import { loadNodesWithTraffic, filterAndRenameNodes } from '../services/node-loader';
+import { scheduleLog } from '../services/audit';
+import { timingSafeEqualStr } from '../utils';
+
+function buildExactBase64SubUrl(url: URL, storedToken: string): string {
+  const u = new URL(url.toString());
+  const isLocal = u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+  if (!isLocal) {
+    u.protocol = 'https:';
+  }
+  u.searchParams.delete('force');
+  u.searchParams.delete('nocache');
+  if (storedToken && !u.searchParams.has('token')) {
+    u.searchParams.set('token', storedToken);
+  }
+  u.searchParams.set('target', 'base64');
+  return u.toString();
+}
+
+export async function handleSubRoute(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  url: URL,
+  version: string
+): Promise<Response> {
+  let urlParam = url.searchParams.get('url') || '';
+  let includeParam = url.searchParams.get('include') || '';
+  let excludeParam = url.searchParams.get('exclude') || '';
+  let renameParam = url.searchParams.get('rename') || '';
+  const nameParam = url.searchParams.get('name') || '';
+  const forceRefresh = url.searchParams.has('force') || url.searchParams.has('nocache');
+
+  const rawPath = url.pathname.replace(/^\/+/, '');
+  const path = decodeURIComponent(rawPath).trim();
+  let detectedProfileName = nameParam;
+  let storedToken = '';
+  let foundInKv = false;
+
+  if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
+    if (!detectedProfileName) {
+      detectedProfileName = path;
+    }
+
+    const candidateKeys = Array.from(new Set([path, path.toLowerCase(), path.toUpperCase()]));
+    const kvResults = await Promise.all(candidateKeys.map(k => env.SUB_CACHE.get(k)));
+    const stored = kvResults.find(v => Boolean(v)) || null;
+
+    if (stored) {
+      foundInKv = true;
+      try {
+        const parsed = JSON.parse(stored) as {
+          content?: string;
+          include?: string;
+          exclude?: string;
+          rename?: string;
+          token?: string;
+        };
+        if (parsed && parsed.content) {
+          urlParam = parsed.content;
+          if (!includeParam) includeParam = parsed.include || '';
+          if (!excludeParam) excludeParam = parsed.exclude || '';
+          if (!renameParam) renameParam = parsed.rename || '';
+          storedToken = (parsed.token || '').trim();
+        }
+      } catch {
+        urlParam = stored;
+      }
+    }
+
+    if (!urlParam || urlParam.trim() === '') {
+      try {
+        const favsData = await env.SUB_CACHE.get('favorites');
+        if (favsData) {
+          const favsList = JSON.parse(favsData) as Array<Record<string, string>>;
+          const matched = favsList.find(f => f.name && f.name.trim().toLowerCase() === path.toLowerCase());
+          if (matched && matched.url) {
+            foundInKv = true;
+            urlParam = matched.url;
+            if (!includeParam) includeParam = matched.include || '';
+            if (!excludeParam) excludeParam = matched.exclude || '';
+            if (!renameParam) renameParam = matched.rename || '';
+            storedToken = (matched.token || '').trim();
+            detectedProfileName = matched.name;
+          }
+        }
+      } catch {}
+    }
+
+    // 防掃描校驗：若配置設有 Token，無 Token 或錯誤 Token 統一回傳 404 Not Found（防列舉），並記為異常存取
+    if (foundInKv && storedToken) {
+      const providedToken = (url.searchParams.get('token') || '').trim();
+      if (!providedToken || !timingSafeEqualStr(providedToken, storedToken)) {
+        scheduleLog(request, env, ctx, '異常存取');
+        return new Response('Not Found', {
+          status: 404,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+        });
+      }
+    }
+  }
+
+  if (!urlParam || urlParam.trim() === '') {
+    if (path === 'sub') {
+      return new Response('Error: Missing parameter "url"', { status: 400 });
+    }
+    if (path === 'favicon.ico') {
+      return new Response(null, { status: 204 });
+    }
+    if (path !== '') {
+      return new Response('Not Found', {
+        status: 404,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+      });
+    }
+    const dynamicHtml = HTML_PAGE.replace('id="appVersionBadge">PRO</span>', `id="appVersionBadge">v${version}</span>`);
+    return new Response(dynamicHtml, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  }
+
+  let target = url.searchParams.get('target');
+
+  if (!target) {
+    const ua = (request.headers.get('User-Agent') || '').toLowerCase();
+    if (ua.includes('clash') || ua.includes('mihomo') || ua.includes('stash') || ua.includes('surfboard')) {
+      target = 'clash';
+    } else if (ua.includes('sing-box') || ua.includes('singbox') || ua.includes('hiddify')) {
+      target = 'singbox';
+    } else if (ua.includes('surge')) {
+      target = 'surge';
+    } else if (ua.includes('quantumult')) {
+      target = 'quanx';
+    } else if (ua.includes('loon')) {
+      target = 'loon';
+    } else if (ua.includes('honk') || ua.includes('dae')) {
+      target = 'honk';
+    } else if (ua.includes('v2ray') || ua.includes('shadowrocket')) {
+      target = 'base64';
+    }
+  }
+
+  const finalProfileName = detectedProfileName || 'subscription';
+
+  // Honk / DAE 快速通道：僅需產出引用 Base64 訂閱的 config.dae，無需浪費時間重複抓取與解析所有上游節點
+  if (target === 'honk' || target === 'dae') {
+    try {
+      const base64SubUrl = buildExactBase64SubUrl(url, storedToken);
+      const result = await toHonk([], base64SubUrl, finalProfileName, forceRefresh);
+      scheduleLog(request, env, ctx, '獲取訂閱');
+
+      const filenameAscii = `${finalProfileName.replace(/[^a-zA-Z0-9_-]/g, '_')}.dae`;
+      const filenameUtf8 = encodeURIComponent(`${finalProfileName}.dae`);
+
+      return new Response(result, {
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Expose-Headers':
+            'Content-Disposition, Profile-Title, Subscription-Title, Profile-Update-Interval, subscription-userinfo',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Content-Disposition': `inline; filename="${filenameAscii}"; filename*=UTF-8''${filenameUtf8}`,
+          'Profile-Title': finalProfileName,
+          'Subscription-Title': finalProfileName,
+          'profile-update-interval': '3600'
+        }
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return new Response(`轉換配置失敗: ${msg}`, {
+        status: 500,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+  }
+
+  const { nodes: allNodes, errors, traffic } = await loadNodesWithTraffic(urlParam);
+
+  if (allNodes.length === 0) {
+    const errorMsg = errors.length > 0 ? errors.join('\n') : '未解析到任何有效節點。';
+    return new Response(errorMsg, { status: 400 });
+  }
+
+  const uniqueNodes = filterAndRenameNodes(allNodes, includeParam, excludeParam, renameParam);
+
+  if (uniqueNodes.length === 0) {
+    return new Response('所有節點均已被過濾條件排除，無可用節點。', { status: 400 });
+  }
+
+  if (!target) {
+    scheduleLog(request, env, ctx, '獲取訂閱');
+
+    const host = `https://${url.host}`;
+    let basePreview = `${host}/?url=${encodeURIComponent(urlParam)}`;
+    if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
+      basePreview = `${host}/${encodeURIComponent(path)}`;
+      if (storedToken) basePreview += `?token=${encodeURIComponent(storedToken)}`;
+    }
+    const sep = basePreview.includes('?') ? '&' : '?';
+
+    let filterQuery = '';
+    if (includeParam && !foundInKv) filterQuery += `&include=${encodeURIComponent(includeParam)}`;
+    if (excludeParam && !foundInKv) filterQuery += `&exclude=${encodeURIComponent(excludeParam)}`;
+    if (renameParam && !foundInKv) filterQuery += `&rename=${encodeURIComponent(renameParam)}`;
+    if (detectedProfileName && !foundInKv) filterQuery += `&name=${encodeURIComponent(detectedProfileName)}`;
+
+    const htmlInfo = `<!DOCTYPE html><html lang="zh-TW"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>轉換完成</title><style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: radial-gradient(ellipse at 50% 0%, #0d1633 0%, #040711 75%); color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; position: relative; overflow-x: hidden; }
+body::before, body::after { content: ""; position: fixed; border-radius: 50%; filter: blur(90px); pointer-events: none; z-index: -1; }
+body::before { width: 420px; height: 420px; top: -100px; left: -80px; background: rgba(59, 130, 246, 0.34); }
+body::after { width: 440px; height: 440px; bottom: -120px; right: -80px; background: rgba(6, 182, 212, 0.25); }
+.glass-panel { background: linear-gradient(145deg, rgba(255,255,255,0.085) 0%, rgba(255,255,255,0.025) 100%); backdrop-filter: blur(24px) saturate(180%); -webkit-backdrop-filter: blur(24px) saturate(180%); border: 1px solid rgba(255,255,255,0.16); border-radius: 24px; padding: 36px 28px; max-width: 680px; width: 100%; text-align: center; box-shadow: 0 24px 56px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.22); }
+h1 { font-size: 1.5rem; margin-bottom: 22px; font-weight: 700; }
+.links { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+a { display: inline-flex; align-items: center; justify-content: center; padding: 12px 20px; background: linear-gradient(135deg, rgba(59,130,246,0.88), rgba(37,99,235,0.85)); color: #fff; text-decoration: none; border-radius: 14px; font-weight: 600; font-size: 0.92rem; border: 1px solid rgba(255,255,255,0.24); box-shadow: 0 8px 20px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.32); transition: transform 0.2s, box-shadow 0.2s; }
+a:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(59,130,246,0.48), inset 0 1px 0 rgba(255,255,255,0.4); }
+@media (prefers-reduced-motion: reduce) { a { transition: none; } }
+</style></head>
+<body>
+  <div class="glass-panel">
+    <h1>⚡ 成功轉換 ${uniqueNodes.length} 個節點</h1>
+    <div class="links">
+      <a href="${basePreview}${sep}target=clash${filterQuery}">Clash Meta (YAML)</a>
+      <a href="${basePreview}${sep}target=singbox${filterQuery}">Sing-Box (JSON)</a>
+      <a href="${basePreview}${sep}target=surge${filterQuery}">Surge 5</a>
+      <a href="${basePreview}${sep}target=quanx${filterQuery}">Quantumult X</a>
+      <a href="${basePreview}${sep}target=loon${filterQuery}">Loon</a>
+      <a href="${basePreview}${sep}target=base64${filterQuery}">Base64</a>
+      <a href="${basePreview}${sep}target=honk${filterQuery}">Honk / dae (config.dae)</a>
+    </div>
+  </div>
+</body></html>`;
+    return new Response(htmlInfo, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  }
+
+  let result = '';
+  let contentType = 'text/plain';
+  let fileExt = '.txt';
+
+  try {
+    if (target === 'clash') {
+      result = await toClashWithTemplate(uniqueNodes, env, forceRefresh);
+      contentType = 'text/yaml';
+      fileExt = '.yaml';
+    } else if (target === 'surge') {
+      result = toSurge(uniqueNodes);
+      contentType = 'text/plain';
+      fileExt = '.conf';
+    } else if (target === 'quanx' || target === 'qx') {
+      result = toQuantumultX(uniqueNodes);
+      contentType = 'text/plain';
+      fileExt = '.txt';
+    } else if (target === 'loon') {
+      result = toLoon(uniqueNodes);
+      contentType = 'text/plain';
+      fileExt = '.conf';
+    } else if (target === 'base64') {
+      result = toBase64(uniqueNodes);
+      contentType = 'text/plain';
+      fileExt = '.txt';
+    } else {
+      result = await toSingBoxWithTemplate(uniqueNodes, env, forceRefresh);
+      contentType = 'application/json';
+      fileExt = '.json';
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return new Response(`轉換配置失敗: ${msg}`, {
+      status: 500,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
+    });
+  }
+
+  scheduleLog(request, env, ctx, '獲取訂閱');
+
+  const filenameAscii = `${finalProfileName.replace(/[^a-zA-Z0-9_-]/g, '_')}${fileExt}`;
+  const filenameUtf8 = encodeURIComponent(`${finalProfileName}${fileExt}`);
+
+  const responseHeaders: Record<string, string> = {
+    'Content-Type': `${contentType}; charset=utf-8`,
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Expose-Headers':
+      'Content-Disposition, Profile-Title, Subscription-Title, Profile-Update-Interval, subscription-userinfo',
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+    'Content-Disposition': `inline; filename="${filenameAscii}"; filename*=UTF-8''${filenameUtf8}`,
+    'Profile-Title': finalProfileName,
+    'Subscription-Title': finalProfileName,
+    'profile-update-interval': '3600'
+  };
+
+  if (traffic.hasTrafficInfo) {
+    let userInfoHeader = `upload=${traffic.totalUpload}; download=${traffic.totalDownload}; total=${traffic.totalTotal}`;
+    if (traffic.minExpire > 0) userInfoHeader += `; expire=${traffic.minExpire}`;
+    responseHeaders['subscription-userinfo'] = userInfoHeader;
+  }
+
+  return new Response(result, { headers: responseHeaders });
+}
+
+````
+
+## File: src/routes/favs.ts
+````ts
+// src/routes/favs.ts
+import { Env } from '../types';
+import { hasPasswordConfigured, checkAuth } from '../services/auth';
+import { appendOperationLog } from '../services/audit';
+
+const FAVS_KEY = 'favorites';
+
+const RESERVED_EXACT_KEYS = new Set([
+  'favorites',
+  'operation_logs',
+  'tg_config',
+  'sub',
+  'logs',
+  'favs',
+  'tg-config',
+  'tg-test',
+  'version',
+  'favicon.ico',
+  'argo',
+  'api'
+]);
+
+const RESERVED_PREFIXES = ['script:', 'lkg:', 'argo/', 'api/'];
+
+function isReservedPath(name: string): boolean {
+  const lower = name.trim().toLowerCase();
+  if (!lower) return true;
+  if (RESERVED_EXACT_KEYS.has(lower)) return true;
+  if (RESERVED_PREFIXES.some(prefix => lower.startsWith(prefix))) return true;
+  if (lower.includes('/') || lower.includes('?') || lower.includes('#')) return true;
+  return false;
+}
+
+async function getFavs(env: Env): Promise<Array<Record<string, string>>> {
+  const data = await env.SUB_CACHE.get(FAVS_KEY);
+  return data ? (JSON.parse(data) as Array<Record<string, string>>) : [];
+}
+
+async function saveFavs(env: Env, favs: Array<Record<string, string>>): Promise<void> {
+  await env.SUB_CACHE.put(FAVS_KEY, JSON.stringify(favs));
+}
+
+function jsonError(error: string, status: number): Response {
+  return new Response(JSON.stringify({ error }), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*'
+    }
+  });
+}
+
+export async function handleFavsRoutes(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  url: URL
+): Promise<Response | null> {
+  if (request.method === 'POST' && url.pathname === '/save') {
+    try {
+      const body = (await request.json()) as {
+        path?: string;
+        content?: string;
+        include?: string;
+        exclude?: string;
+        rename?: string;
+        token?: string;
+      };
+      const cleanPath = (body.path || '').trim();
+      if (!cleanPath || !body.content) return jsonError('缺少短連結名稱或節點內容', 400);
+      if (isReservedPath(cleanPath)) {
+        return jsonError('該短連結名稱為系統保留字或包含不合法字元 (/, ?, #)', 400);
+      }
+
+      const cleanToken = (body.token || '').trim();
+      const passwordConfigured = hasPasswordConfigured(env);
+      const isAdmin = checkAuth(request, env);
+
+      // 安全防線 1：禁止未經授權透過 /save 覆蓋後台「已儲存的配置」所管理的短連結
+      const favs = await getFavs(env);
+      const matchedFavIdx = favs.findIndex(
+        f => f.name && f.name.trim().toLowerCase() === cleanPath.toLowerCase()
+      );
+      if (matchedFavIdx !== -1 && passwordConfigured && !isAdmin) {
+        return jsonError('該配置屬於後台管理收藏，需要管理密碼授權才可修改', 403);
+      }
+
+      // 安全防線 2：若該短連結已存在且設有 Token 保護，禁止未授權或 Token 不符的覆蓋
+      const existingRaw =
+        (await env.SUB_CACHE.get(cleanPath)) ||
+        (cleanPath !== cleanPath.toLowerCase() ? await env.SUB_CACHE.get(cleanPath.toLowerCase()) : null);
+      if (existingRaw) {
+        try {
+          const existingParsed = JSON.parse(existingRaw) as { token?: string };
+          const existingToken = (existingParsed.token || '').trim();
+          if (existingToken) {
+            if (passwordConfigured && !isAdmin) {
+              return jsonError('該短連結已受 Token 保護，需要管理密碼授權才可修改', 403);
+            }
+            if (!passwordConfigured && cleanToken !== existingToken) {
+              return jsonError('Token 不符，禁止覆蓋', 403);
+            }
+          }
+        } catch {}
+      }
+
+      const saveData = {
+        content: body.content,
+        include: body.include || '',
+        exclude: body.exclude || '',
+        rename: body.rename || '',
+        token: cleanToken
+      };
+      const jsonStr = JSON.stringify(saveData);
+
+      await env.SUB_CACHE.put(cleanPath, jsonStr);
+      if (cleanPath !== cleanPath.toLowerCase()) {
+        await env.SUB_CACHE.put(cleanPath.toLowerCase(), jsonStr);
+      }
+
+      // 若管理員已解鎖且該短連結存在於 favorites，同步更新 favorites 以避免前後端資料漂移
+      if (matchedFavIdx !== -1 && (!passwordConfigured || isAdmin)) {
+        favs[matchedFavIdx] = {
+          name: favs[matchedFavIdx].name || cleanPath,
+          url: body.content,
+          include: body.include || '',
+          exclude: body.exclude || '',
+          rename: body.rename || '',
+          token: cleanToken
+        };
+        await saveFavs(env, favs);
+      }
+
+      await appendOperationLog(request, env, '儲存短連結', ctx);
+
+      return new Response('OK', {
+        status: 200,
+        headers: { 'Access-Control-Allow-Origin': '*' }
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return jsonError(`儲存短連結失敗: ${msg}`, 500);
+    }
+  }
+
+  if (url.pathname !== '/favs') {
+    return null;
+  }
+
+  if (request.method === 'GET') {
+    if (!checkAuth(request, env)) {
+      if ((request.headers.get('X-Password') || '').trim() !== '') {
+        await appendOperationLog(request, env, '登入失敗', ctx);
+      }
+      return new Response(JSON.stringify({ error: '密碼錯誤或未授權', locked: true }), {
+        status: 401,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    }
+    if (hasPasswordConfigured(env) && request.headers.get('X-Login-Attempt') === '1') {
+      await appendOperationLog(request, env, '登入後台', ctx);
+    }
+    const favs = await getFavs(env);
+    return new Response(JSON.stringify(favs), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        'Access-Control-Allow-Origin': '*'
+      }
+    });
+  }
+
+  if (request.method === 'POST') {
+    if (!checkAuth(request, env)) {
+      if ((request.headers.get('X-Password') || '').trim() !== '') {
+        await appendOperationLog(request, env, '登入失敗', ctx);
+      }
+      return jsonError('密碼錯誤或未授權', 401);
+    }
+    try {
+      const body = (await request.json()) as Record<string, string>;
+      if (!body.name || !body.url) return jsonError('缺少配置名稱或節點內容', 400);
+      const cleanName = body.name.trim();
+      if (isReservedPath(cleanName)) {
+        return jsonError('該配置名稱為系統保留字或包含不合法字元 (/, ?, #)', 400);
+      }
+
+      const cleanToken = (body.token || '').trim();
+      const favs = await getFavs(env);
+      if (favs.some(f => f.name && f.name.trim().toLowerCase() === cleanName.toLowerCase())) {
+        return jsonError('已存在相同名稱的配置，請改用編輯或更換名稱', 400);
+      }
+
+      favs.push({
+        name: cleanName,
+        url: body.url,
+        include: body.include || '',
+        exclude: body.exclude || '',
+        rename: body.rename || '',
+        token: cleanToken
+      });
+      await saveFavs(env, favs);
+
+      const syncData = JSON.stringify({
+        content: body.url,
+        include: body.include || '',
+        exclude: body.exclude || '',
+        rename: body.rename || '',
+        token: cleanToken
+      });
+      await env.SUB_CACHE.put(cleanName, syncData);
+      if (cleanName !== cleanName.toLowerCase()) {
+        await env.SUB_CACHE.put(cleanName.toLowerCase(), syncData);
+      }
+
+      await appendOperationLog(request, env, '新增配置', ctx);
+
+      return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return jsonError(`新增配置寫入 KV 失敗: ${msg}`, 500);
+    }
+  }
+
+  if (request.method === 'PUT') {
+    if (!checkAuth(request, env)) {
+      if ((request.headers.get('X-Password') || '').trim() !== '') {
+        await appendOperationLog(request, env, '登入失敗', ctx);
+      }
+      return jsonError('密碼錯誤或未授權', 401);
+    }
+    try {
+      const body = (await request.json()) as {
+        index?: number;
+        origName?: string;
+        name?: string;
+        url?: string;
+        include?: string;
+        exclude?: string;
+        rename?: string;
+        token?: string;
+      };
+      if ((body.index === undefined && !body.origName) || !body.name || !body.url) {
+        return jsonError('缺少配置識別資訊、名稱或節點內容', 400);
+      }
+      const newName = body.name.trim();
+      if (isReservedPath(newName)) {
+        return jsonError('該配置名稱為系統保留字或包含不合法字元 (/, ?, #)', 400);
+      }
+
+      const cleanToken = (body.token || '').trim();
+      const favs = await getFavs(env);
+
+      let targetIdx =
+        typeof body.origName === 'string' && body.origName.trim() !== ''
+          ? favs.findIndex(f => f.name && f.name.trim() === body.origName!.trim())
+          : -1;
+      if (targetIdx === -1 && body.index !== undefined) {
+        targetIdx = body.index;
+      }
+
+      if (targetIdx < 0 || targetIdx >= favs.length) {
+        return jsonError('欲修改的配置不存在，請重新整理頁面', 400);
+      }
+
+      const duplicateIdx = favs.findIndex(
+        (f, idx) => idx !== targetIdx && f.name && f.name.trim().toLowerCase() === newName.toLowerCase()
+      );
+      if (duplicateIdx !== -1) {
+        return jsonError('已存在相同名稱的其他配置', 400);
+      }
+
+      const oldName = favs[targetIdx]?.name?.trim();
+
+      favs[targetIdx] = {
+        name: newName,
+        url: body.url,
+        include: body.include || '',
+        exclude: body.exclude || '',
+        rename: body.rename || '',
+        token: cleanToken
+      };
+      await saveFavs(env, favs);
+
+      if (oldName && oldName !== newName) {
+        await env.SUB_CACHE.delete(oldName);
+        if (oldName !== oldName.toLowerCase()) {
+          await env.SUB_CACHE.delete(oldName.toLowerCase());
+        }
+      }
+
+      const syncData = JSON.stringify({
+        content: body.url,
+        include: body.include || '',
+        exclude: body.exclude || '',
+        rename: body.rename || '',
+        token: cleanToken
+      });
+      await env.SUB_CACHE.put(newName, syncData);
+      if (newName !== newName.toLowerCase()) {
+        await env.SUB_CACHE.put(newName.toLowerCase(), syncData);
+      }
+
+      await appendOperationLog(request, env, '修改配置', ctx);
+
+      return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return jsonError(`修改配置寫入 KV 失敗: ${msg}`, 500);
+    }
+  }
+
+  if (request.method === 'DELETE') {
+    if (!checkAuth(request, env)) {
+      if ((request.headers.get('X-Password') || '').trim() !== '') {
+        await appendOperationLog(request, env, '登入失敗', ctx);
+      }
+      return jsonError('密碼錯誤或未授權', 401);
+    }
+    try {
+      const body = (await request.json()) as { index?: number; origName?: string };
+      if (body.index === undefined && !body.origName) return jsonError('缺少識別參數', 400);
+      const favs = await getFavs(env);
+
+      let targetIdx =
+        typeof body.origName === 'string' && body.origName.trim() !== ''
+          ? favs.findIndex(f => f.name && f.name.trim() === body.origName!.trim())
+          : -1;
+      if (targetIdx === -1 && body.index !== undefined) {
+        targetIdx = body.index;
+      }
+
+      if (targetIdx >= 0 && targetIdx < favs.length) {
+        const removed = favs.splice(targetIdx, 1)[0];
+        await saveFavs(env, favs);
+        if (removed && removed.name) {
+          const rName = removed.name.trim();
+          await env.SUB_CACHE.delete(rName);
+          if (rName !== rName.toLowerCase()) {
+            await env.SUB_CACHE.delete(rName.toLowerCase());
+          }
+        }
+        await appendOperationLog(request, env, '刪除配置', ctx);
+      }
+      return new Response('OK', { status: 200, headers: { 'Access-Control-Allow-Origin': '*' } });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return jsonError(`刪除配置失敗: ${msg}`, 500);
+    }
+  }
+
+  return null;
+}
+
+````
+
+## File: Honk_Rules.DAE
+````DAE
+# ==============================================================================
+# OpenWrt Honk-Core / DAE 完整設定檔 (由 CF Sub Converter 動態產生，適配 Honk 最新規範)
+# 儲存路徑: /etc/honk/config.dae
+# 可在 GitHub 倉庫直接修改此檔案，客戶端拉取時即時生效！
+# ==============================================================================
+
+global {
+    # 綁定外網介面 (預設 auto 自動偵測。若為 PPPoE 撥接上網，可能需手動改為 pppoe-wan)
+    wan_interface: auto
+    # 綁定內網介面 (請務必確認你的路由器 LAN 網卡名稱，預設為 br-lan。多網卡可用逗號隔開)
+    lan_interface: br-lan
+
+    dial_mode: domain
+    allow_insecure: false
+    auto_config_kernel_parameter: true
+    data_dir: '/etc/honk'
+    log_level: info
+    log_file: ''
+
+    tcp_check_url: 'https://www.gstatic.com/generate_204'
+    tcp_check_http_method: HEAD
+    # 個別獨立加上引號，並採用 Google Public DNS 官方正確域名 dns.google:53
+    udp_check_dns: 'dns.google:53', '8.8.8.8', '2001:4860:4860::8888'
+    check_interval: 300s
+    check_tolerance: 50ms
+
+    # 基礎引導 DNS (用於節點與訂閱連結的初始解析)
+    bootstrap_resolver: '1.1.1.1:53'
+
+    # 【Honk 最新特性】保存成功獲取的訂閱正文到運行目錄，重啟或斷網時可離線恢復節點
+    store_subscribe: true
+
+    # 【Honk 最新特性】持有有歧義 LAN 轉發 UDP 首包，徹底消除遊戲或 UDP 連線首包丟失
+    nfqueue_enable: true
+
+    # 【Honk 最新特性】預熱與撥號預算：大訂閱基線關閉額外 UDP/TCP 預熱，保護路由器記憶體
+    udp_warm_node_count: 0
+    preconnect_node_count: 0
+}
+
+# ==============================================================================
+# 原生 Web API 與 Doona Web UI (內網瀏覽 http://<路由器IP>:9527)
+# ==============================================================================
+experimental {
+    native_api {
+        enabled: true
+        # Doona 面板監聽位址 (0.0.0.0 代表允許內網所有設備透過路由器 IP 訪問)
+        listen: '0.0.0.0:9527'
+        password_auth: true
+        config_write: true
+        ui: 'embedded'
+    }
+    cache_file {
+        enabled: true
+        store_dns: true
+    }
+}
+
+# ==============================================================================
+# 訂閱配置 (直連下載，每 12 小時自動更新)
+# ==============================================================================
+subscription {
+    {{SUB_TAG}}: '{{SUB_URL}}' {
+        route: direct
+        # 訂閱自動更新間隔 (43200 秒 = 12 小時，可自行更改)
+        interval: 43200s
+    }
+}
+
+# ==============================================================================
+# 策略分流群組 (Group)
+# 全面採用 Honk 主打的 policy: score 自適應綜合評分策略
+# ==============================================================================
+group {
+    # AI 服務
+    AI {
+        policy: score
+    }
+
+    # 微軟服務
+    Microsoft {
+        policy: score
+    }
+
+    # 遊戲平台
+    Game {
+        policy: score
+    }
+
+    # 蘋果服務
+    Apple {
+        policy: score
+    }
+
+    # 國外主流網站 (非中國)
+    Global {
+        policy: score
+    }
+
+    # 漏網之魚 (預設兜底)
+    Fallback {
+        policy: score
+    }
+}
+
+# ==============================================================================
+# DNS 智慧解析 (localdns 走本機 dnsmasq，即 OpenWrt 原生 system DNS)
+# ==============================================================================
+dns {
+    # 向上游攜帶 ECS (客戶端近似網段)，改善國內 CDN 解析在地性
+    client_subnet: auto
+
+    upstream {
+        googledns: 'tcp+udp://8.8.8.8:53'
+        googledoh: 'https://8.8.8.8/dns-query'
+        cfdns: 'tcp+udp://1.1.1.1:53'
+        cfdoh: 'https://1.1.1.1/dns-query'
+        localdns: 'udp://127.0.0.1:53'
+    }
+    routing {
+        request {
+            # 拒絕 HTTPS 記錄查詢，防止客戶端因 ECH 握手異常中斷
+            qtype(https) -> reject
+            qname(geosite:category-ads-all) -> reject
+            qname(geosite:cn) -> localdns
+            fallback: googledoh
+        }
+        response {
+            # 漏網國內網域挽救：若海外 DoH 回傳中國大陸 IP，退回 localdns 重新解析以獲得最優 CDN
+            upstream(googledoh) && ip(geoip:cn) -> localdns
+            upstream(cfdoh) && ip(geoip:cn) -> localdns
+            fallback: accept
+        }
+    }
+}
+
+# ==============================================================================
+# eBPF 流量路由規則
+# ==============================================================================
+routing {
+    # 核心系統服務與 DNS 直連，防回環加固
+    pname(dnsmasq, systemd-resolved) && l4proto(udp) && dport(53) -> direct(must)
+    pname(NetworkManager, systemd-networkd, systemd-resolved, dhcpcd) -> direct
+    pname(sing-box, mihomo, frpc, einat) -> direct(must)
+
+    dip(224.0.0.0/3, 'ff00::/8') -> direct
+
+    # 1. 🏠 私有網絡 (旁路由環境採用純 direct，保留 eBPF 狀態追蹤)
+    dip(geoip:private) -> direct
+
+    # 2. 🛑 廣告攔截
+    domain(geosite:category-ads-all) -> block
+
+    # 3. 💬 AI 服務 (動態注入目標為 AI 組)
+    {{AI_RULES}}
+
+    # 4. Ⓜ️ 微軟服務
+    domain(geosite:microsoft) -> Microsoft
+
+    # 5. 🎮 遊戲平台
+    domain(geosite:steam, geosite:epicgames, geosite:ea, geosite:ubisoft, geosite:blizzard) -> Game
+
+    # 6. 🍎 蘋果服務
+    domain(geosite:apple) -> Apple
+
+    # 7. 🌐 非中國 (國外網站)
+    domain(geosite:geolocation-!cn) -> Global
+
+    # 8. 🇨🇳 國內服務 (中國國內網域與 IP 全部直連)
+    domain(geosite:cn) -> direct
+    dip(geoip:cn) -> direct
+
+    # 9. 🐟 漏網之魚 (最終兜底)
+    fallback: Fallback
 }
 
 ````
@@ -7822,462 +8835,171 @@ cf-sub-converter/
 
 ````
 
-## File: scripts/argo-converter.ts
-````ts
-// scripts/argo-converter.ts
-import fs from 'fs';
-import path from 'path';
-import readline from 'readline';
-import { Buffer } from 'buffer';
-
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout
-});
-
-const question = (query: string): Promise<string> => {
-  return new Promise((resolve) => rl.question(query, resolve));
-};
-
-interface VlessNode {
-  originalLink: string;
-  uuid: string;
-  server: string;
-  port: string;
-  type: string;
-  path: string;
-  host: string;
-  sni: string;
-  name: string;
-}
-
-// 簡易 VLESS 連結解析器
-function parseVlessLink(link: string): VlessNode | null {
-  try {
-    const urlStr = link.replace('vless://', 'http://');
-    const url = new URL(urlStr);
-    const params = url.searchParams;
-    return {
-      originalLink: link,
-      uuid: url.username,
-      server: url.hostname,
-      port: url.port,
-      type: params.get('type') || 'ws',
-      path: params.get('path') || '/',
-      host: params.get('host') || params.get('sni') || url.hostname,
-      sni: params.get('sni') || url.hostname,
-      name: decodeURIComponent(url.hash.slice(1)) || 'VLESS Node'
-    };
-  } catch {
-    return null;
-  }
-}
-
-// 獲取並解析訂閱
-async function fetchAndParse(input: string): Promise<VlessNode[]> {
-  let content = input.trim();
-  if (input.startsWith('http')) {
-    console.log('正在獲取網址內容...');
-    try {
-      const res = await fetch(input, {
-        headers: { 'User-Agent': 'v2rayNG/1.8.5' }
-      });
-      if (!res.ok) throw new Error(`HTTP 狀態碼 ${res.status}`);
-      content = await res.text();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.log(`獲取訂閱失敗: ${msg}`);
-      return [];
+## File: Sing-Box_Rules.JSON
+````JSON
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "http_clients": [
+    {
+      "tag": "default"
+    }
+  ],
+  "dns": {
+    "servers": [
+      {
+        "tag": "remote-dns",
+        "type": "https",
+        "server": "8.8.8.8",
+        "detour": "🚀 節點選擇"
+      },
+      {
+        "tag": "remote-cf-dns",
+        "type": "https",
+        "server": "1.1.1.1",
+        "detour": "🚀 節點選擇"
+      },
+      {
+        "tag": "system-dns",
+        "type": "local"
+      },
+      {
+        "tag": "local-dns",
+        "type": "local"
+      },
+      {
+        "tag": "fakeip-dns",
+        "type": "fakeip",
+        "inet4_range": "198.18.0.0/15"
+      }
+    ],
+    "rules": [
+      {
+        "clash_mode": "Direct",
+        "server": "system-dns"
+      },
+      {
+        "clash_mode": "Global",
+        "query_type": ["A", "AAAA"],
+        "server": "fakeip-dns"
+      },
+      {
+        "rule_set": [
+          "rs-private"
+        ],
+        "server": "system-dns"
+      },
+      {
+        "rule_set": [
+          "rs-cn"
+        ],
+        "server": "system-dns",
+        "disable_cache": true
+      },
+      {
+        "rule_set": [
+          "rs-apple"
+        ],
+        "server": "system-dns",
+        "disable_cache": true
+      },
+      {
+        "query_type": [
+          "A",
+          "AAAA"
+        ],
+        "rule_set": [
+          "rs-geolocation-!cn",
+          "rs-ai"
+        ],
+        "server": "fakeip-dns"
+      }
+    ],
+    "final": "remote-dns",
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "interface_name": "tun0",
+      "address": [
+        "172.19.0.1/30"
+      ],
+      "stack": "mixed",
+      "auto_route": true,
+      "strict_route": true
+    }
+  ],
+  "outbounds": [
+    { "type": "selector", "tag": "🚀 節點選擇", "outbounds": ["⚡ 自動選擇", "DIRECT"] },
+    { "type": "urltest", "tag": "⚡ 自動選擇", "outbounds": [], "url": "https://www.gstatic.com/generate_204", "interval": "3m", "tolerance": 50 },
+    { "type": "selector", "tag": "💬 AI 服務", "outbounds": ["⚡ 自動選擇", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🍎 蘋果服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "Ⓜ️ 微軟服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🎮 遊戲平台", "outbounds": ["DIRECT", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🌐 非中國", "outbounds": ["🚀 節點選擇", "DIRECT"] },
+    { "type": "selector", "tag": "🇨🇳 國內服務", "outbounds": ["DIRECT", "🚀 節點選擇"] },
+    { "type": "selector", "tag": "🏠 私有網絡", "outbounds": ["DIRECT"] },
+    { "type": "selector", "tag": "🐟 漏網之魚", "outbounds": ["🚀 節點選擇", "DIRECT"] },
+    { "type": "selector", "tag": "🛑 廣告攔截", "outbounds": ["REJECT", "DIRECT"] },
+    
+    { "type": "direct", "tag": "DIRECT" },
+    { "type": "block", "tag": "REJECT" }
+  ],
+  "route": {
+    "default_domain_resolver": "system-dns",
+    "default_http_client": "default",
+    "rule_set": [
+      { "type": "remote", "tag": "rs-ai", "format": "binary", "url": "https://raw.githubusercontent.com/sammy0101/myself/refs/heads/main/geosite_ai_hk_proxy.srs" },
+      { "type": "remote", "tag": "rs-apple", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/apple.srs" },
+      { "type": "remote", "tag": "rs-microsoft", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/microsoft.srs" },
+      { "type": "remote", "tag": "rs-steam", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/steam.srs" },
+      { "type": "remote", "tag": "rs-epicgames", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/epicgames.srs" },
+      { "type": "remote", "tag": "rs-ea", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/ea.srs" },
+      { "type": "remote", "tag": "rs-ubisoft", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/ubisoft.srs" },
+      { "type": "remote", "tag": "rs-blizzard", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/blizzard.srs" },
+      { "type": "remote", "tag": "rs-geolocation-!cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/geolocation-!cn.srs" },
+      { "type": "remote", "tag": "rs-cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs" },
+      { "type": "remote", "tag": "ip-cn", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/cn.srs" },
+      { "type": "remote", "tag": "rs-ads", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/category-ads-all.srs" },
+      { "type": "remote", "tag": "rs-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/private.srs" },
+      { "type": "remote", "tag": "ip-private", "format": "binary", "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/private.srs" }
+    ],
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      { "protocol": "dns", "action": "hijack-dns" },
+      { "clash_mode": "Direct", "outbound": "DIRECT" },
+      { "clash_mode": "Global", "outbound": "🚀 節點選擇" },
+      { "rule_set": "rs-ads", "outbound": "🛑 廣告攔截" },
+      { "rule_set": ["rs-private", "ip-private"], "outbound": "🏠 私有網絡" },
+      { "rule_set": "rs-ai", "outbound": "💬 AI 服務" },
+      { "rule_set": "rs-microsoft", "outbound": "Ⓜ️ 微軟服務" },
+      { "rule_set": ["rs-steam", "rs-epicgames", "rs-ea", "rs-ubisoft", "rs-blizzard"], "outbound": "🎮 遊戲平台" },
+      { "rule_set": "rs-geolocation-!cn", "outbound": "🌐 非中國" },
+      { "rule_set": "rs-apple", "outbound": "🍎 蘋果服務" },
+      { "rule_set": ["rs-cn", "ip-cn"], "outbound": "🇨🇳 國內服務" },
+      { "outbound": "🐟 漏網之魚" }
+    ],
+    "auto_detect_interface": true
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "store_fakeip": true
+    },
+    "clash_api": {
+      "external_controller": "127.0.0.1:9090",
+      "external_ui": "ui",
+      "secret": "",
+      "default_mode": "rule"
     }
   }
-
-  // 嘗試 Base64 解碼
-  let decoded = content;
-  try {
-    const cleaned = content.replace(/[\s\r\n]+/g, '');
-    decoded = Buffer.from(cleaned, 'base64').toString('utf8');
-  } catch {
-    // 解碼失敗則視為純文字
-  }
-
-  const lines = decoded.split(/\r?\n/);
-  const vlessNodes: VlessNode[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('vless://')) {
-      const parsed = parseVlessLink(trimmed);
-      if (parsed) vlessNodes.push(parsed);
-    }
-  }
-  return vlessNodes;
 }
-
-// 生成 VPS 安裝腳本模板
-function generateVpsScript(node: VlessNode, port: string, token: string, domain: string): string {
-  return `#!/bin/bash
-# Cloudflare Argo Tunnel 一鍵部署腳本 (由 cf-sub-converter 自動生成)
-# 適用於已使用 mack-a v2ray-agent 部署之 Xray/Sing-box 環境
-
-GREEN='\\033[0;32m'
-RED='\\033[0;31m'
-NC='\\033[0m'
-
-echo -e "\${GREEN}=== 開始部署 Cloudflare Argo 隧道 ===\${NC}"
-
-if [ "$EUID" -ne 0 ]; then
-  echo -e "\${RED}錯誤: 請使用 root 權限執行此腳本！\${NC}"
-  exit 1
-fi
-
-# 節點參數配置
-VLESS_UUID="${node.uuid}"
-VLESS_PATH="${node.path}"
-VLESS_TYPE="${node.type}"
-VLESS_PORT="${port}"
-NODE_NAME="${node.name}"
-TUNNEL_TOKEN="${token.trim()}"
-CUSTOM_DOMAIN="${domain.trim()}"
-
-# 下載安裝 cloudflared
-if ! command -v cloudflared &> /dev/null; then
-    echo "正在下載安裝 cloudflared..."
-    curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared
-    chmod +x /usr/local/bin/cloudflared
-    echo "cloudflared 安裝完成！"
-else
-    echo "cloudflared 已存在，跳過安裝。"
-fi
-
-# 判斷是否使用固定隧道
-if [ -n "$TUNNEL_TOKEN" ]; then
-    echo -e "\${GREEN}【固定隧道模式】正在配置服務...\${NC}"
-    cloudflared service uninstall &> /dev/null
-    cloudflared service install "$TUNNEL_TOKEN"
-    systemctl daemon-reload
-    systemctl enable cloudflared
-    systemctl restart cloudflared
-    
-    echo -e "\${GREEN}部署成功！\${NC}"
-    echo "請確保已在 Cloudflare Dashboard 中將網域 '$CUSTOM_DOMAIN' 指向本地 'http://localhost:$VLESS_PORT'"
-    
-    # 輸出用戶端連結
-    FINAL_LINK="vless://$VLESS_UUID@$CUSTOM_DOMAIN:443?encryption=none&security=tls&type=$VLESS_TYPE&host=$CUSTOM_DOMAIN"
-    if [ "$VLESS_TYPE" = "ws" ]; then
-        FINAL_LINK="$FINAL_LINK&path=$(echo -n "$VLESS_PATH" | jq -s -R -r @uri 2>/dev/null || echo -n "$VLESS_PATH")"
-    fi
-    FINAL_LINK="$FINAL_LINK#Argo-$NODE_NAME"
-    echo -e "\n\${GREEN}您的 Argo VLESS 訂閱連結為:\${NC}"
-    echo -e "\${GREEN}$FINAL_LINK\${NC}\n"
-else
-    echo -e "\${GREEN}【臨時隧道模式】正在啟動 Quick Tunnel...\${NC}"
-    systemctl stop cloudflared-argo &> /dev/null
-    
-    # 寫入 systemd 臨時隧道服務
-    cat <<EOF > /etc/systemd/system/cloudflared-argo.service
-[Unit]
-Description=Cloudflare Argo Temporary Tunnel for VLESS
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/cloudflared tunnel --url http://127.0.0.1:$VLESS_PORT
-Restart=always
-RestartSec=5
-StandardOutput=file:/var/log/cloudflared-argo.log
-StandardError=file:/var/log/cloudflared-argo.log
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    touch /var/log/cloudflared-argo.log
-    systemctl daemon-reload
-    systemctl enable cloudflared-argo
-    systemctl start cloudflared-argo
-    
-    echo "正在等待 Cloudflare 分配臨時域名 (約需 10-15 秒)..."
-    TEMP_DOMAIN=""
-    for i in {1..15}; do
-        sleep 1
-        TEMP_DOMAIN=$(grep -oE 'https://[a-zA-Z0-9-]+\\.trycloudflare\\.com' /var/log/cloudflared-argo.log | head -n 1 | sed 's/https:\\/\\///')
-        if [ -n "$TEMP_DOMAIN" ]; then
-            break
-        fi
-    done
-    
-    if [ -n "$TEMP_DOMAIN" ]; then
-        echo -e "\${GREEN}獲取域名成功: \$TEMP_DOMAIN\${NC}"
-        FINAL_LINK="vless://$VLESS_UUID@\$TEMP_DOMAIN:443?encryption=none&security=tls&type=$VLESS_TYPE&host=\$TEMP_DOMAIN"
-        if [ "$VLESS_TYPE" = "ws" ]; then
-            FINAL_LINK="$FINAL_LINK&path=$(echo -n "$VLESS_PATH" | jq -s -R -r @uri 2>/dev/null || echo -n "$VLESS_PATH")"
-        fi
-        FINAL_LINK="$FINAL_LINK#Argo-Temp-$NODE_NAME"
-        
-        echo -e "\n\${GREEN}=== 部署成功 ===\${NC}"
-        echo -e "原節點名稱: $NODE_NAME"
-        echo -e "轉發連接埠: $VLESS_PORT"
-        echo -e "您的臨時 Argo 節點 VLESS 連結為 (注意：VPS 重啟或重開服務後域名會刷新):"
-        echo -e "\${GREEN}\$FINAL_LINK\${NC}\n"
-    else
-        echo -e "\${RED}錯誤: 獲取臨時域名超時！請執行 'cat /var/log/cloudflared-argo.log' 檢查日誌。\${NC}"
-    fi
-fi
-`;
-}
-
-async function main() {
-  console.log('==============================================');
-  console.log('      VLESS -> Cloudflare Argo 轉換工具');
-  console.log('==============================================');
-
-  const input = await question('請輸入訂閱地址、多個 VLESS 節點、或儲存配置的訂閱網址:\n> ');
-  if (!input.trim()) {
-    console.log('輸入不能為空。');
-    rl.close();
-    return;
-  }
-
-  const nodes = await fetchAndParse(input);
-  if (nodes.length === 0) {
-    console.log('未找到任何有效的 VLESS 節點。');
-    rl.close();
-    return;
-  }
-
-  console.log(`\n成功解析出 ${nodes.length} 個 VLESS 節點:`);
-  nodes.forEach((node, i) => {
-    console.log(`  [${i + 1}] ${node.name} (${node.server}:${node.port}, 傳輸協定: ${node.type})`);
-  });
-
-  const select = await question('\n請選擇要複製並轉換的節點 (輸入數字並用逗號隔開，例如: 1,3 ；或輸入 all 代表全部):\n> ');
-  let selectedNodes: VlessNode[] = [];
-  if (select.trim().toLowerCase() === 'all') {
-    selectedNodes = nodes;
-  } else {
-    const indices = select.split(',').map(s => parseInt(s.trim(), 10) - 1);
-    selectedNodes = indices.map(idx => nodes[idx]).filter((n): n is VlessNode => Boolean(n));
-  }
-
-  if (selectedNodes.length === 0) {
-    console.log('選擇無效，程式結束。');
-    rl.close();
-    return;
-  }
-
-  console.log(`\n已選擇 ${selectedNodes.length} 個節點進行轉換...`);
-
-  // 本地連接埠設定
-  const port = await question('\n1. 請輸入該 VLESS 節點在 VPS 上監聽的本地連接埠 (預設 8080，請與 mack-a 配置一致):\n> ') || '8080';
-
-  // Argo Tunnel 授權設定
-  console.log('\n2. 隧道設定（直接斷行即代表隨機生成臨時隧道）：');
-  const token = await question('   請貼上您的 Cloudflare Tunnel Token (選填):\n   > ');
-
-  let domain = '';
-  if (token.trim()) {
-    domain = await question('   請輸入該隧道綁定的自訂域名 (例如: vless.domain.com):\n   > ');
-    if (!domain.trim()) {
-      console.log('   錯誤: 固定隧道模式必須提供自訂域名。');
-      rl.close();
-      return;
-    }
-  }
-
-  // 建立腳本存放目錄
-  const outputDir = path.join(process.cwd(), 'argo_outputs');
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir);
-  }
-
-  const generatedNodes: string[] = [];
-
-  for (const node of selectedNodes) {
-    // 保留原本節點
-    generatedNodes.push(node.originalLink);
-
-    // 生成並寫入一鍵 VPS 腳本
-    const vpsScript = generateVpsScript(node, port, token, domain);
-    const safeNodeName = node.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
-    const scriptPath = path.join(outputDir, `argo-install-${safeNodeName}.sh`);
-    
-    fs.writeFileSync(scriptPath, vpsScript, { encoding: 'utf8', mode: 0o755 });
-    console.log(`\n[✓] 成功生成 VPS 安裝腳本: ${scriptPath}`);
-
-    // 如果是固定隧道，可以直接在本地計算出新的 Argo 節點
-    if (token.trim() && domain.trim()) {
-      const argoLink = `vless://${node.uuid}@${domain.trim()}:443?encryption=none&security=tls&type=${node.type}&host=${domain.trim()}${node.type === 'ws' ? `&path=${encodeURIComponent(node.path)}` : ''}#Argo-${node.name}`;
-      generatedNodes.push(argoLink);
-      console.log(`    └─ 同步生成 Argo 節點連結: ${argoLink}`);
-    } else {
-      console.log(`    └─ 臨時隧道模式：節點連結需在 VPS 上執行腳本後動態輸出。`);
-    }
-  }
-
-  // 如果有生成固定隧道的節點，將新舊節點整合寫入訂閱文件
-  if (generatedNodes.length > selectedNodes.length) {
-    const subPath = path.join(outputDir, 'argo_subscription.txt');
-    fs.writeFileSync(subPath, generatedNodes.join('\n'), 'utf8');
-    const base64Sub = Buffer.from(generatedNodes.join('\n')).toString('base64');
-    fs.writeFileSync(path.join(outputDir, 'argo_subscription_base64.txt'), base64Sub, 'utf8');
-    
-    console.log(`\n[✓] 整合訂閱已生成（含原節點 + 新 Argo 節點）:`);
-    console.log(`    - 明文列表: ${path.join(outputDir, 'argo_subscription.txt')}`);
-    console.log(`    - Base64 格式: ${path.join(outputDir, 'argo_subscription_base64.txt')}`);
-  }
-
-  console.log('\n==============================================');
-  console.log('部署說明：');
-  console.log('1. 請將 argo_outputs 目錄內對應的 .sh 腳本上傳至您的 VPS。');
-  console.log('2. 執行命令賦予執行權限並啟動：');
-  console.log('   chmod +x argo-install-*.sh && ./argo-install-*.sh');
-  console.log('==============================================');
-
-  rl.close();
-}
-
-main();
-
-````
-
-## File: .github/workflows/combine-code.yml
-````yml
-name: Generate All Codebase to MD
-
-on:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - 'combined_project_code.md' # 避免此檔案自身更新引發無限循環
-  workflow_dispatch: # 支援在 GitHub 網頁上手動觸發執行
-
-permissions:
-  contents: write
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Combine All Files into MD
-        run: |
-          OUT_FILE="combined_project_code.md"
-          echo "# Complete Project Codebase" > "$OUT_FILE"
-          echo "Generated on: $(date)" >> "$OUT_FILE"
-          echo "" >> "$OUT_FILE"
-
-          # 遍歷專案內的所有檔案，排除依賴、Git 歷史、打包產物及二進位檔案
-          find . -type f \
-            -not -path "*/node_modules/*" \
-            -not -path "*/.git/*" \
-            -not -path "*/dist/*" \
-            -not -name "package-lock.json" \
-            -not -name "yarn.lock" \
-            -not -name "pnpm-lock.yaml" \
-            -not -name "$OUT_FILE" \
-            -not -name "*.png" \
-            -not -name "*.jpg" \
-            -not -name "*.jpeg" \
-            -not -name "*.gif" \
-            -not -name "*.ico" \
-            -not -name "*.woff*" \
-            -not -name "*.ttf" | while read -r file; do
-              
-              # 取得相對路徑與副檔名
-              rel_path="${file#./}"
-              ext="${file##*.}"
-              
-              # 如果無副檔名，清除變數避免格式混亂
-              if [ "$ext" = "$rel_path" ]; then
-                ext=""
-              fi
-              
-              # 寫入檔案標題
-              echo "## File: $rel_path" >> "$OUT_FILE"
-              # 使用四個反單引號（````）包裹，防止內部程式碼的三個反單引號造成排版衝突
-              echo "\`\`\`\`$ext" >> "$OUT_FILE"
-              cat "$file" >> "$OUT_FILE"
-              echo "" >> "$OUT_FILE"
-              echo "\`\`\`\`" >> "$OUT_FILE"
-              echo "" >> "$OUT_FILE"
-          done
-
-      - name: Commit and Push changes
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git add combined_project_code.md
-          
-          if git diff --staged --quiet; then
-            echo "No changes in codebase."
-          else
-            git commit -m "docs: auto-generate complete codebase [skip ci]"
-            git push origin main
-          fi
-
-````
-
-## File: .github/workflows/deploy.yml
-````yml
-# .github/workflows/deploy.yml
-name: Deploy to Cloudflare Workers
-
-on:
-  # 僅保留手動執行按鈕（已關閉 push 自動部署，方便分批修改代碼後手動一次發布）
-  workflow_dispatch:
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    name: Deploy
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      # 已將 Node.js 環境升級至 Node 24 以消除棄用警告
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      # 替換成相容無鎖定檔的普通安裝
-      - name: Install dependencies
-        run: npm install --prefer-offline
-
-      # 替換 KV ID
-      - name: Inject KV ID from Secrets
-        run: |
-          sed -i 's/KV_ID_PLACEHOLDER/${{ secrets.CF_KV_ID }}/g' wrangler.toml
-
-      # 部署步驟
-      - name: Deploy
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-
-````
-
-## File: wrangler.toml
-````toml
-name = "my-sub-converter"
-main = "src/index.ts"
-compatibility_date = "2024-04-01"
-
-[placement]
-mode = "smart"
-
-[[kv_namespaces]]
-binding = "SUB_CACHE"
-id = "KV_ID_PLACEHOLDER"
-
-[vars]
-# 💥 私密管理密碼（選填）：設定後將保護「已儲存的配置」管理區域，避免他人檢視或竄改
-# PAGE_PASSWORD = "your_secret_password"
 
 ````
 

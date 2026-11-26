@@ -3,23 +3,41 @@ import { ProxyNode } from '../types';
 import { safeBase64Decode, tryDecodeURIComponent } from '../utils';
 import { parseProxyUri, parsePluginParams, parseEchInfo } from './common';
 
-export function parseShadowsocks(urlStr: string): ProxyNode {
-  const getParam = (str: string, key: string): string => {
-    const regex = new RegExp(`[?&]${key}=([^&#]*)`, 'i');
-    const match = str.match(regex);
-    return match ? tryDecodeURIComponent(match[1]) : '';
-  };
+function stripEarlyDataParam(rawPath: string): string {
+  if (!rawPath) return '/';
+  const cleaned = rawPath
+    .replace(/([?&])ed=[0-9]+(&?)/g, (_, sep: string, trailing: string) => {
+      if (sep === '?' && trailing) return '?';
+      return trailing ? '&' : '';
+    })
+    .replace(/\?$/, '');
+  return cleaned || '/';
+}
 
-  let raw = urlStr.replace('ss://', '');
+export function parseShadowsocks(urlStr: string): ProxyNode {
+  let raw = urlStr.replace(/^ss:\/\//i, '');
   const hashIndex = raw.indexOf('#');
   let name = 'Shadowsocks';
   if (hashIndex !== -1) {
     name = tryDecodeURIComponent(raw.substring(hashIndex + 1));
     raw = raw.substring(0, hashIndex);
   }
-  if (raw.includes('?')) {
-    raw = raw.split('?')[0];
+
+  let queryPart = '';
+  const queryIndex = raw.indexOf('?');
+  if (queryIndex !== -1) {
+    queryPart = raw.substring(queryIndex + 1);
+    raw = raw.substring(0, queryIndex);
   }
+  raw = raw.replace(/\/+$/, '');
+
+  const queryParams = new URLSearchParams(queryPart);
+  const getParam = (key: string): string => {
+    for (const [k, v] of queryParams.entries()) {
+      if (k.toLowerCase() === key.toLowerCase()) return v;
+    }
+    return '';
+  };
 
   let method = '';
   let password = '';
@@ -35,21 +53,16 @@ export function parseShadowsocks(urlStr: string): ProxyNode {
     server = serverPart.substring(0, lastColonIndex);
     portStr = serverPart.substring(lastColonIndex + 1);
     if (server.startsWith('[') && server.endsWith(']')) server = server.slice(1, -1);
-    try {
-      const decoded = safeBase64Decode(userPart);
-      if (decoded && decoded.includes(':')) {
-        const up = decoded.split(':');
-        method = up[0];
-        password = up.slice(1).join(':');
-      } else {
-        const up = userPart.split(':');
-        method = up[0];
-        password = up.slice(1).join(':');
-      }
-    } catch {
-      const up = userPart.split(':');
-      method = up[0];
-      password = up.slice(1).join(':');
+
+    const decoded = safeBase64Decode(userPart);
+    if (decoded && decoded.includes(':')) {
+      const firstColon = decoded.indexOf(':');
+      method = decoded.slice(0, firstColon);
+      password = decoded.slice(firstColon + 1);
+    } else {
+      const firstColon = userPart.indexOf(':');
+      method = firstColon !== -1 ? tryDecodeURIComponent(userPart.slice(0, firstColon)) : userPart;
+      password = firstColon !== -1 ? tryDecodeURIComponent(userPart.slice(firstColon + 1)) : '';
     }
   } else {
     const decoded = safeBase64Decode(raw);
@@ -76,14 +89,16 @@ export function parseShadowsocks(urlStr: string): ProxyNode {
   const port = parseInt(portStr, 10);
   if (isNaN(port)) throw new Error('[Shadowsocks] 連接埠非有效數字');
 
-  const pluginStr = getParam(urlStr, 'plugin');
-  const security = getParam(urlStr, 'security');
-  const sni = getParam(urlStr, 'sni') || getParam(urlStr, 'host') || server;
-  const alpnStr = getParam(urlStr, 'alpn');
-  const fp = getParam(urlStr, 'fp') || 'chrome';
-  const echInfo = parseEchInfo(getParam(urlStr, 'ech'));
+  const pluginStr = getParam('plugin');
+  const security = getParam('security');
+  const sni = getParam('sni') || getParam('host') || server;
+  const alpnStr = getParam('alpn');
+  const fp = getParam('fp') || 'chrome';
+  const echInfo = parseEchInfo(getParam('ech'));
 
-  const isTls = Boolean(security === 'tls' || urlStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0) || echInfo.enabled);
+  const isTls = Boolean(
+    security === 'tls' || pluginStr.includes('obfs=tls') || (alpnStr && alpnStr.length > 0) || echInfo.enabled
+  );
   const alpn = alpnStr ? alpnStr.split(',') : undefined;
   const isSs2022 = method.toLowerCase().includes('2022');
 
@@ -185,7 +200,7 @@ export function parseVless(urlStr: string): ProxyNode {
     earlyDataLength = parseInt(edMatch[1], 10);
   }
 
-  const cleanPath = rawPath ? rawPath.replace(/[?&]ed=[0-9]+/g, '').replace(/\?$/, '') || '/' : '/';
+  const cleanPath = stripEarlyDataParam(rawPath);
   const isXhttp = netType === 'xhttp' || netType === 'splithttp';
   const isGrpc = netType === 'grpc';
   const grpcServiceName = isGrpc ? params.get('serviceName') || '' : undefined;
@@ -543,12 +558,19 @@ interface RawVmessJson {
 }
 
 export function parseVmess(vmessUrl: string): ProxyNode {
-  const b64 = vmessUrl.replace('vmess://', '');
+  let b64 = vmessUrl.replace(/^vmess:\/\//i, '');
+  let hashName = '';
+  const hashIndex = b64.indexOf('#');
+  if (hashIndex !== -1) {
+    hashName = tryDecodeURIComponent(b64.substring(hashIndex + 1));
+    b64 = b64.substring(0, hashIndex);
+  }
+
   const jsonStr = safeBase64Decode(b64);
   if (!jsonStr) throw new Error('[VMess] Base64 解碼失敗');
 
   const config = JSON.parse(jsonStr) as RawVmessJson;
-  const name = config.ps || 'VMess';
+  const name = config.ps || hashName || 'VMess';
   if (!config.add) throw new Error(`[VMess] 節點 [${name}] 缺少伺服器地址 (add)`);
   if (!config.id) throw new Error(`[VMess] 節點 [${name}] 缺少 UUID (id)`);
 
@@ -567,7 +589,7 @@ export function parseVmess(vmessUrl: string): ProxyNode {
   if (edMatch && edMatch[1]) {
     earlyDataLength = parseInt(edMatch[1], 10);
   }
-  const cleanPath = rawPath ? rawPath.replace(/[?&]ed=[0-9]+/g, '').replace(/\?$/, '') || '/' : '/';
+  const cleanPath = stripEarlyDataParam(rawPath);
 
   const isTls = config.tls === 'tls';
 

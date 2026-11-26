@@ -7,9 +7,9 @@ import { isIpAddress, fetchTemplateDirect } from './common';
 export async function toClashWithTemplate(
   nodes: ProxyNode[],
   _env?: Env,
-  _forceRefresh = false
+  forceRefresh = false
 ): Promise<string> {
-  const text = await fetchTemplateDirect(REMOTE_CONFIG.clash, FALLBACK_CLASH_RULES);
+  const text = await fetchTemplateDirect(REMOTE_CONFIG.clash, FALLBACK_CLASH_RULES, forceRefresh);
   const config = yaml.load(text) as Record<string, unknown>;
 
   const proxies = nodes.map(n => {

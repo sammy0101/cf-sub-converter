@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 15:07:08 UTC 2026
+Generated on: Thu Nov 26 15:07:30 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -1784,7 +1784,7 @@ export async function fetchTemplateDirect(
   fallbackStr: string,
   forceRefresh = false
 ): Promise<string> {
-  const edgeCache = (typeof caches !== 'undefined' ? (caches as unknown as { default?: Cache }).default : undefined);
+  const edgeCache = typeof caches !== 'undefined' ? (caches as unknown as { default?: Cache }).default : undefined;
   const cacheKey = new Request(url, { method: 'GET' });
 
   if (!forceRefresh && edgeCache) {

@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 15:06:46 UTC 2026
+Generated on: Thu Nov 26 15:07:08 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -1556,12 +1556,19 @@ export { toSurge, toQuantumultX, toLoon } from './legacy';
 import { ProxyNode } from '../types';
 import { utf8ToBase64 } from '../utils';
 
+function formatHost(host: string): string {
+  return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+}
+
 export function toRawLinks(nodes: ProxyNode[]): string {
   const links = nodes
     .map(node => {
       try {
+        const host = formatHost(node.server);
+
         if (node.type === 'vless') {
           const params = new URLSearchParams();
+          params.set('encryption', 'none');
           params.set('security', node.reality ? 'reality' : node.tls ? 'tls' : 'none');
           params.set('type', node.network || 'tcp');
           if (node.flow) params.set('flow', node.flow);
@@ -1592,7 +1599,10 @@ export function toRawLinks(nodes: ProxyNode[]): string {
             if (node.xhttpHost) params.set('host', node.xhttpHost);
             if (node.xhttpMode) params.set('mode', node.xhttpMode);
           }
-          return `vless://${node.uuid}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+          if (node.network === 'grpc' && node.grpcServiceName) {
+            params.set('serviceName', node.grpcServiceName);
+          }
+          return `vless://${node.uuid}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
         }
         if (node.type === 'hysteria2') {
           const params = new URLSearchParams();
@@ -1602,7 +1612,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
             if (node.obfsPassword) params.set('obfs-password', node.obfsPassword);
           }
           if (node.skipCertVerify) params.set('insecure', '1');
-          return `hysteria2://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+          return `hysteria2://${node.password}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
         }
         if (node.type === 'vmess') {
           const vmessObj = {
@@ -1651,7 +1661,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
             params.set('plugin', clashPlugin + optStr);
           }
           const query = params.toString();
-          return `ss://${method}:${pass}@${node.server}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
+          return `ss://${method}:${pass}@${host}:${node.port}${query ? '/?' + query : ''}#${encodeURIComponent(node.name)}`;
         }
         if (node.type === 'tuic') {
           const params = new URLSearchParams();
@@ -1660,7 +1670,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
           if (node.udp_relay_mode) params.set('udp_relay_mode', node.udp_relay_mode);
           if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
           if (node.skipCertVerify) params.set('allow_insecure', '1');
-          return `tuic://${node.uuid || ''}:${node.password || ''}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+          return `tuic://${node.uuid || ''}:${node.password || ''}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
         }
         if (node.type === 'anytls') {
           const params = new URLSearchParams();
@@ -1670,7 +1680,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
           if (node.fingerprint) params.set('fp', node.fingerprint);
           if (node.alpn && node.alpn.length > 0) params.set('alpn', node.alpn.join(','));
           params.set('type', 'tcp');
-          return `anytls://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+          return `anytls://${node.password}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
         }
         if (node.type === 'trojan') {
           const params = new URLSearchParams();
@@ -1687,7 +1697,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
               params.set('ech', '1');
             }
           }
-          return `trojan://${node.password}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+          return `trojan://${node.password}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
         }
         if (node.type === 'wireguard' && node.wireguard) {
           const wg = node.wireguard;
@@ -1701,7 +1711,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
           if (wg.presharedKey) params.set('presharedkey', wg.presharedKey);
           params.set('mtu', String(wg.mtu || 1420));
           params.set('keepalive', '25');
-          return `wireguard://${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+          return `wireguard://${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
         }
         if (node.type === 'masque' && node.masque) {
           const m = node.masque;
@@ -1721,7 +1731,7 @@ export function toRawLinks(nodes: ProxyNode[]): string {
           params.set('congestion-controller', cc);
 
           if (m.dns && m.dns.length > 0) params.set('dns', m.dns.join(','));
-          return `masque://${encodeURIComponent(m.privateKey)}@${node.server}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
+          return `masque://${encodeURIComponent(m.privateKey)}@${host}:${node.port}?${params.toString()}#${encodeURIComponent(node.name)}`;
         }
         return null;
       } catch {

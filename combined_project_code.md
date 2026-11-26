@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 16:54:18 UTC 2026
+Generated on: Thu Nov 26 16:55:40 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -2754,22 +2754,14 @@ import {
 } from '../generators';
 import { loadNodesWithTraffic, filterAndRenameNodes } from '../services/node-loader';
 import { scheduleLog } from '../services/audit';
-
-function timingSafeEqualStr(a: string, b: string): boolean {
-  const enc = new TextEncoder();
-  const bufA = enc.encode(a);
-  const bufB = enc.encode(b);
-  if (bufA.length !== bufB.length) return false;
-  let diff = 0;
-  for (let i = 0; i < bufA.length; i++) {
-    diff |= bufA[i] ^ bufB[i];
-  }
-  return diff === 0;
-}
+import { timingSafeEqualStr } from '../utils';
 
 function buildExactBase64SubUrl(url: URL, storedToken: string): string {
   const u = new URL(url.toString());
-  u.protocol = 'https:';
+  const isLocal = u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+  if (!isLocal) {
+    u.protocol = 'https:';
+  }
   u.searchParams.delete('force');
   u.searchParams.delete('nocache');
   if (storedToken && !u.searchParams.has('token')) {
@@ -2942,6 +2934,10 @@ export async function handleSubRoute(
   }
 
   const uniqueNodes = filterAndRenameNodes(allNodes, includeParam, excludeParam, renameParam);
+
+  if (uniqueNodes.length === 0) {
+    return new Response('所有節點均已被過濾條件排除，無可用節點。', { status: 400 });
+  }
 
   if (!target) {
     scheduleLog(request, env, ctx, '獲取訂閱');

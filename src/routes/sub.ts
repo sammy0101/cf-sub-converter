@@ -25,6 +25,18 @@ function timingSafeEqualStr(a: string, b: string): boolean {
   return diff === 0;
 }
 
+function buildExactBase64SubUrl(url: URL, storedToken: string): string {
+  const u = new URL(url.toString());
+  u.protocol = 'https:';
+  u.searchParams.delete('force');
+  u.searchParams.delete('nocache');
+  if (storedToken && !u.searchParams.has('token')) {
+    u.searchParams.set('token', storedToken);
+  }
+  u.searchParams.set('target', 'base64');
+  return u.toString();
+}
+
 export async function handleSubRoute(
   request: Request,
   env: Env,
@@ -50,13 +62,9 @@ export async function handleSubRoute(
       detectedProfileName = path;
     }
 
-    let stored = await env.SUB_CACHE.get(path);
-    if (!stored && path !== path.toLowerCase()) {
-      stored = await env.SUB_CACHE.get(path.toLowerCase());
-    }
-    if (!stored && path !== path.toUpperCase()) {
-      stored = await env.SUB_CACHE.get(path.toUpperCase());
-    }
+    const candidateKeys = Array.from(new Set([path, path.toLowerCase(), path.toUpperCase()]));
+    const kvResults = await Promise.all(candidateKeys.map(k => env.SUB_CACHE.get(k)));
+    const stored = kvResults.find(v => Boolean(v)) || null;
 
     if (stored) {
       foundInKv = true;
@@ -129,15 +137,6 @@ export async function handleSubRoute(
     return new Response(dynamicHtml, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
   }
 
-  const { nodes: allNodes, errors, traffic } = await loadNodesWithTraffic(urlParam);
-
-  if (allNodes.length === 0) {
-    const errorMsg = errors.length > 0 ? errors.join('\n') : '未解析到任何有效節點。';
-    return new Response(errorMsg, { status: 400 });
-  }
-
-  const uniqueNodes = filterAndRenameNodes(allNodes, includeParam, excludeParam, renameParam);
-
   let target = url.searchParams.get('target');
 
   if (!target) {
@@ -160,6 +159,47 @@ export async function handleSubRoute(
   }
 
   const finalProfileName = detectedProfileName || 'subscription';
+
+  // Honk / DAE 快速通道：僅需產出引用 Base64 訂閱的 config.dae，無需浪費時間重複抓取與解析所有上游節點
+  if (target === 'honk' || target === 'dae') {
+    try {
+      const base64SubUrl = buildExactBase64SubUrl(url, storedToken);
+      const result = await toHonk([], base64SubUrl, finalProfileName, forceRefresh);
+      scheduleLog(request, env, ctx, '獲取訂閱');
+
+      const filenameAscii = `${finalProfileName.replace(/[^a-zA-Z0-9_-]/g, '_')}.dae`;
+      const filenameUtf8 = encodeURIComponent(`${finalProfileName}.dae`);
+
+      return new Response(result, {
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Expose-Headers':
+            'Content-Disposition, Profile-Title, Subscription-Title, Profile-Update-Interval, subscription-userinfo',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+          'Content-Disposition': `inline; filename="${filenameAscii}"; filename*=UTF-8''${filenameUtf8}`,
+          'Profile-Title': finalProfileName,
+          'Subscription-Title': finalProfileName,
+          'profile-update-interval': '3600'
+        }
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return new Response(`轉換配置失敗: ${msg}`, {
+        status: 500,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+  }
+
+  const { nodes: allNodes, errors, traffic } = await loadNodesWithTraffic(urlParam);
+
+  if (allNodes.length === 0) {
+    const errorMsg = errors.length > 0 ? errors.join('\n') : '未解析到任何有效節點。';
+    return new Response(errorMsg, { status: 400 });
+  }
+
+  const uniqueNodes = filterAndRenameNodes(allNodes, includeParam, excludeParam, renameParam);
 
   if (!target) {
     scheduleLog(request, env, ctx, '獲取訂閱');
@@ -229,22 +269,6 @@ a:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(59,130,246,0
       result = toLoon(uniqueNodes);
       contentType = 'text/plain';
       fileExt = '.conf';
-    } else if (target === 'honk' || target === 'dae') {
-      const host = `https://${url.host}`;
-      let base64SubUrl = `${host}/?url=${encodeURIComponent(urlParam)}&target=base64`;
-      if (path && path !== 'sub' && path !== 'favicon.ico' && path !== '') {
-        base64SubUrl = `${host}/${encodeURIComponent(path)}?target=base64`;
-        if (storedToken) {
-          base64SubUrl += `&token=${encodeURIComponent(storedToken)}`;
-        }
-      }
-      if (includeParam) base64SubUrl += `&include=${encodeURIComponent(includeParam)}`;
-      if (excludeParam) base64SubUrl += `&exclude=${encodeURIComponent(excludeParam)}`;
-      if (renameParam) base64SubUrl += `&rename=${encodeURIComponent(renameParam)}`;
-
-      result = await toHonk(uniqueNodes, base64SubUrl, finalProfileName);
-      contentType = 'text/plain';
-      fileExt = '.dae';
     } else if (target === 'base64') {
       result = toBase64(uniqueNodes);
       contentType = 'text/plain';

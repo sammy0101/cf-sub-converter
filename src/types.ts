@@ -49,6 +49,7 @@ export interface ProxyNode {
   network?: string;
   wsPath?: string;
   wsHeaders?: Record<string, string>;
+  grpcServiceName?: string;
   reality?: RealityConfig;
   obfs?: string;
   obfsPassword?: string;

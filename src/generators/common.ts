@@ -30,7 +30,7 @@ export async function fetchTemplateDirect(
   fallbackStr: string,
   forceRefresh = false
 ): Promise<string> {
-  const edgeCache = (typeof caches !== 'undefined' ? (caches as unknown as { default?: Cache }).default : undefined);
+  const edgeCache = typeof caches !== 'undefined' ? (caches as unknown as { default?: Cache }).default : undefined;
   const cacheKey = new Request(url, { method: 'GET' });
 
   if (!forceRefresh && edgeCache) {

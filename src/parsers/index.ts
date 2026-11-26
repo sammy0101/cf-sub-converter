@@ -83,6 +83,7 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
   const lines = plainText.split(/\r?\n/);
   const nodes: ProxyNode[] = [];
 
+  // 逐行容錯隔離：單一異常節點絕不影響同一份訂閱中其餘正常節點之解析
   for (const line of lines) {
     const l = line.replace(
       /^[\s\uFEFF\xA0\u200B\u200C\u200D\u200E\u200F]+|[\s\uFEFF\xA0\u200B\u200C\u200D\u200E\u200F]+$/g,
@@ -90,27 +91,29 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
     );
     if (!l) continue;
 
-    if (l.startsWith('ss://')) {
-      nodes.push(parseShadowsocks(l));
-    } else if (l.startsWith('vless://')) {
-      nodes.push(parseVless(l));
-    } else if (l.startsWith('hysteria2://') || l.startsWith('hy2://')) {
-      nodes.push(parseHysteria2(l));
-    } else if (l.startsWith('vmess://')) {
-      nodes.push(parseVmess(l));
-    } else if (l.startsWith('tuic://')) {
-      nodes.push(parseTuic(l));
-    } else if (l.startsWith('anytls://')) {
-      nodes.push(parseAnytls(l));
-    } else if (l.startsWith('trojan://')) {
-      nodes.push(parseTrojan(l));
-    } else if (l.startsWith('wireguard://') || l.startsWith('warp://')) {
-      nodes.push(parseWireGuard(l));
-    } else if (l.startsWith('masque://')) {
-      nodes.push(parseMasqueUri(l));
-    } else if (l.includes('=') && l.includes('wireguard')) {
-      nodes.push(parseShadowrocketWireGuard(l));
-    }
+    try {
+      if (l.startsWith('ss://')) {
+        nodes.push(parseShadowsocks(l));
+      } else if (l.startsWith('vless://')) {
+        nodes.push(parseVless(l));
+      } else if (l.startsWith('hysteria2://') || l.startsWith('hy2://')) {
+        nodes.push(parseHysteria2(l));
+      } else if (l.startsWith('vmess://')) {
+        nodes.push(parseVmess(l));
+      } else if (l.startsWith('tuic://')) {
+        nodes.push(parseTuic(l));
+      } else if (l.startsWith('anytls://')) {
+        nodes.push(parseAnytls(l));
+      } else if (l.startsWith('trojan://')) {
+        nodes.push(parseTrojan(l));
+      } else if (l.startsWith('wireguard://') || l.startsWith('warp://')) {
+        nodes.push(parseWireGuard(l));
+      } else if (l.startsWith('masque://')) {
+        nodes.push(parseMasqueUri(l));
+      } else if (l.includes('=') && l.includes('wireguard')) {
+        nodes.push(parseShadowrocketWireGuard(l));
+      }
+    } catch {}
   }
 
   if (nodes.length === 0) {

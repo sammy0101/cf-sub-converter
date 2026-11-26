@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 16:50:48 UTC 2026
+Generated on: Thu Nov 26 16:51:44 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -6783,10 +6783,9 @@ export function parseShadowrocketWireGuard(line: string): ProxyNode {
   if (!privateKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 private-key (私鑰)`);
   if (!publicKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 public-key (公鑰)`);
   if (!ip) throw new Error(`[WireGuard] 節點 [${name}] 缺少 ip (內網 IP)`);
-  if (!dns) throw new Error(`[WireGuard] 節點 [${name}] 缺少 dns 設定（例如 dns=10.2.0.1）`);
 
   const localAddress = ip.includes('/') ? [ip] : [`${ip}/32`];
-  const dnsList = dns.split(',').map(d => d.trim()).filter(Boolean);
+  const dnsList = dns ? dns.split(',').map(d => d.trim()).filter(Boolean) : [];
 
   const wgConfig: WireGuardConfig = {
     privateKey,
@@ -6794,7 +6793,7 @@ export function parseShadowrocketWireGuard(line: string): ProxyNode {
     publicKey,
     presharedKey,
     mtu,
-    dns,
+    dns: dns || undefined,
     reserved
   };
 
@@ -6823,7 +6822,7 @@ export function parseShadowrocketWireGuard(line: string): ProxyNode {
     mtu
   };
 
-  node.clashObj = {
+  const clashObj: Record<string, unknown> = {
     name,
     type: 'wireguard',
     server: node.server,
@@ -6835,9 +6834,10 @@ export function parseShadowrocketWireGuard(line: string): ProxyNode {
     'preshared-key': presharedKey,
     mtu,
     udp: true,
-    'remote-dns-resolve': true,
-    dns: dnsList
+    'remote-dns-resolve': true
   };
+  if (dnsList.length > 0) clashObj.dns = dnsList;
+  node.clashObj = clashObj;
 
   return node;
 }
@@ -6892,7 +6892,6 @@ export function parseWireGuardConf(text: string): ProxyNode[] {
 
     if (!privateKey) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: PrivateKey (私鑰)`);
     if (!addressStr) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: Address (客戶端內網 IP)`);
-    if (!rawDns) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: DNS。請在 [Interface] 中填入 DNS = ...（例如 DNS = 10.2.0.1）`);
     if (!/\[Peer\]/i.test(sec)) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少 [Peer] 節點區塊`);
     if (!publicKey) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: PublicKey (節點公鑰)`);
     if (!endpoint) throw new Error(`[WireGuard] 第 ${idx + 1} 組配置缺少必要欄位: Endpoint (伺服器端點 IP:Port)`);
@@ -6911,7 +6910,7 @@ export function parseWireGuardConf(text: string): ProxyNode[] {
     if (!name) name = `WireGuard-${server}`;
 
     const localAddress = addressStr.split(',').map(s => s.trim()).filter(Boolean);
-    const dnsList = rawDns.split(',').map(s => s.trim()).filter(Boolean);
+    const dnsList = rawDns ? rawDns.split(',').map(s => s.trim()).filter(Boolean) : [];
 
     const wgConfig: WireGuardConfig = {
       privateKey,
@@ -6919,7 +6918,7 @@ export function parseWireGuardConf(text: string): ProxyNode[] {
       publicKey,
       presharedKey,
       mtu,
-      dns: rawDns
+      dns: rawDns || undefined
     };
 
     const node: ProxyNode = {
@@ -6947,7 +6946,7 @@ export function parseWireGuardConf(text: string): ProxyNode[] {
       mtu
     };
 
-    node.clashObj = {
+    const clashObj: Record<string, unknown> = {
       name,
       type: 'wireguard',
       server: node.server,
@@ -6959,9 +6958,10 @@ export function parseWireGuardConf(text: string): ProxyNode[] {
       'preshared-key': presharedKey,
       mtu,
       udp: true,
-      'remote-dns-resolve': true,
-      dns: dnsList
+      'remote-dns-resolve': true
     };
+    if (dnsList.length > 0) clashObj.dns = dnsList;
+    node.clashObj = clashObj;
 
     nodes.push(node);
   }
@@ -6987,10 +6987,9 @@ export function parseWireGuard(urlStr: string): ProxyNode {
   if (!publicKey) throw new Error(`[WireGuard] 節點 [${name}] 缺少 publickey (公鑰)`);
   if (!parsed.hostname) throw new Error(`[WireGuard] 節點 [${name}] 缺少伺服器地址`);
   if (!rawIp) throw new Error(`[WireGuard] 節點 [${name}] 缺少 address / ip (內網 IP)`);
-  if (!rawDns) throw new Error(`[WireGuard] 節點 [${name}] 缺少 dns 設定`);
 
   const localIps = rawIp.split(',').map(s => (s.trim().includes('/') ? s.trim() : `${s.trim()}/32`));
-  const dnsList = rawDns.split(',').map(d => d.trim()).filter(Boolean);
+  const dnsList = rawDns ? rawDns.split(',').map(d => d.trim()).filter(Boolean) : [];
 
   const wgConfig: WireGuardConfig = {
     privateKey,
@@ -6999,7 +6998,7 @@ export function parseWireGuard(urlStr: string): ProxyNode {
     presharedKey,
     mtu,
     reserved,
-    dns: rawDns
+    dns: rawDns || undefined
   };
 
   const node: ProxyNode = {
@@ -7027,7 +7026,7 @@ export function parseWireGuard(urlStr: string): ProxyNode {
     mtu
   };
 
-  node.clashObj = {
+  const clashObj: Record<string, unknown> = {
     name,
     type: 'wireguard',
     server: node.server,
@@ -7039,9 +7038,10 @@ export function parseWireGuard(urlStr: string): ProxyNode {
     'preshared-key': presharedKey,
     mtu,
     udp: true,
-    'remote-dns-resolve': true,
-    dns: dnsList
+    'remote-dns-resolve': true
   };
+  if (dnsList.length > 0) clashObj.dns = dnsList;
+  node.clashObj = clashObj;
 
   return node;
 }

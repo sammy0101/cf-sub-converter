@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 13:16:22 UTC 2026
+Generated on: Thu Nov 26 14:24:10 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -24,8 +24,8 @@ global {
 
     tcp_check_url: 'https://www.gstatic.com/generate_204'
     tcp_check_http_method: HEAD
-    # 個別獨立加上引號，符合 Honk 現代列表語法
-    udp_check_dns: 'dns.google.com:53', '8.8.8.8', '2001:4860:4860::8888'
+    # 個別獨立加上引號，並採用 Google Public DNS 官方正確域名 dns.google:53
+    udp_check_dns: 'dns.google:53', '8.8.8.8', '2001:4860:4860::8888'
     check_interval: 300s
     check_tolerance: 50ms
 
@@ -74,37 +74,37 @@ subscription {
 
 # ==============================================================================
 # 策略分流群組 (Group)
-# 採用標準識別碼宣告，使 Doona 能 100% 精準綁定設定檔語法樹，完整解鎖 ✏️ 編輯與手動點選功能！
+# 全面採用 Honk 主打的 policy: score 自適應綜合評分策略
 # ==============================================================================
 group {
     # AI 服務
     AI {
-        policy: selector
+        policy: score
     }
 
     # 微軟服務
     Microsoft {
-        policy: selector
+        policy: score
     }
 
     # 遊戲平台
     Game {
-        policy: selector
+        policy: score
     }
 
     # 蘋果服務
     Apple {
-        policy: selector
+        policy: score
     }
 
     # 國外主流網站 (非中國)
     Global {
-        policy: selector
+        policy: score
     }
 
     # 漏網之魚 (預設兜底)
     Fallback {
-        policy: selector
+        policy: score
     }
 }
 

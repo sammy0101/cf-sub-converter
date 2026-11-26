@@ -37,10 +37,15 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
     'ss://', 'vmess://', 'vless://', 'trojan://', 'tuic://',
     'hysteria2://', 'hy2://', 'anytls://', 'wireguard://', 'warp://', 'masque://'
   ];
-  const firstLine = plainText.split(/\r?\n/)[0].trim();
-  const isPlainText =
-    protocols.some(p => firstLine.startsWith(p)) ||
-    (firstLine.includes('=') && firstLine.includes('wireguard'));
+
+  const nonCommentLines = plainText
+    .split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(l => l.length > 0 && !l.startsWith('#') && !l.startsWith('//'));
+
+  const isPlainText = nonCommentLines.some(
+    l => protocols.some(p => l.startsWith(p)) || (l.includes('=') && l.includes('wireguard'))
+  );
 
   if (!isPlainText) {
     try {
@@ -89,7 +94,7 @@ export async function parseContent(content: string): Promise<ProxyNode[]> {
       /^[\s\uFEFF\xA0\u200B\u200C\u200D\u200E\u200F]+|[\s\uFEFF\xA0\u200B\u200C\u200D\u200E\u200F]+$/g,
       ''
     );
-    if (!l) continue;
+    if (!l || l.startsWith('#') || l.startsWith('//')) continue;
 
     try {
       if (l.startsWith('ss://')) {

@@ -192,7 +192,12 @@ export async function handleSubRoute(
     }
   }
 
-  const { nodes: allNodes, errors, traffic } = await loadNodesWithTraffic(urlParam, ctx, url.host);
+  const { nodes: allNodes, errors, traffic, upstreamStatus } = await loadNodesWithTraffic(
+    urlParam,
+    env,
+    ctx,
+    url.host
+  );
 
   if (allNodes.length === 0) {
     const errorMsg = errors.length > 0 ? errors.join('\n') : '未解析到任何有效節點。';
@@ -295,12 +300,13 @@ a:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(59,130,246,0
     'Content-Type': `${contentType}; charset=utf-8`,
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Expose-Headers':
-      'Content-Disposition, Profile-Title, Subscription-Title, Profile-Update-Interval, subscription-userinfo',
+      'Content-Disposition, Profile-Title, Subscription-Title, Profile-Update-Interval, subscription-userinfo, X-Upstream-Status',
     'Cache-Control': 'no-store, no-cache, must-revalidate',
     'Content-Disposition': `inline; filename="${filenameAscii}"; filename*=UTF-8''${filenameUtf8}`,
     'Profile-Title': finalProfileName,
     'Subscription-Title': finalProfileName,
-    'profile-update-interval': '3600'
+    'profile-update-interval': '3600',
+    'X-Upstream-Status': upstreamStatus
   };
 
   if (traffic.hasTrafficInfo) {

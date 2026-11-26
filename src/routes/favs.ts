@@ -5,6 +5,32 @@ import { appendOperationLog } from '../services/audit';
 
 const FAVS_KEY = 'favorites';
 
+const RESERVED_EXACT_KEYS = new Set([
+  'favorites',
+  'operation_logs',
+  'tg_config',
+  'sub',
+  'logs',
+  'favs',
+  'tg-config',
+  'tg-test',
+  'version',
+  'favicon.ico',
+  'argo',
+  'api'
+]);
+
+const RESERVED_PREFIXES = ['script:', 'lkg:', 'argo/', 'api/'];
+
+function isReservedPath(name: string): boolean {
+  const lower = name.trim().toLowerCase();
+  if (!lower) return true;
+  if (RESERVED_EXACT_KEYS.has(lower)) return true;
+  if (RESERVED_PREFIXES.some(prefix => lower.startsWith(prefix))) return true;
+  if (lower.includes('/') || lower.includes('?') || lower.includes('#')) return true;
+  return false;
+}
+
 async function getFavs(env: Env): Promise<Array<Record<string, string>>> {
   const data = await env.SUB_CACHE.get(FAVS_KEY);
   return data ? (JSON.parse(data) as Array<Record<string, string>>) : [];
@@ -42,10 +68,24 @@ export async function handleFavsRoutes(
       };
       const cleanPath = (body.path || '').trim();
       if (!cleanPath || !body.content) return jsonError('缺少短連結名稱或節點內容', 400);
+      if (isReservedPath(cleanPath)) {
+        return jsonError('該短連結名稱為系統保留字或包含不合法字元 (/, ?, #)', 400);
+      }
 
       const cleanToken = (body.token || '').trim();
+      const passwordConfigured = hasPasswordConfigured(env);
+      const isAdmin = checkAuth(request, env);
 
-      // 安全防線：若該短連結已存在且設有 Token 保護，禁止未經管理密碼授權的公開覆蓋
+      // 安全防線 1：禁止未經授權透過 /save 覆蓋後台「已儲存的配置」所管理的短連結
+      const favs = await getFavs(env);
+      const matchedFavIdx = favs.findIndex(
+        f => f.name && f.name.trim().toLowerCase() === cleanPath.toLowerCase()
+      );
+      if (matchedFavIdx !== -1 && passwordConfigured && !isAdmin) {
+        return jsonError('該配置屬於後台管理收藏，需要管理密碼授權才可修改', 403);
+      }
+
+      // 安全防線 2：若該短連結已存在且設有 Token 保護，禁止未授權或 Token 不符的覆蓋
       const existingRaw =
         (await env.SUB_CACHE.get(cleanPath)) ||
         (cleanPath !== cleanPath.toLowerCase() ? await env.SUB_CACHE.get(cleanPath.toLowerCase()) : null);
@@ -54,10 +94,10 @@ export async function handleFavsRoutes(
           const existingParsed = JSON.parse(existingRaw) as { token?: string };
           const existingToken = (existingParsed.token || '').trim();
           if (existingToken) {
-            if (hasPasswordConfigured(env) && !checkAuth(request, env)) {
+            if (passwordConfigured && !isAdmin) {
               return jsonError('該短連結已受 Token 保護，需要管理密碼授權才可修改', 403);
             }
-            if (!hasPasswordConfigured(env) && cleanToken !== existingToken) {
+            if (!passwordConfigured && cleanToken !== existingToken) {
               return jsonError('Token 不符，禁止覆蓋', 403);
             }
           }
@@ -76,6 +116,19 @@ export async function handleFavsRoutes(
       await env.SUB_CACHE.put(cleanPath, jsonStr);
       if (cleanPath !== cleanPath.toLowerCase()) {
         await env.SUB_CACHE.put(cleanPath.toLowerCase(), jsonStr);
+      }
+
+      // 若管理員已解鎖且該短連結存在於 favorites，同步更新 favorites 以避免前後端資料漂移
+      if (matchedFavIdx !== -1 && (!passwordConfigured || isAdmin)) {
+        favs[matchedFavIdx] = {
+          name: favs[matchedFavIdx].name || cleanPath,
+          url: body.content,
+          include: body.include || '',
+          exclude: body.exclude || '',
+          rename: body.rename || '',
+          token: cleanToken
+        };
+        await saveFavs(env, favs);
       }
 
       await appendOperationLog(request, env, '儲存短連結', ctx);
@@ -131,10 +184,19 @@ export async function handleFavsRoutes(
     try {
       const body = (await request.json()) as Record<string, string>;
       if (!body.name || !body.url) return jsonError('缺少配置名稱或節點內容', 400);
+      const cleanName = body.name.trim();
+      if (isReservedPath(cleanName)) {
+        return jsonError('該配置名稱為系統保留字或包含不合法字元 (/, ?, #)', 400);
+      }
+
       const cleanToken = (body.token || '').trim();
       const favs = await getFavs(env);
+      if (favs.some(f => f.name && f.name.trim().toLowerCase() === cleanName.toLowerCase())) {
+        return jsonError('已存在相同名稱的配置，請改用編輯或更換名稱', 400);
+      }
+
       favs.push({
-        name: body.name,
+        name: cleanName,
         url: body.url,
         include: body.include || '',
         exclude: body.exclude || '',
@@ -143,7 +205,6 @@ export async function handleFavsRoutes(
       });
       await saveFavs(env, favs);
 
-      const cleanName = body.name.trim();
       const syncData = JSON.stringify({
         content: body.url,
         include: body.include || '',
@@ -175,6 +236,7 @@ export async function handleFavsRoutes(
     try {
       const body = (await request.json()) as {
         index?: number;
+        origName?: string;
         name?: string;
         url?: string;
         include?: string;
@@ -182,20 +244,40 @@ export async function handleFavsRoutes(
         rename?: string;
         token?: string;
       };
-      if (body.index === undefined || !body.name || !body.url) {
-        return jsonError('缺少配置索引、名稱或節點內容', 400);
+      if ((body.index === undefined && !body.origName) || !body.name || !body.url) {
+        return jsonError('缺少配置識別資訊、名稱或節點內容', 400);
       }
+      const newName = body.name.trim();
+      if (isReservedPath(newName)) {
+        return jsonError('該配置名稱為系統保留字或包含不合法字元 (/, ?, #)', 400);
+      }
+
       const cleanToken = (body.token || '').trim();
       const favs = await getFavs(env);
-      if (body.index < 0 || body.index >= favs.length) {
-        return jsonError('欲修改的配置索引不存在，請重新整理頁面', 400);
+
+      let targetIdx =
+        typeof body.origName === 'string' && body.origName.trim() !== ''
+          ? favs.findIndex(f => f.name && f.name.trim() === body.origName!.trim())
+          : -1;
+      if (targetIdx === -1 && body.index !== undefined) {
+        targetIdx = body.index;
       }
 
-      const oldName = favs[body.index]?.name?.trim();
-      const newName = body.name.trim();
+      if (targetIdx < 0 || targetIdx >= favs.length) {
+        return jsonError('欲修改的配置不存在，請重新整理頁面', 400);
+      }
 
-      favs[body.index] = {
-        name: body.name,
+      const duplicateIdx = favs.findIndex(
+        (f, idx) => idx !== targetIdx && f.name && f.name.trim().toLowerCase() === newName.toLowerCase()
+      );
+      if (duplicateIdx !== -1) {
+        return jsonError('已存在相同名稱的其他配置', 400);
+      }
+
+      const oldName = favs[targetIdx]?.name?.trim();
+
+      favs[targetIdx] = {
+        name: newName,
         url: body.url,
         include: body.include || '',
         exclude: body.exclude || '',
@@ -240,11 +322,20 @@ export async function handleFavsRoutes(
       return jsonError('密碼錯誤或未授權', 401);
     }
     try {
-      const body = (await request.json()) as { index?: number };
-      if (body.index === undefined) return jsonError('缺少索引參數', 400);
+      const body = (await request.json()) as { index?: number; origName?: string };
+      if (body.index === undefined && !body.origName) return jsonError('缺少識別參數', 400);
       const favs = await getFavs(env);
-      if (body.index >= 0 && body.index < favs.length) {
-        const removed = favs.splice(body.index, 1)[0];
+
+      let targetIdx =
+        typeof body.origName === 'string' && body.origName.trim() !== ''
+          ? favs.findIndex(f => f.name && f.name.trim() === body.origName!.trim())
+          : -1;
+      if (targetIdx === -1 && body.index !== undefined) {
+        targetIdx = body.index;
+      }
+
+      if (targetIdx >= 0 && targetIdx < favs.length) {
+        const removed = favs.splice(targetIdx, 1)[0];
         await saveFavs(env, favs);
         if (removed && removed.name) {
           const rName = removed.name.trim();

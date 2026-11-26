@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 16:47:16 UTC 2026
+Generated on: Thu Nov 26 16:47:41 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -1189,7 +1189,7 @@ export async function toHonk(
   }
 
   const finalSubTag = (profileName || 'My_Sub').replace(/[^a-zA-Z0-9_-]/g, '_');
-  const targetSubUrl = subUrl || 'https://sub.myvs.dpdns.org/EDT?target=base64';
+  const targetSubUrl = (subUrl || 'https://example.com/sub?target=base64').replace(/'/g, '%27');
 
   return template
     .replace(/{{SUB_TAG}}/g, finalSubTag)

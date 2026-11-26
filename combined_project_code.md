@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 14:24:36 UTC 2026
+Generated on: Thu Nov 26 14:25:03 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -1753,14 +1753,61 @@ export function stripJsonComments(jsonStr: string): string {
   });
 }
 
-// 直接自 GitHub 讀取遠端模板，失敗時無縫回退至內嵌應急模板
-export async function fetchTemplateDirect(url: string, fallbackStr: string): Promise<string> {
+export async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = 5000
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const resp = await fetch(`${url}?t=${Date.now()}`, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
-    });
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// 具備 Cloudflare 60 秒邊緣快取與 4 秒超時降級的遠端模板直讀（帶 ?force=1 可強制穿透刷新）
+export async function fetchTemplateDirect(
+  url: string,
+  fallbackStr: string,
+  forceRefresh = false
+): Promise<string> {
+  const edgeCache = (typeof caches !== 'undefined' ? (caches as unknown as { default?: Cache }).default : undefined);
+  const cacheKey = new Request(url, { method: 'GET' });
+
+  if (!forceRefresh && edgeCache) {
+    try {
+      const cached = await edgeCache.match(cacheKey);
+      if (cached) {
+        return await cached.text();
+      }
+    } catch {}
+  }
+
+  try {
+    const fetchUrl = forceRefresh ? `${url}?t=${Date.now()}` : url;
+    const resp = await fetchWithTimeout(
+      fetchUrl,
+      { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },
+      4000
+    );
     if (resp.ok) {
-      return await resp.text();
+      const text = await resp.text();
+      if (edgeCache && text.trim()) {
+        try {
+          await edgeCache.put(
+            cacheKey,
+            new Response(text, {
+              headers: {
+                'Content-Type': 'text/plain; charset=utf-8',
+                'Cache-Control': 'public, max-age=60'
+              }
+            })
+          );
+        } catch {}
+      }
+      return text;
     }
   } catch {}
 

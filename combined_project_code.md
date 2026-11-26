@@ -1,5 +1,5 @@
 # Complete Project Codebase
-Generated on: Thu Nov 26 15:08:15 UTC 2026
+Generated on: Thu Nov 26 15:32:21 UTC 2026
 
 ## File: Honk_Rules.DAE
 ````DAE
@@ -7653,6 +7653,131 @@ export interface LoadNodesResult {
   traffic: TrafficInfo;
 }
 
+interface UpstreamFetchOutcome {
+  parsed: ProxyNode[];
+  hasInfo: boolean;
+  upload: number;
+  download: number;
+  total: number;
+  expire: number;
+}
+
+function parseUserInfoHeader(userInfo: string | null): {
+  hasInfo: boolean;
+  upload: number;
+  download: number;
+  total: number;
+  expire: number;
+} {
+  if (!userInfo) {
+    return { hasInfo: false, upload: 0, download: 0, total: 0, expire: 0 };
+  }
+  const uploadMatch = userInfo.match(/upload=(\d+)/i);
+  const downloadMatch = userInfo.match(/download=(\d+)/i);
+  const totalMatch = userInfo.match(/total=(\d+)/i);
+  const expireMatch = userInfo.match(/expire=(\d+)/i);
+
+  return {
+    hasInfo: true,
+    upload: uploadMatch ? parseInt(uploadMatch[1], 10) : 0,
+    download: downloadMatch ? parseInt(downloadMatch[1], 10) : 0,
+    total: totalMatch ? parseInt(totalMatch[1], 10) : 0,
+    expire: expireMatch ? parseInt(expireMatch[1], 10) : 0
+  };
+}
+
+async function fetchUpstreamWithResilience(
+  upstreamUrl: string,
+  ctx?: ExecutionContext,
+  cacheHost?: string
+): Promise<UpstreamFetchOutcome> {
+  const emptyResult: UpstreamFetchOutcome = {
+    parsed: [],
+    hasInfo: false,
+    upload: 0,
+    download: 0,
+    total: 0,
+    expire: 0
+  };
+
+  const edgeCache =
+    cacheHost && typeof caches !== 'undefined'
+      ? (caches as unknown as { default?: Cache }).default
+      : undefined;
+  const cacheKey = cacheHost
+    ? new Request(`https://${cacheHost}/__upstream_cache?u=${encodeURIComponent(upstreamUrl)}`, { method: 'GET' })
+    : null;
+
+  const userAgents = ['v2rayNG/1.8.5', 'clash.meta'];
+
+  for (let attempt = 0; attempt < userAgents.length; attempt++) {
+    try {
+      const separator = upstreamUrl.includes('?') ? '&' : '?';
+      const fetchUrl = `${upstreamUrl}${separator}t=${Date.now()}`;
+      const resp = await fetchWithTimeout(
+        fetchUrl,
+        { headers: { 'User-Agent': userAgents[attempt], Accept: '*/*' } },
+        9000
+      );
+
+      if (resp.ok) {
+        const text = await resp.text();
+        if (text && !text.trim().startsWith('<')) {
+          const parsed = await parseContent(text);
+          if (parsed.length > 0) {
+            const userInfoStr = resp.headers.get('subscription-userinfo');
+            const info = parseUserInfoHeader(userInfoStr);
+
+            // 背景寫入 Last-Known-Good 邊緣容災快取 (24 小時有效，不消耗 KV 寫入額度)
+            if (edgeCache && cacheKey) {
+              const cacheHeaders: Record<string, string> = {
+                'Content-Type': 'text/plain; charset=utf-8',
+                'Cache-Control': 'public, max-age=86400'
+              };
+              if (userInfoStr) {
+                cacheHeaders['subscription-userinfo'] = userInfoStr;
+              }
+              const putPromise = edgeCache
+                .put(cacheKey, new Response(text, { headers: cacheHeaders }))
+                .catch(() => undefined);
+              if (ctx && typeof ctx.waitUntil === 'function') {
+                ctx.waitUntil(putPromise);
+              } else {
+                await putPromise;
+              }
+            }
+
+            return { parsed, ...info };
+          }
+        }
+      }
+    } catch {}
+
+    if (attempt === 0) {
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+  }
+
+  // 若實時抓取兩次皆失敗（例如單台 VPS 瞬斷或跨區超時），從邊緣快取搶救最後一次成功節點，避免截斷遺失
+  if (edgeCache && cacheKey) {
+    try {
+      const cachedResp = await edgeCache.match(cacheKey);
+      if (cachedResp) {
+        const cachedText = await cachedResp.text();
+        if (cachedText && !cachedText.trim().startsWith('<')) {
+          const parsed = await parseContent(cachedText);
+          if (parsed.length > 0) {
+            const info = parseUserInfoHeader(cachedResp.headers.get('subscription-userinfo'));
+            return { parsed, ...info };
+          }
+        }
+      }
+    } catch {}
+  }
+
+  return emptyResult;
+}
+
 export async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
   const trimmed = urlParam.trim();
   if (!trimmed) return [];
@@ -7689,22 +7814,8 @@ export async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
   const results = await Promise.all(
     inputs.map(async t => {
       if (t.startsWith('http')) {
-        try {
-          const separator = t.includes('?') ? '&' : '?';
-          const fetchUrl = `${t}${separator}t=${Date.now()}`;
-          const resp = await fetchWithTimeout(
-            fetchUrl,
-            { headers: { 'User-Agent': 'v2rayNG/1.8.5', Accept: '*/*' } },
-            10000
-          );
-          if (resp.ok) {
-            const text = await resp.text();
-            if (!text.trim().startsWith('<')) {
-              return await parseContent(text);
-            }
-          }
-        } catch {}
-        return [] as ProxyNode[];
+        const res = await fetchUpstreamWithResilience(t);
+        return res.parsed;
       }
       try {
         return await parseContent(t);
@@ -7717,7 +7828,11 @@ export async function loadNodes(urlParam: string): Promise<ProxyNode[]> {
   return results.flat();
 }
 
-export async function loadNodesWithTraffic(urlParam: string): Promise<LoadNodesResult> {
+export async function loadNodesWithTraffic(
+  urlParam: string,
+  ctx?: ExecutionContext,
+  cacheHost?: string
+): Promise<LoadNodesResult> {
   const allNodes: ProxyNode[] = [];
   const errors: string[] = [];
   let totalUpload = 0;
@@ -7758,52 +7873,10 @@ export async function loadNodesWithTraffic(urlParam: string): Promise<LoadNodesR
       .map(s => s.trim())
       .filter(Boolean);
 
-    // 並行抓取所有上游訂閱，單筆給予 10 秒超時保護，不因單一慢速 VPS 阻塞其餘節點
     const batchResults = await Promise.all(
       inputs.map(async trimmed => {
         if (trimmed.startsWith('http')) {
-          try {
-            const separator = trimmed.includes('?') ? '&' : '?';
-            const fetchUrl = `${trimmed}${separator}t=${Date.now()}`;
-            const resp = await fetchWithTimeout(
-              fetchUrl,
-              { headers: { 'User-Agent': 'v2rayNG/1.8.5' } },
-              10000
-            );
-
-            if (resp.ok) {
-              const text = await resp.text();
-              const userInfo = resp.headers.get('subscription-userinfo');
-              let upload = 0;
-              let download = 0;
-              let total = 0;
-              let expire = 0;
-              let hasInfo = false;
-
-              if (userInfo) {
-                hasInfo = true;
-                const uploadMatch = userInfo.match(/upload=(\d+)/i);
-                const downloadMatch = userInfo.match(/download=(\d+)/i);
-                const totalMatch = userInfo.match(/total=(\d+)/i);
-                const expireMatch = userInfo.match(/expire=(\d+)/i);
-
-                upload = uploadMatch ? parseInt(uploadMatch[1], 10) : 0;
-                download = downloadMatch ? parseInt(downloadMatch[1], 10) : 0;
-                total = totalMatch ? parseInt(totalMatch[1], 10) : 0;
-                expire = expireMatch ? parseInt(expireMatch[1], 10) : 0;
-              }
-
-              let parsed: ProxyNode[] = [];
-              if (!text.trim().startsWith('<')) {
-                try {
-                  parsed = await parseContent(text);
-                } catch {}
-              }
-
-              return { parsed, hasInfo, upload, download, total, expire };
-            }
-          } catch {}
-          return { parsed: [] as ProxyNode[], hasInfo: false, upload: 0, download: 0, total: 0, expire: 0 };
+          return fetchUpstreamWithResilience(trimmed, ctx, cacheHost);
         }
 
         try {
